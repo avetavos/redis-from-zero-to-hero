@@ -1,5 +1,90 @@
 ---
-title: Keys & Strings
-description: The string type, keys, expiration, and counters.
+title: 'Keys & Strings: ภาพรวม'
+description: 'ทุกค่าใน Redis อยู่ภายใต้ key เสมอ และ string คือ type ที่เรียบง่ายที่สุด — ทั้งยังเป็นรากฐานของทุกอย่างที่เหลือ'
+sidebar:
+  order: 1
 ---
-Coming soon.
+
+import RunRedis from '../../../../components/RunRedis.astro';
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+<RunRedis />
+
+## key ใน Redis คืออะไร?
+
+Redis เป็น key–value server ทุกข้อมูลที่คุณเก็บ — ไม่ว่าจะเป็น counter, หน้าเว็บที่ cache ไว้ หรือ session token — ล้วนอยู่ภายใต้ **key** key เป็น string ที่ binary-safe และมีขนาดได้ถึง 512 MB แต่ในทางปฏิบัติคุณควรทำให้มันสั้นและสื่อความหมาย
+
+ค่าใน Redis จะอยู่ในหนึ่งใน **type** ที่มีมาให้เสมอ ได้แก่ String, List, Hash, Set, Sorted Set, Stream และอื่น ๆ โดย type **String** เป็น type ที่เรียบง่ายที่สุด: key หนึ่งจับคู่กับค่าเดียวตรง ๆ ซึ่งอาจเป็นข้อความ, ตัวเลข หรือ binary ดิบก็ได้
+
+```text
+127.0.0.1:6379> SET user:1 "Ada"
+OK
+127.0.0.1:6379> GET user:1
+"Ada"
+```
+
+## module นี้ครอบคลุมอะไรบ้าง
+
+| บทเรียน | หัวข้อ |
+|--------|-------|
+| Keys & Strings: ภาพรวม | หน้านี้ — type, key และ SET/GET ครั้งแรกของคุณ |
+| SET & GET | option ของ SET ทั้งหมด, MSET/MGET, APPEND, STRLEN |
+| Expiration & TTL | EXPIRE, TTL, PERSIST, lazy vs active expiry |
+| Counters | INCR/DECR, การเพิ่มค่าแบบ atomic, rate counter |
+| SCAN & Key Ops | EXISTS, DEL, TYPE, RENAME, KEYS vs SCAN |
+
+## SET และ GET ครั้งแรกของคุณ
+
+มาเก็บและดึงค่ากันดู วางคำสั่งเหล่านี้ลงใน `redis-cli` ที่คุณเปิดไว้ด้านบน:
+
+```text
+127.0.0.1:6379> SET greeting "Hello, Redis!"
+OK
+127.0.0.1:6379> GET greeting
+"Hello, Redis!"
+```
+
+export const firstCode = `SET greeting "Hello, Redis!"
+GET greeting`;
+
+<TryRedis client:visible code={firstCode} />
+
+<Callout title="key เป็น binary-safe — ใช้ naming convention เถอะ">
+
+key สามารถมี byte อะไรก็ได้ รวมถึงช่องว่างและอักขระพิเศษ แต่การมีรูปแบบการตั้งชื่อที่สม่ำเสมอจะทำให้ keyspace ของคุณอ่านง่ายและหลีกเลี่ยงการชนกันของ key
+
+convention ที่นิยมที่สุดคือ `object:id` หรือ `object:id:field` เช่น:
+
+- `user:42` — record ของ user
+- `user:42:email` — field เฉพาะของ user คนนั้น
+- `session:abc123` — session token
+- `ratelimit:ip:203.0.113.5` — counter สำหรับ rate-limit ต่อ IP
+
+เลือก convention หนึ่งแล้วใช้มันให้สม่ำเสมอตลอดทั้งแอปพลิเคชันของคุณ
+
+</Callout>
+
+export const quizIndex = [
+  {
+    q: "คำสั่ง GET จะคืนค่าอะไรเมื่อ key นั้นไม่มีอยู่?",
+    options: ["string ว่าง", "nil", "0", "error"],
+    answer: 1,
+  },
+  {
+    q: "ข้อใดต่อไปนี้เป็น Redis key ที่ถูกต้อง?",
+    options: ["user:42", "user 42", "user/42", "ถูกทุกข้อ"],
+    answer: 3,
+  },
+  {
+    q: "ขนาดสูงสุดของ Redis key คือเท่าไร?",
+    options: ["64 bytes", "1 MB", "512 MB", "ไม่จำกัด"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="keys-strings/index" questions={quizIndex} />
+
+<ProgressTracker client:visible id="keys-strings/index" />

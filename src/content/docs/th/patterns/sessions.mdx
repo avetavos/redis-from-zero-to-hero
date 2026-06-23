@@ -1,0 +1,118 @@
+---
+title: Session Store
+description: 'Session store โดยใช้ Redis hashes พร้อม sliding TTL'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ทำไมต้องใช้ Redis สำหรับเซสชัน?
+
+Application server ทำงานแบบ stateless ดังนั้นเซสชันต้องถูกจัดเก็บไว้ที่ใดที่หนึ่งภายนอก Redis เหมาะสมอย่างมาก เพราะทำงานได้รวดเร็ว รองรับการหมดอายุของ key โดยธรรมชาติ และ hash type ของ Redis สอดรับกับ session object ที่มีหลายฟิลด์ได้เป็นอย่างดี
+
+## เก็บเซสชันในรูปแบบ hash
+
+เซสชันแต่ละอันถูกจัดเก็บที่ key ชื่อ `session:<id>` ฟิลด์ต่างๆ เช่น `userId`, `email` และ `role` จะถูกแมปตรงไปยัง hash fields คำสั่ง `EXPIRE` กำหนด idle timeout และการรีเซ็ต expiry ในทุกคำขอที่ผ่านการยืนยันตัวตนจะสร้าง sliding TTL
+
+## ตัวอย่างใน Redis CLI
+
+```text
+127.0.0.1:6379> HSET session:abc123 userId 42 email "ada@example.com" role "admin"
+(integer) 3
+127.0.0.1:6379> EXPIRE session:abc123 1800
+(integer) 1
+127.0.0.1:6379> HGETALL session:abc123
+1) "userId"
+2) "42"
+3) "email"
+4) "ada@example.com"
+5) "role"
+6) "admin"
+127.0.0.1:6379> HGET session:abc123 role
+"admin"
+127.0.0.1:6379> EXPIRE session:abc123 1800
+(integer) 1
+127.0.0.1:6379> TTL session:abc123
+(integer) 1799
+```
+
+`HSET` ที่ระบุ field-value หลายคู่จะสร้างเซสชันใน round trip เดียว `HGETALL` คืนทุก field และ `HGET` ดึงเฉพาะ field ที่ต้องการ การเรียก `EXPIRE` อีกครั้งจะรีเซ็ตการนับถอยหลัง ซึ่งเป็นการสร้าง sliding idle timeout
+
+export const sessionsCode = `HSET session:abc123 userId 42 email "ada@example.com" role "admin"
+EXPIRE session:abc123 1800
+HGETALL session:abc123
+HGET session:abc123 role
+EXPIRE session:abc123 1800
+TTL session:abc123`;
+
+<TryRedis client:visible code={sessionsCode} />
+
+## Hashes กับ JSON แบบ serialise
+
+การเก็บเซสชันเป็น JSON string เดียวอาจดูน่าสะดวก แต่บังคับให้ต้อง deserialise ทั้ง blob เพียงเพื่ออ่านหรือเปลี่ยนแปลงฟิลด์เดียว เมื่อใช้ hash คำสั่ง `HGET` ดึงเฉพาะฟิลด์ที่ต้องการ และ `HSET` อัปเดตเฉพาะฟิลด์ที่เปลี่ยน โดยไม่ต้องรับส่งค่าทั้งหมดของเซสชัน และไม่มีความเสี่ยงที่การเขียนจะทับการอัปเดตพร้อมกันของฟิลด์อื่น
+
+## การอัปเดต field เดียว
+
+```text
+127.0.0.1:6379> HSET session:abc123 role "superadmin"
+(integer) 0
+127.0.0.1:6379> HGET session:abc123 role
+"superadmin"
+```
+
+`HSET` คืนค่า `0` เมื่ออัปเดต field ที่มีอยู่แล้ว (ไม่มีการเพิ่ม field ใหม่) เฉพาะ field `role` เท่านั้นที่ถูกแก้ไข ทุก field อื่นยังคงไม่เปลี่ยนแปลง
+
+export const sessionUpdateCode = `HSET session:abc123 role "superadmin"
+HGET session:abc123 role`;
+
+<TryRedis client:visible code={sessionUpdateCode} />
+
+<Callout title="เก็บเซสชันเป็น hash พร้อม sliding TTL">
+เรียก EXPIRE ในทุกคำขอที่ผ่านการยืนยันตัวตนเพื่อให้เซสชันที่ใช้งานอยู่ยังคงมีผล เมื่อผู้ใช้ logout ให้เรียก DEL session:&lt;id&gt; อย่างชัดเจน Hash ช่วยให้อ่านหรืออัปเดต field แต่ละตัวได้โดยไม่ต้องรับส่ง session blob ทั้งหมด
+</Callout>
+
+export const quizSessions = [
+  {
+    q: "คำสั่งใดอ่านทุก field และค่าของ hash?",
+    options: ["HGETALL", "HMGET", "HSCAN", "HKEYS"],
+    answer: 0
+  },
+  {
+    q: "จะสร้าง sliding idle timeout สำหรับเซสชันได้อย่างไร?",
+    options: [
+      "ตั้ง TTL ยาวมากครั้งเดียวตอน login",
+      "เรียก EXPIRE ในทุกคำขอที่ผ่านการยืนยันตัวตนเพื่อรีเซ็ตการนับถอยหลัง",
+      "ใช้ PERSIST เพื่อลบ TTL",
+      "ใช้ PEXPIRE ที่เป็นมิลลิวินาทีเท่านั้น"
+    ],
+    answer: 1
+  },
+  {
+    q: "ทำไมจึงเก็บเซสชันเป็น hash แทน JSON string?",
+    options: [
+      "Hash ใช้หน่วยความจำน้อยกว่าเสมอ",
+      "สามารถอ่านหรืออัปเดต field แต่ละตัวได้โดยไม่ต้อง deserialise ค่าทั้งหมด",
+      "Redis ไม่รองรับ string ที่ยาวกว่า 512 bytes",
+      "Hash มีการเข้ารหัสในตัว"
+    ],
+    answer: 1
+  },
+  {
+    q: "คำสั่งใดลบเซสชันเมื่อ logout?",
+    options: [
+      "EXPIRE session:id 0",
+      "HDEL session:id",
+      "DEL session:id",
+      "UNSET session:id"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="patterns/sessions" questions={quizSessions} />
+
+<ProgressTracker client:visible id="patterns/sessions" />

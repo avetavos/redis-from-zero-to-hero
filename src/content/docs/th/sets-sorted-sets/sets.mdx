@@ -1,0 +1,149 @@
+---
+title: Sets
+description: 'SADD, SREM, SMEMBERS, SISMEMBER, SCARD, SRANDMEMBER, SPOP — ความไม่ซ้ำกัน, tags, และการตรวจสอบสมาชิก'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Redis Set คืออะไร?
+
+Redis Set คือ **collection ของ string ที่ไม่มีลำดับและไม่ซ้ำกัน** การเพิ่มสมาชิกที่มีอยู่แล้วไม่มีผล Redis จะไม่สร้าง duplicate ทำให้ Set เหมาะสำหรับการติดตาม tags, หน้าที่เคยเข้าชม, หรือกลุ่มใดก็ตามที่แต่ละค่าควรปรากฏเพียงครั้งเดียว
+
+## SADD และ SREM — เพิ่มและลบสมาชิก
+
+`SADD key member [member ...]` เพิ่มสมาชิกหนึ่งตัวหรือมากกว่า คืนจำนวน **สมาชิกใหม่** ที่เพิ่มเข้าไป (ไม่นับ duplicate)
+`SREM key member [member ...]` ลบสมาชิกและคืนจำนวนที่มีอยู่จริง
+
+```text
+127.0.0.1:6379> SADD article:1:tags "redis" "database" "caching"
+(integer) 3
+127.0.0.1:6379> SADD article:1:tags "redis"
+(integer) 0
+127.0.0.1:6379> SREM article:1:tags "caching"
+(integer) 1
+127.0.0.1:6379> SREM article:1:tags "nosql"
+(integer) 0
+```
+
+export const saddSremCode = `SADD article:1:tags "redis" "database" "caching"
+SADD article:1:tags "redis"
+SREM article:1:tags "caching"
+SREM article:1:tags "nosql"`;
+
+<TryRedis client:visible code={saddSremCode} />
+
+## SMEMBERS และ SCARD — ตรวจสอบ Set
+
+`SMEMBERS key` คืนสมาชิกทั้งหมด (ลำดับไม่รับประกัน) `SCARD key` คืน cardinality (จำนวนสมาชิก) โดยไม่ต้องดึงทั้งหมด
+
+```text
+127.0.0.1:6379> SADD user:42:interests "music" "hiking" "redis" "coffee"
+(integer) 4
+127.0.0.1:6379> SMEMBERS user:42:interests
+1) "coffee"
+2) "redis"
+3) "music"
+4) "hiking"
+127.0.0.1:6379> SCARD user:42:interests
+(integer) 4
+```
+
+export const smembersCode = `SADD user:42:interests "music" "hiking" "redis" "coffee"
+SMEMBERS user:42:interests
+SCARD user:42:interests`;
+
+<TryRedis client:visible code={smembersCode} />
+
+## SISMEMBER — ตรวจสอบสมาชิก
+
+`SISMEMBER key member` คืน `1` ถ้าสมาชิกมีอยู่, `0` ถ้าไม่มี เป็นการ lookup แบบ O(1) ไม่ว่า Set จะมีขนาดเท่าไร
+
+```text
+127.0.0.1:6379> SADD seen:urls "https://redis.io" "https://astro.build"
+(integer) 2
+127.0.0.1:6379> SISMEMBER seen:urls "https://redis.io"
+(integer) 1
+127.0.0.1:6379> SISMEMBER seen:urls "https://example.com"
+(integer) 0
+```
+
+export const sismemberCode = `SADD seen:urls "https://redis.io" "https://astro.build"
+SISMEMBER seen:urls "https://redis.io"
+SISMEMBER seen:urls "https://example.com"`;
+
+<TryRedis client:visible code={sismemberCode} />
+
+## SRANDMEMBER และ SPOP — การเข้าถึงแบบสุ่ม
+
+`SRANDMEMBER key [count]` คืนสมาชิกแบบสุ่ม **โดยไม่ลบออก**
+`SPOP key [count]` ลบและคืนสมาชิกแบบสุ่ม ทั้งคู่มีประโยชน์สำหรับการ sampling, ของรางวัล, หรือการมอบหมายงาน
+
+```text
+127.0.0.1:6379> SADD prize:pool "alpha" "beta" "gamma" "delta" "epsilon"
+(integer) 5
+127.0.0.1:6379> SRANDMEMBER prize:pool 2
+1) "delta"
+2) "gamma"
+127.0.0.1:6379> SCARD prize:pool
+(integer) 5
+127.0.0.1:6379> SPOP prize:pool 1
+1) "alpha"
+127.0.0.1:6379> SCARD prize:pool
+(integer) 4
+```
+
+export const srandSpopCode = `SADD prize:pool "alpha" "beta" "gamma" "delta" "epsilon"
+SRANDMEMBER prize:pool 2
+SCARD prize:pool
+SPOP prize:pool 1
+SCARD prize:pool`;
+
+<TryRedis client:visible code={srandSpopCode} />
+
+<Callout title="Set รับประกันความไม่ซ้ำกัน — เหมาะสำหรับ tags และการตรวจสอบ seen">
+
+เมื่อคุณ `SADD` ค่าที่มีอยู่แล้ว Redis จะเพิกเฉยอย่างเงียบๆ และคืนค่า 0 ซึ่งหมายความว่าคุณสามารถเรียก `SADD` เป็น upsert ได้โดยไม่ต้องตรวจก่อน ใช้คุณสมบัตินี้สำหรับการ deduplication "seen" (URL ที่เคยเข้า, event ID ที่ประมวลผลแล้ว) และการจัดการ tag — การเพิ่ม tag เดิมสองครั้งปลอดภัยเสมอ
+
+</Callout>
+
+export const quizSets = [
+  {
+    q: "SADD คืนค่าอะไรเมื่อเพิ่มสมาชิกที่มีอยู่แล้ว?",
+    options: ["1", "0", "error", "สมาชิกนั้นเอง"],
+    answer: 1,
+  },
+  {
+    q: "คำสั่งใดตรวจสอบสมาชิกแบบ O(1) โดยไม่ดึงสมาชิกทั้งหมด?",
+    options: ["SMEMBERS", "SCARD", "SISMEMBER", "SRANDMEMBER"],
+    answer: 2,
+  },
+  {
+    q: "SRANDMEMBER ต่างจาก SPOP อย่างไร?",
+    options: [
+      "SRANDMEMBER ลบสมาชิก; SPOP ไม่ลบ",
+      "SPOP ลบสมาชิก; SRANDMEMBER ไม่ลบ",
+      "ทั้งคู่ลบสมาชิก",
+      "ไม่มีคำสั่งไหนคืนค่า",
+    ],
+    answer: 1,
+  },
+  {
+    q: "SCARD คืนค่าอะไร?",
+    options: [
+      "สมาชิกแบบสุ่ม",
+      "สมาชิกทั้งหมดใน set",
+      "จำนวนสมาชิกใน set",
+      "ว่า set ว่างเปล่าหรือไม่",
+    ],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="sets-sorted-sets/sets" questions={quizSets} />
+
+<ProgressTracker client:visible id="sets-sorted-sets/sets" />

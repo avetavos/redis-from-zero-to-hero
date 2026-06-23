@@ -1,0 +1,128 @@
+---
+title: Distributed Locks
+description: 'Acquire a distributed lock with SET NX PX and release it safely with a token-check Lua script.'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+A distributed lock lets multiple processes or servers agree that only one of them may access a shared resource at a time. Redis makes this straightforward with a single atomic command — no separate watch or transaction needed.
+
+## Acquiring the lock
+
+Use `SET lock:resource token NX PX 30000` to acquire a lock:
+
+- **NX** — only set the key if it does **not** already exist (atomic acquire)
+- **PX 30000** — auto-release after 30 000 ms even if the holder crashes
+- **token** — a unique value (UUID) that only the lock holder knows; you will need it to release safely
+
+```text
+127.0.0.1:6379> SET lock:payment "token-uuid-abc" NX PX 30000
+OK
+127.0.0.1:6379> TTL lock:payment
+(integer) 29
+127.0.0.1:6379> SET lock:payment "token-uuid-xyz" NX PX 30000
+(nil)
+```
+
+The first call succeeds and returns `OK`. The TTL confirms the auto-expiry is in place. A second attempt by a different holder returns `(nil)` — the key already exists, so NX prevents overwriting it.
+
+export const acquireCode = `SET lock:payment "token-uuid-abc" NX PX 30000
+TTL lock:payment
+SET lock:payment "token-uuid-xyz" NX PX 30000`;
+
+<TryRedis client:visible code={acquireCode} />
+
+## Releasing the lock safely
+
+**The wrong way:** `DEL lock:payment` — this deletes the key unconditionally. If your lock TTL expired and another worker already acquired it, you just deleted their lock. This causes a race condition.
+
+**The right way:** only delete if the stored token matches yours. Because a plain `GET` followed by a conditional `DEL` is two commands (not atomic), you must use a Lua script — Redis executes Lua scripts atomically:
+
+```lua
+if redis.call('get', KEYS[1]) == ARGV[1] then
+  return redis.call('del', KEYS[1])
+else
+  return 0
+end
+```
+
+Here is the same logic inlined into an `EVAL` call:
+
+```text
+127.0.0.1:6379> EVAL "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]) end return 0" 1 lock:payment "token-uuid-abc"
+(integer) 1
+127.0.0.1:6379> GET lock:payment
+(nil)
+127.0.0.1:6379> EVAL "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]) end return 0" 1 lock:payment "wrong-token"
+(integer) 0
+```
+
+The first `EVAL` matches the correct token, deletes the key, and returns `1`. After deletion, `GET` returns `(nil)`. The second `EVAL` with a wrong token returns `0` — the key is untouched.
+
+export const releaseCode = `SET lock:payment "token-uuid-abc" NX PX 30000
+EVAL "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]) end return 0" 1 lock:payment "token-uuid-abc"
+GET lock:payment
+SET lock:payment "token-uuid-abc" NX PX 30000
+EVAL "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]) end return 0" 1 lock:payment "wrong-token"`;
+
+<TryRedis client:visible code={releaseCode} />
+
+## Redlock for multi-node setups
+
+For a single Redis node, `SET NX PX` is sufficient. For high availability across multiple Redis nodes — to survive a node failure without falsely releasing a lock — use the **Redlock algorithm**: try to acquire the lock on N independent nodes and consider it held only when a majority (N/2+1) confirm the acquisition within a time bound. Libraries like `ioredis-redlock` (Node.js) implement this algorithm so you do not have to coordinate the quorum logic yourself.
+
+<Callout title="Acquire with SET NX PX; release with a token-check Lua script">
+Never use plain DEL to release a lock — your TTL may have expired and another worker may have acquired it. The Lua script makes the GET and conditional DEL atomic, so you can never delete a lock you do not own.
+</Callout>
+
+export const quizLocks = [
+  {
+    q: "What does the NX flag do in `SET lock:res token NX PX 30000`?",
+    options: [
+      "Sets expiry in nanoseconds",
+      "Only sets the key if it does not already exist",
+      "Makes the command non-blocking",
+      "Stores the value as a number"
+    ],
+    answer: 1
+  },
+  {
+    q: "Why use a unique token when acquiring a lock?",
+    options: [
+      "Tokens compress better in memory",
+      "So you can verify ownership before releasing, preventing deletion of someone else's lock",
+      "Tokens enable multi-key locking",
+      "Redis requires tokens for NX commands"
+    ],
+    answer: 1
+  },
+  {
+    q: "Why is the Lua release script needed instead of plain DEL?",
+    options: [
+      "DEL is deprecated in Redis 7",
+      "Lua scripts run faster than DEL",
+      "The GET and DEL must be atomic to avoid deleting another holder's lock",
+      "DEL does not work on keys with a TTL"
+    ],
+    answer: 2
+  },
+  {
+    q: "What is Redlock used for?",
+    options: [
+      "Locking a single Redis key",
+      "Rate limiting with counters",
+      "Acquiring a lock safely across multiple independent Redis nodes",
+      "Storing session tokens"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="patterns/locks" questions={quizLocks} />
+
+<ProgressTracker client:visible id="patterns/locks" />

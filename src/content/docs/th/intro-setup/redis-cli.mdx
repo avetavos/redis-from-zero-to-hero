@@ -1,0 +1,170 @@
+---
+title: 'การใช้งาน redis-cli'
+description: 'เชื่อมต่อ Redis ตรวจสอบด้วย PING เปลี่ยน database ตรวจสอบ keyspace และรับความช่วยเหลือแบบ inline'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## redis-cli — Redis client มาตรฐาน
+
+redis-cli คือ command-line interface ที่มาพร้อมกับทุกการติดตั้ง Redis (และมีให้ใช้งานภายใน official Docker image) รองรับสองโหมด: **interactive** (REPL prompt แบบสด) และ **inline** (คำสั่งเดียวที่ส่งตรงจาก shell)
+
+## ตัวเลือกการเชื่อมต่อ
+
+Flag ที่ใช้บ่อยที่สุด:
+
+| Flag | ค่าเริ่มต้น | วัตถุประสงค์ |
+|------|------------|-------------|
+| `-h host` | `127.0.0.1` | hostname หรือ IP ของ Redis server |
+| `-p port` | `6379` | port ของ Redis server |
+| `-n db-number` | `0` | เลือกหมายเลข database (0–15) เมื่อเชื่อมต่อ |
+
+```bash
+# เชื่อมต่อกับ host และ port ค่าเริ่มต้น
+redis-cli
+
+# เชื่อมต่อแบบระบุชัดเจน — มีประโยชน์เมื่อต้องการ target server ระยะไกล
+redis-cli -h 127.0.0.1 -p 6379
+
+# เชื่อมต่อและสลับไปยัง database 1 ทันที
+redis-cli -n 1
+```
+
+## โหมด Inline vs โหมด Interactive
+
+ในโหมด **inline** คุณส่งคำสั่งเดียวเป็น argument ให้กับ redis-cli และผลลัพธ์จะถูกพิมพ์ไปยัง stdout — เหมาะสำหรับ script:
+
+```bash
+redis-cli PING
+```
+
+ในโหมด **interactive** คุณรัน `redis-cli` โดยไม่มี command argument และได้รับ prompt `127.0.0.1:6379>` ซึ่งคุณสามารถพิมพ์คำสั่งทีละคำสั่งได้
+
+## PING — ตรวจสอบการเชื่อมต่อ
+
+`PING` คือการตรวจสอบที่เบาที่สุดว่า server สามารถเข้าถึงได้:
+
+```text
+127.0.0.1:6379> PING
+PONG
+```
+
+ส่ง message เพิ่มเติมและ Redis จะส่งกลับมา — มีประโยชน์สำหรับการทดสอบ round-trip latency ใน script:
+
+```text
+127.0.0.1:6379> PING "hello world"
+"hello world"
+```
+
+<Callout title="PING ตรวจสอบการเชื่อมต่อ">
+
+`PING` ควรเป็นคำสั่งแรกที่คุณรันหลังจากเชื่อมต่อเสมอ หากคุณได้รับ `PONG` แสดงว่า TCP connection ทำงานอยู่ Redis กำลังรับคำสั่ง และการ authenticate (ถ้าจำเป็น) ผ่านแล้ว หากคุณเห็น timeout หรือ `Connection refused` แสดงว่า server ไม่สามารถเข้าถึงได้ — ตรวจสอบว่า container กำลังทำงานและ port ถูกเผยแพร่แล้ว
+
+</Callout>
+
+## ECHO — ส่ง string กลับมา
+
+`ECHO` คืน argument โดยไม่เปลี่ยนแปลง มีประโยชน์หลักในการทดสอบว่า client encode string ได้ถูกต้อง:
+
+```text
+127.0.0.1:6379> ECHO "Hello"
+"Hello"
+```
+
+## SELECT — สลับ database
+
+Redis มี 16 logical database ที่มีหมายเลข 0 ถึง 15 โดยแชร์ server process และ memory เดียวกัน แต่มี keyspace แยกกันอย่างสมบูรณ์ ค่าเริ่มต้นคือ database 0
+
+```text
+127.0.0.1:6379> SELECT 1
+OK
+127.0.0.1:6379[1]> SET greeting "hi from db1"
+OK
+127.0.0.1:6379[1]> SELECT 0
+OK
+127.0.0.1:6379> GET greeting
+(nil)
+```
+
+สังเกตว่า prompt เปลี่ยนเป็น `127.0.0.1:6379[1]` เมื่อคุณอยู่บน database อื่นที่ไม่ใช่ 0
+
+## DBSIZE — นับจำนวน key
+
+`DBSIZE` คืนจำนวน key ใน database ที่เลือกอยู่ในขณะนี้:
+
+```text
+127.0.0.1:6379> DBSIZE
+(integer) 5
+```
+
+## FLUSHDB — ล้าง database ปัจจุบัน
+
+`FLUSHDB` ลบทุก key ใน database ปัจจุบัน การกระทำนี้ไม่สามารถย้อนกลับได้ — ใช้เฉพาะใน development หรือ test environment เท่านั้น:
+
+```text
+127.0.0.1:6379> FLUSHDB
+OK
+127.0.0.1:6379> DBSIZE
+(integer) 0
+```
+
+## HELP แบบ built-in
+
+redis-cli มาพร้อมกับเอกสาร inline ใช้ `HELP` ตามด้วยชื่อคำสั่งหรือ category tag:
+
+```text
+127.0.0.1:6379> HELP SET
+127.0.0.1:6379> HELP @string
+```
+
+`HELP @string` แสดงรายการทุกคำสั่งในกลุ่ม string — วิธีที่รวดเร็วในการค้นพบคำสั่งโดยไม่ต้องออกจาก terminal
+
+export const cliCode = `PING
+ECHO "Hello"
+SELECT 1
+DBSIZE
+SELECT 0`;
+
+<TryRedis client:visible code={cliCode} />
+
+export const quizCli = [
+  {
+    q: "Flag ใดที่ใช้เลือก Redis database เฉพาะเมื่อเชื่อมต่อด้วย redis-cli?",
+    options: ["-d", "-n", "-s", "-b"],
+    answer: 1,
+  },
+  {
+    q: "PING คืนค่าอะไรเมื่อ server พร้อมใช้งาน?",
+    options: ["OK", "PONG", "(integer) 1", "nil"],
+    answer: 1,
+  },
+  {
+    q: "FLUSHDB ทำอะไร?",
+    options: [
+      "Flush write-ahead log ลงดิสก์",
+      "ลบ key ทั้งหมดออกจากทุก database",
+      "ลบ key ทั้งหมดออกจาก database ที่เลือกอยู่ในปัจจุบัน",
+      "ตัดการเชื่อมต่อ client ทั้งหมด",
+    ],
+    answer: 2,
+  },
+  {
+    q: "จะแสดงรายการคำสั่งทั้งหมดในกลุ่ม string ภายใน redis-cli ได้อย่างไร?",
+    options: [
+      "HELP strings",
+      "HELP @string",
+      "LIST @string",
+      "COMMANDS string",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="intro-setup/redis-cli" questions={quizCli} />
+
+<ProgressTracker client:visible id="intro-setup/redis-cli" />

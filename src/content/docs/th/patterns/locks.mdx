@@ -1,0 +1,128 @@
+---
+title: Distributed Locks
+description: 'ขอล็อกแบบกระจาย (distributed lock) ด้วย SET NX PX และปลดล็อกอย่างปลอดภัยด้วย Lua script ที่ตรวจสอบ token'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+Distributed lock ช่วยให้หลายโปรเซสหรือหลายเซิร์ฟเวอร์ตกลงกันได้ว่ามีเพียงตัวเดียวเท่านั้นที่สามารถเข้าถึง shared resource ในขณะใดขณะหนึ่ง Redis ทำให้เรื่องนี้ง่ายมากด้วยคำสั่ง atomic เพียงคำสั่งเดียว — ไม่ต้องใช้ watch หรือ transaction แยกต่างหาก
+
+## การ acquire ล็อก
+
+ใช้ `SET lock:resource token NX PX 30000` เพื่อ acquire ล็อก:
+
+- **NX** — กำหนดค่า key ก็ต่อเมื่อ key นั้น**ยังไม่มีอยู่** เท่านั้น (atomic acquire)
+- **PX 30000** — ปลดล็อกอัตโนมัติหลังจาก 30,000 ms แม้ว่าผู้ถือล็อกจะ crash ไป
+- **token** — ค่าเฉพาะตัว (UUID) ที่มีเพียงผู้ถือล็อกเท่านั้นที่รู้ ซึ่งจะต้องใช้เพื่อปลดล็อกอย่างปลอดภัย
+
+```text
+127.0.0.1:6379> SET lock:payment "token-uuid-abc" NX PX 30000
+OK
+127.0.0.1:6379> TTL lock:payment
+(integer) 29
+127.0.0.1:6379> SET lock:payment "token-uuid-xyz" NX PX 30000
+(nil)
+```
+
+การเรียกครั้งแรกสำเร็จและคืนค่า `OK` ค่า TTL ยืนยันว่ามีการตั้งค่า auto-expiry ไว้แล้ว การพยายามครั้งที่สองจากผู้ถือล็อกคนอื่นจะคืนค่า `(nil)` เนื่องจาก key มีอยู่แล้ว NX จึงป้องกันการเขียนทับ
+
+export const acquireCode = `SET lock:payment "token-uuid-abc" NX PX 30000
+TTL lock:payment
+SET lock:payment "token-uuid-xyz" NX PX 30000`;
+
+<TryRedis client:visible code={acquireCode} />
+
+## การปลดล็อกอย่างปลอดภัย
+
+**วิธีที่ผิด:** `DEL lock:payment` — คำสั่งนี้ลบ key โดยไม่มีเงื่อนไข หาก TTL ของล็อกหมดอายุไปแล้วและ worker อื่นได้ acquire ล็อกนั้นแล้ว คุณก็เพิ่งลบล็อกของพวกเขาทิ้งไป ซึ่งก่อให้เกิด race condition
+
+**วิธีที่ถูกต้อง:** ลบเฉพาะเมื่อ token ที่เก็บไว้ตรงกับของคุณเท่านั้น เนื่องจากการใช้ `GET` ธรรมดาตามด้วย `DEL` แบบมีเงื่อนไขคือสองคำสั่ง (ไม่ใช่ atomic) จึงต้องใช้ Lua script — Redis รัน Lua script แบบ atomic:
+
+```lua
+if redis.call('get', KEYS[1]) == ARGV[1] then
+  return redis.call('del', KEYS[1])
+else
+  return 0
+end
+```
+
+นี่คือ logic เดียวกันที่รวมไว้ในคำสั่ง `EVAL`:
+
+```text
+127.0.0.1:6379> EVAL "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]) end return 0" 1 lock:payment "token-uuid-abc"
+(integer) 1
+127.0.0.1:6379> GET lock:payment
+(nil)
+127.0.0.1:6379> EVAL "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]) end return 0" 1 lock:payment "wrong-token"
+(integer) 0
+```
+
+`EVAL` ครั้งแรกตรวจพบ token ที่ถูกต้อง ลบ key และคืนค่า `1` หลังจากลบแล้ว `GET` คืนค่า `(nil)` `EVAL` ครั้งที่สองที่ใช้ token ผิดจะคืนค่า `0` — key ยังคงอยู่ไม่เปลี่ยนแปลง
+
+export const releaseCode = `SET lock:payment "token-uuid-abc" NX PX 30000
+EVAL "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]) end return 0" 1 lock:payment "token-uuid-abc"
+GET lock:payment
+SET lock:payment "token-uuid-abc" NX PX 30000
+EVAL "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]) end return 0" 1 lock:payment "wrong-token"`;
+
+<TryRedis client:visible code={releaseCode} />
+
+## Redlock สำหรับการตั้งค่าหลายโหนด
+
+สำหรับ Redis node เดียว `SET NX PX` เพียงพอแล้ว สำหรับ high availability ที่ครอบคลุม Redis หลายโหนด — เพื่อรับมือกับความล้มเหลวของโหนดโดยไม่ปลดล็อกโดยไม่ได้ตั้งใจ — ให้ใช้ **Redlock algorithm**: พยายาม acquire ล็อกบน N โหนดอิสระและถือว่าล็อกสำเร็จก็ต่อเมื่อส่วนใหญ่ (N/2+1) ยืนยันการ acquire ภายในระยะเวลาที่กำหนด ไลบรารีอย่าง `ioredis-redlock` (Node.js) implement algorithm นี้ไว้แล้ว ดังนั้นคุณไม่ต้องจัดการ quorum logic เอง
+
+<Callout title="Acquire ด้วย SET NX PX; ปลดล็อกด้วย Lua script ที่ตรวจสอบ token">
+อย่าใช้ DEL ธรรมดาในการปลดล็อก เพราะ TTL ของคุณอาจหมดอายุไปแล้วและ worker อื่นอาจ acquire ล็อกนั้นแล้ว Lua script ทำให้ GET และ DEL แบบมีเงื่อนไขเป็น atomic เพื่อให้แน่ใจว่าคุณจะไม่ลบล็อกที่คุณไม่ได้เป็นเจ้าของ
+</Callout>
+
+export const quizLocks = [
+  {
+    q: "flag NX ใน `SET lock:res token NX PX 30000` ทำหน้าที่อะไร?",
+    options: [
+      "กำหนด expiry เป็นหน่วยนาโนวินาที",
+      "กำหนดค่า key เฉพาะเมื่อ key นั้นยังไม่มีอยู่เท่านั้น",
+      "ทำให้คำสั่งทำงานแบบ non-blocking",
+      "เก็บค่าเป็นตัวเลข"
+    ],
+    answer: 1
+  },
+  {
+    q: "ทำไมจึงต้องใช้ token เฉพาะตัวเมื่อ acquire ล็อก?",
+    options: [
+      "Token บีบอัดได้ดีกว่าในหน่วยความจำ",
+      "เพื่อตรวจสอบความเป็นเจ้าของก่อนปลดล็อก ป้องกันการลบล็อกของคนอื่น",
+      "Token รองรับการล็อกหลาย key",
+      "Redis กำหนดให้ต้องใช้ token สำหรับคำสั่ง NX"
+    ],
+    answer: 1
+  },
+  {
+    q: "ทำไมจึงต้องใช้ Lua script ในการปลดล็อกแทนที่จะใช้ DEL ธรรมดา?",
+    options: [
+      "DEL ถูกยกเลิกใน Redis 7",
+      "Lua script ทำงานเร็วกว่า DEL",
+      "GET และ DEL ต้องเป็น atomic เพื่อหลีกเลี่ยงการลบล็อกของผู้ถือล็อกคนอื่น",
+      "DEL ไม่ทำงานกับ key ที่มี TTL"
+    ],
+    answer: 2
+  },
+  {
+    q: "Redlock ใช้สำหรับอะไร?",
+    options: [
+      "ล็อก Redis key เดียว",
+      "Rate limiting ด้วย counter",
+      "การ acquire ล็อกอย่างปลอดภัยบน Redis โหนดอิสระหลายโหนด",
+      "การเก็บ session token"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="patterns/locks" questions={quizLocks} />
+
+<ProgressTracker client:visible id="patterns/locks" />

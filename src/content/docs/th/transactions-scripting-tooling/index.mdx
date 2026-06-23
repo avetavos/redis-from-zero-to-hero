@@ -1,0 +1,91 @@
+---
+title: 'Transactions, Lua & Tooling: ภาพรวม'
+description: 'จัดกลุ่มคำสั่งให้ทำงานแบบ atomic เขียน Lua script ฝั่ง server และดูแลระบบ Redis ด้วยเครื่องมือที่มีในตัว'
+sidebar:
+  order: 1
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## โมดูลนี้ครอบคลุมอะไรบ้าง
+
+Redis ไม่ได้จำกัดอยู่แค่การเก็บและดึง key-value เมื่อแอปพลิเคชันโตขึ้น คุณต้องการวิธีรันคำสั่งหลายตัวพร้อมกันโดยไม่ให้ client อื่นมาขัดจังหวะ ย้าย logic มาไว้ใกล้ข้อมูลมากขึ้น และวิเคราะห์ปัญหาเมื่อระบบช้าลง
+
+โมดูลนี้ครอบคลุมสามส่วนหลัก:
+
+| บทเรียน | หัวข้อ |
+|---------|--------|
+| Transactions, Lua & Tooling: ภาพรวม | หน้านี้ — เหตุผลที่ต้องการการจัดกลุ่ม scripting และ observability |
+| Transactions | `MULTI`/`EXEC`/`DISCARD` และ optimistic locking ด้วย `WATCH` |
+| Pipelines | ลด round-trip เพื่อเพิ่ม throughput ด้วย `redis-cli --pipe` |
+| Lua Scripting | `EVAL`, `redis.call`, `EVALSHA` และ logic ฝั่ง server แบบ atomic |
+| Tooling & Monitoring | `MONITOR`, `INFO`, `SLOWLOG`, `--bigkeys`, `CLIENT LIST` |
+
+## ทำไมการจัดกลุ่มคำสั่งจึงสำคัญ
+
+Redis ประมวลผลทุกคำสั่งใน single thread ซึ่งหมายความว่า client สองตัวสามารถสลับการอ่าน-เขียนกันได้ ทำให้เกิด race condition มีสามวิธีในการแก้ปัญหานี้:
+
+- **Transactions** (`MULTI`/`EXEC`) จัดคิวชุดคำสั่งและรันทั้งหมดในบล็อกเดียวโดยไม่ถูกขัดจังหวะ
+- **Pipelines** ส่งคำสั่งหลายตัวในหนึ่ง network round-trip เพื่อเพิ่ม throughput — ไม่ใช่ความเป็น atomic
+- **Lua scripts** รันทั้งหมดบน server แบบ atomic โดยมี Redis API ครบถ้วน
+
+แต่ละเครื่องมือแก้ปัญหาต่างกัน การเลือกใช้ขึ้นอยู่กับว่าคุณต้องการความเป็น atomic ความเร็ว หรือ logic แบบมีเงื่อนไขซับซ้อน
+
+## ทำไมต้องเขียน script ฝั่ง server?
+
+pattern ที่พบบ่อยในโค้ดแอปพลิเคชันคือ: อ่านค่า คำนวณ แล้วเขียนกลับ ทุก round-trip เพิ่ม latency และระหว่างการอ่านกับการเขียน client อื่นอาจเปลี่ยนค่านั้นได้ Lua script แก้ปัญหาทั้งสองอย่าง — ทั้ง read-modify-write รันบน server โดยไม่มี network round-trip ระหว่างขั้นตอน และไม่มีคำสั่งอื่นมาขัดจังหวะได้
+
+## ทำไม tooling จึงสำคัญ
+
+แม้แอปพลิเคชันจะเขียนได้ดีแค่ไหน ก็ยังอาจมี query ช้า key ขนาดใหญ่เกินไป หรือ connection leak Redis มีเครื่องมือวินิจฉัยในตัว:
+
+- `INFO` — สถิติ server ในคำสั่งเดียว
+- `SLOWLOG` — N คำสั่งที่ช้าที่สุดล่าสุด
+- `--bigkeys` — สแกนหา key ที่กินหน่วยความจำมาก
+- `MONITOR` — stream คำสั่งแบบ real-time (ใช้อย่างระมัดระวัง)
+
+export const overviewCode = `PING
+INFO server`;
+
+<TryRedis client:visible code={overviewCode} />
+
+<Callout title="สามเครื่องมือ สามปัญหา">
+
+ใช้ **transactions** เมื่อต้องการให้กลุ่มคำสั่งรันโดยไม่ถูกขัดจังหวะ ใช้ **pipelines** เมื่อต้องการลด network round-trip โดยไม่จำเป็นต้องการความเป็น atomic ใช้ **Lua scripts** เมื่อต้องการ logic read-modify-write แบบมีเงื่อนไขที่ต้องการความเป็น atomic อย่าสับสนระหว่างทั้งสาม — มันเสริมกัน ไม่ใช่ใช้แทนกันได้
+
+</Callout>
+
+export const quizOverview = [
+  {
+    q: "ฟีเจอร์ใดของ Redis ที่ให้ความเป็น atomic สำหรับกลุ่มคำสั่ง?",
+    options: ["Pipelines", "MULTI/EXEC transactions", "CLIENT LIST", "INFO"],
+    answer: 1,
+  },
+  {
+    q: "เป้าหมายหลักของ pipelining คืออะไร?",
+    options: [
+      "รับประกันความเป็น atomic ของคำสั่ง",
+      "ลด network round-trip เพื่อเพิ่ม throughput",
+      "รัน Lua บน server",
+      "ป้องกัน key หมดอายุ",
+    ],
+    answer: 1,
+  },
+  {
+    q: "Lua script ที่รันด้วย EVAL คือ:",
+    options: [
+      "ไม่ atomic — client อื่นสามารถแทรกได้",
+      "Atomic — ไม่มีคำสั่งอื่นรันระหว่างที่ script ทำงาน",
+      "Atomic เฉพาะเมื่อใช้ WATCH ก่อน",
+      "ช้ากว่า pipeline",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="transactions-scripting-tooling/index" questions={quizOverview} />
+
+<ProgressTracker client:visible id="transactions-scripting-tooling/index" />

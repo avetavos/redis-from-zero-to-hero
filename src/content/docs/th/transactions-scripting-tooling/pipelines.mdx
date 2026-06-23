@@ -1,0 +1,126 @@
+---
+title: Pipelines
+description: 'ลด round-trip โดยส่งคำสั่งหลายตัวพร้อมกัน ใช้ redis-cli --pipe และเข้าใจความแตกต่างระหว่าง pipeline กับ transaction'
+sidebar:
+  order: 3
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Pipelining คืออะไร?
+
+ทุกคำสั่ง Redis มี round-trip: client ส่งคำสั่ง รอ reply แล้วจึงส่งคำสั่งถัดไป บน network ที่มี latency แม้เพียงเล็กน้อย นี่สะสมได้รวดเร็ว
+
+**Pipelining** ให้ client ส่งชุดคำสั่งในการเขียนครั้งเดียวโดยไม่ต้องรอ reply ของแต่ละคำสั่ง server ประมวลผลตามลำดับและส่ง reply ทั้งหมดกลับมาพร้อมกัน ผลลัพธ์คือ round-trip เดียวแทนที่จะเป็น N round-trips
+
+```text
+# ไม่มี pipelining: 3 round-trips
+127.0.0.1:6379> SET a 1
+OK
+127.0.0.1:6379> SET b 2
+OK
+127.0.0.1:6379> SET c 3
+OK
+
+# มี pipelining: 1 round-trip ผลลัพธ์เหมือนกัน
+```
+
+Redis client library ส่วนใหญ่เปิด pipelining โดยตรง ตัวอย่างใน Node.js (ioredis):
+
+```bash
+const pipeline = redis.pipeline();
+pipeline.set('a', 1);
+pipeline.set('b', 2);
+pipeline.set('c', 3);
+const results = await pipeline.exec();
+```
+
+## redis-cli --pipe mode
+
+`redis-cli` มาพร้อม flag `--pipe` ที่รับ Redis protocol (RESP) จาก stdin และส่งเป็น pipeline:
+
+```bash
+# สร้าง RESP inline และส่งผ่าน pipe ไปยัง Redis
+printf "*3\r\n\$3\r\nSET\r\n\$2\r\nk1\r\n\$5\r\nhello\r\n*3\r\n\$3\r\nSET\r\n\$2\r\nk2\r\n\$5\r\nworld\r\n" \
+  | redis-cli --pipe
+```
+
+เหมาะสำหรับ bulk import: เครื่องมืออย่าง `redis-cli --pipe` สามารถโหลดได้นับล้าน key ในเวลาไม่กี่วินาทีโดยส่ง batch ขนาดใหญ่ผ่าน connection เดียว
+
+คุณยังสามารถสร้างไฟล์คำสั่งและส่งผ่าน pipe:
+
+```bash
+# commands.txt มีคำสั่ง redis-cli หนึ่งบรรทัดต่อหนึ่งคำสั่ง
+cat commands.txt | redis-cli --pipe
+```
+
+## Pipelines vs transactions
+
+Pipeline และ transaction มักถูกสับสน ตารางด้านล่างชี้แจงความแตกต่าง:
+
+| คุณสมบัติ | Pipeline | Transaction (`MULTI`/`EXEC`) |
+|-----------|----------|------------------------------|
+| Round-trips | หนึ่ง (หรือน้อย) | หนึ่งต่อคำสั่ง + EXEC |
+| Atomicity | ไม่มี — client อื่นสามารถแทรกได้ | ใช่ — ไม่มีการขัดจังหวะ |
+| Rollback | ไม่มี | ไม่มี |
+| Use case | Throughput / bulk load | การเขียนกลุ่มที่ปลอดภัย |
+
+Pipeline คือ **network optimization** Transaction คือ **atomicity guarantee** คุณสามารถรวมทั้งสองได้: client library หลายตัวให้คุณส่งบล็อก `MULTI`/`EXEC` ภายใน pipeline เพื่อได้ประโยชน์ทั้งคู่
+
+export const pipelineCode = `SET a 1
+SET b 2
+SET c 3
+MGET a b c`;
+
+<TryRedis client:visible code={pipelineCode} />
+
+<Callout title="Pipelining รวมคำสั่งเพื่อลด RTT — ไม่ได้ทำให้เป็น atomic">
+
+Pipeline ลดจำนวน network round-trips ซึ่งสามารถเพิ่ม throughput ได้อย่างมากสำหรับการเขียนหรืออ่านจำนวนมาก อย่างไรก็ตาม ระหว่างแต่ละคำสั่งใน pipeline client อื่นยังสามารถรันคำสั่งของตัวเองได้ หากต้องการให้ batch ไม่ถูกขัดจังหวะ ให้ห่อด้วย `MULTI`/`EXEC` — ไม่ใช่แค่ pipeline
+
+</Callout>
+
+export const quizPipelines = [
+  {
+    q: "ประโยชน์หลักของ pipelining ใน Redis คืออะไร?",
+    options: [
+      "รับประกัน atomicity ของคำสั่ง",
+      "ลด network round-trip เพื่อเพิ่ม throughput",
+      "ป้องกัน client อื่นไม่ให้เขียน",
+      "เปิดใช้ Lua scripting",
+    ],
+    answer: 1,
+  },
+  {
+    q: "เมื่อใช้ pipeline คำสั่งของ client อื่นสามารถแทรกกับคำสั่งใน pipeline ได้หรือไม่?",
+    options: [
+      "ไม่ได้ — pipeline เป็น atomic",
+      "ได้ — pipeline รวมแค่ network I/O ไม่ใช่การรัน",
+      "เฉพาะเมื่อตั้ง WATCH",
+      "เฉพาะเมื่อมีมากกว่า 10 คำสั่ง",
+    ],
+    answer: 1,
+  },
+  {
+    q: "flag ของ redis-cli ที่เปิด pipe mode สำหรับ bulk import คืออะไร?",
+    options: ["--batch", "--multi", "--pipe", "--bulk"],
+    answer: 2,
+  },
+  {
+    q: "เพื่อให้ได้ทั้ง round-trip ที่น้อยลงและ atomicity คุณควร:",
+    options: [
+      "ใช้ pipeline อย่างเดียว",
+      "ใช้ MULTI/EXEC ภายใน pipeline",
+      "ใช้ WATCH อย่างเดียว",
+      "ใช้ EVAL",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="transactions-scripting-tooling/pipelines" questions={quizPipelines} />
+
+<ProgressTracker client:visible id="transactions-scripting-tooling/pipelines" />

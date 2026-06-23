@@ -1,0 +1,127 @@
+---
+title: Consumer Groups
+description: 'XGROUP CREATE, XREADGROUP, XACK และ XPENDING — แบ่ง stream ให้หลาย worker พร้อม at-least-once delivery'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Consumer Group คืออะไร
+
+Consumer group ช่วยให้หลาย worker (consumer) อ่านจาก stream เดียวกันได้ โดยที่แต่ละ entry จะถูกส่งไปยัง consumer เพียงหนึ่งคนเท่านั้นในกลุ่ม Redis ติดตามว่า entry ใดถูกส่งแล้วแต่ยังไม่ได้รับการ acknowledge ซึ่งทำให้เกิด at-least-once processing ได้
+
+## สร้าง Group — XGROUP CREATE
+
+```text
+127.0.0.1:6379> XADD jobs * type "email" to "ada@example.com"
+"1700000000000-0"
+127.0.0.1:6379> XADD jobs * type "sms" to "+6681234567"
+"1700000000001-0"
+127.0.0.1:6379> XGROUP CREATE jobs workers $ MKSTREAM
+OK
+```
+
+`$` หมายถึง "เริ่มจาก entry ล่าสุด" — เฉพาะ message ที่เพิ่มใหม่หลังจากสร้าง group เท่านั้นที่จะถูกส่ง ใช้ `0` เพื่ออ่านตั้งแต่ต้น stream `MKSTREAM` จะสร้าง stream ให้อัตโนมัติหาก stream นั้นยังไม่มีอยู่
+
+## XREADGROUP — อ่านในฐานะ consumer
+
+```text
+127.0.0.1:6379> XADD jobs * type "email" to "bob@example.com"
+"1700000000002-0"
+127.0.0.1:6379> XREADGROUP GROUP workers consumer-1 COUNT 1 STREAMS jobs >
+1) 1) "jobs"
+   2) 1) 1) "1700000000002-0"
+            2) 1) "type"
+               2) "email"
+               3) "to"
+               4) "bob@example.com"
+```
+
+ID พิเศษ `>` หมายความว่า "ส่ง entry ใหม่ที่ยังไม่ได้รับมาให้ฉัน" เมื่อส่งแล้ว entry จะถูกวางไว้ใน Pending Entries List (PEL) ของ `consumer-1` จนกว่าจะได้รับการ acknowledge อย่างชัดเจน
+
+## XACK — ยืนยันการประมวลผล
+
+```text
+127.0.0.1:6379> XACK jobs workers 1700000000002-0
+(integer) 1
+```
+
+เมื่อ acknowledge แล้ว entry จะถูกลบออกจาก PEL เรียก `XACK` เฉพาะหลังจากที่ worker ประมวลผล message สำเร็จแล้วเท่านั้น — การ acknowledge เร็วเกินไปอาจทำให้ข้อมูลสูญหายหาก worker crash ระหว่างประมวลผล
+
+## XPENDING — ตรวจสอบ Entry ที่ยังไม่ได้ Acknowledge
+
+```text
+127.0.0.1:6379> XPENDING jobs workers - + 10
+1) 1) "1700000000002-0"
+   2) "consumer-1"
+   3) (integer) 4321
+   4) (integer) 1
+```
+
+แต่ละแถวแสดง: ID ของ entry, consumer ที่ถือครอง entry นั้น, ระยะเวลาที่ idle เป็นมิลลิวินาที และจำนวนครั้งที่ส่งแล้ว เครื่องมือนี้ใช้ตรวจหา consumer ที่ค้างหรือทำงานช้า
+
+export const cgCode = `XADD jobs * type "email" to "ada@example.com"
+XADD jobs * type "sms" to "+6681234567"
+XGROUP CREATE jobs workers 0 MKSTREAM
+XREADGROUP GROUP workers consumer-1 COUNT 10 STREAMS jobs >
+XACK jobs workers 1700000000000-0
+XPENDING jobs workers - + 10`;
+
+<TryRedis client:visible code={cgCode} label="Copy sequence (update IDs from XADD output)" />
+
+<Callout title="Consumer groups แบ่ง stream ให้หลาย worker พร้อม acknowledgement">
+
+Consumer groups มอบ at-least-once delivery ให้คุณ หาก consumer crash ก่อนที่จะเรียก `XACK` entry จะยังคงอยู่ใน PEL และสามารถถูก claim โดย worker อื่นด้วย `XCLAIM` หรือ `XAUTOCLAIM` ซึ่งทำให้ Redis Streams เป็นรากฐานที่เชื่อถือได้สำหรับ distributed task queue
+
+</Callout>
+
+export const quizConsumerGroups = [
+  {
+    q: "`XREADGROUP GROUP g consumer STREAMS s >` หมายความว่าอะไร?",
+    options: [
+      "ส่ง entry ใหม่ที่ยังไม่ได้รับมาให้ consumer นี้",
+      "ส่ง entry ที่ pending ทั้งหมดซ้ำตั้งแต่ต้น",
+      "Acknowledge entry ทั้งหมดในกลุ่ม",
+      "ลบ consumer group",
+    ],
+    answer: 0,
+  },
+  {
+    q: "เกิดอะไรขึ้นกับ stream entry หลังจากเรียก XACK?",
+    options: [
+      "ถูกลบออกจาก stream ทั้งหมด",
+      "ถูกย้ายไปยัง dead-letter stream",
+      "ถูกลบออกจาก Pending Entries List",
+      "ถูกส่งซ้ำไปยัง consumer อื่น",
+    ],
+    answer: 2,
+  },
+  {
+    q: "XPENDING แสดงอะไร?",
+    options: [
+      "Entry ทั้งหมดที่เคยเขียนลงใน stream",
+      "Entry ที่ถูกส่งแล้วแต่ยังไม่ได้รับการ acknowledge",
+      "Entry ที่รอถูกส่ง",
+      "จำนวน consumer group ที่ active อยู่",
+    ],
+    answer: 1,
+  },
+  {
+    q: "ใน `XGROUP CREATE jobs workers 0 MKSTREAM` ตัวเลข `0` หมายความว่าอะไร?",
+    options: [
+      "ส่ง entry ครั้งละศูนย์รายการ",
+      "เริ่มจาก entry ล่าสุดเท่านั้น",
+      "เริ่มอ่านตั้งแต่ต้น stream",
+      "สร้าง consumer เริ่มต้นเป็นศูนย์คน",
+    ],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="pubsub-streams/consumer-groups" questions={quizConsumerGroups} />
+
+<ProgressTracker client:visible id="pubsub-streams/consumer-groups" />

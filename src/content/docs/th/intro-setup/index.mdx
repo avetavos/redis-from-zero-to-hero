@@ -1,0 +1,87 @@
+---
+title: 'บทนำและการติดตั้ง: ภาพรวม'
+description: 'Redis คืออะไร วิธีรัน Redis ด้วย Docker และการใช้งาน redis-cli ครั้งแรกของคุณ'
+sidebar:
+  order: 1
+---
+
+import RunRedis from '../../../../components/RunRedis.astro';
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+Redis คือ **in-memory key-value data structure server** — จัดเก็บข้อมูลทั้งหมดไว้ใน RAM ทำให้การอ่านและเขียนข้อมูลรวดเร็วเป็นพิเศษ โมดูลนี้จะพาคุณรัน Redis ด้วย Docker เปิด redis-cli session และส่งคำสั่งแรกของคุณ
+
+<RunRedis />
+
+## โมดูลนี้ครอบคลุมอะไรบ้าง
+
+| บทเรียน | หัวข้อ |
+|--------|-------|
+| บทนำและการติดตั้ง: ภาพรวม | หน้านี้ — Redis คืออะไร และวงจร run → cli → command |
+| Redis คืออะไร? | โมเดล in-memory, event loop, และ use case ทั่วไป |
+| รันด้วย Docker | ดึง image, เริ่ม container, พื้นฐาน persistence |
+| Redis CLI | การเชื่อมต่อ, ประวัติคำสั่ง, inline help |
+| คำสั่งแรก | PING, SET, GET, DEL, และ PONG ที่คุณจะจำไม่ลืม |
+
+## วงจร run → cli → command
+
+ทุก Redis session ปฏิบัติตามสามขั้นตอนเดิมเสมอ:
+
+1. เริ่ม Redis server (ที่นี่ใช้ Docker)
+2. เชื่อมต่อด้วย redis-cli
+3. ส่งคำสั่งและอ่านผลลัพธ์
+
+เมื่อ container ของคุณรันแล้ว (ใช้แผงด้านบน) ให้เปิด terminal แล้วเชื่อมต่อ:
+
+```bash
+docker exec -it redis redis-cli
+```
+
+คุณจะเห็น prompt `127.0.0.1:6379>` ลองส่งคำสั่งเหล่านี้ทันที:
+
+```text
+127.0.0.1:6379> PING
+PONG
+127.0.0.1:6379> SET name "Redis"
+OK
+127.0.0.1:6379> GET name
+"Redis"
+```
+
+export const firstCode = `PING
+SET name "Redis"
+GET name`;
+
+<TryRedis client:visible code={firstCode} />
+
+<Callout title="Redis เก็บข้อมูลในหน่วยความจำ — เร็วมาก">
+
+เนื่องจาก Redis ไม่แตะดิสก์ในระหว่างการอ่านหรือเขียนปกติ ความหน่วงจึงวัดได้ใน **ไมโครวินาที** แทนที่จะเป็นมิลลิวินาที เซิร์ฟเวอร์เดียวรองรับการทำงานได้หลายแสนครั้งต่อวินาทีอย่างสม่ำเสมอ
+
+ข้อเสียคือ RAM มีจำกัดและมีราคาแพงกว่าดิสก์ Redis แก้ปัญหานี้ด้วย persistence แบบ optional (RDB snapshots และ AOF logs) และ eviction policy ที่ลบ key ที่ไม่จำเป็นออกเมื่อหน่วยความจำเต็ม คุณจะได้เรียนรู้ทั้งสองอย่างในภายหลังของคอร์สนี้
+
+</Callout>
+
+export const quizIndex = [
+  {
+    q: "Redis เก็บข้อมูลหลักไว้ที่ไหน?",
+    options: ["บนดิสก์ (SSD)", "ในหน่วยความจำ (RAM)", "ในฐานข้อมูลเชิงสัมพันธ์", "ในระบบไฟล์แบบกระจาย"],
+    answer: 1,
+  },
+  {
+    q: "Redis ตอบกลับอะไรเมื่อคุณส่งคำสั่ง PING?",
+    options: ["OK", "1", "PONG", "nil"],
+    answer: 2,
+  },
+  {
+    q: "คำสั่งใดที่ใช้เก็บค่าไว้ใต้ key ใน Redis?",
+    options: ["PUT", "INSERT", "SET", "STORE"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="intro-setup/index" questions={quizIndex} />
+
+<ProgressTracker client:visible id="intro-setup/index" />

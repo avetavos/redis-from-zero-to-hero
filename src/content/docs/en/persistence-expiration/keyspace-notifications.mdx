@@ -1,0 +1,128 @@
+---
+title: Keyspace Notifications
+description: 'Subscribe to Redis events — key expirations, writes, and deletes — using notify-keyspace-events and Pub/Sub.'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What are keyspace notifications?
+
+Redis can publish a Pub/Sub message whenever certain events happen — a key expires, a `SET` is issued, a `DEL` runs, and more. Your application subscribes to these channels to react without polling: for example, invalidate a local cache when a key expires, or trigger a background job when a specific key is written.
+
+Redis exposes two channel types:
+
+- **Keyevent channels** — one channel per event type; the message payload is the key name. Pattern: `__keyevent@<db>__:<event>` (example: `__keyevent@0__:expired`)
+- **Keyspace channels** — one channel per key; the message payload is the event type. Pattern: `__keyspace@<db>__:<keyname>`
+
+## Enabling keyspace notifications
+
+Keyspace notifications are **disabled by default** because publishing every event adds CPU overhead. Enable them with `CONFIG SET` at runtime or via `redis.conf` on startup.
+
+The value is a string of flag characters that select which event classes to publish:
+
+| Flag | Events enabled |
+|------|---------------|
+| `K` | Keyspace events (`__keyspace@...` channel) |
+| `E` | Keyevent events (`__keyevent@...` channel) |
+| `x` | Expired events (key TTL reached zero) |
+| `g` | Generic commands: `DEL`, `EXPIRE`, `RENAME`, ... |
+| `s` | Set commands (`SADD`, `SREM`, ...) |
+| `l` | List commands (`LPUSH`, `RPOP`, ...) |
+
+For production expiry notifications the common setting is `Ex` — keyevent channel (`E`) for expired events only (`x`):
+
+```ini
+notify-keyspace-events "Ex"
+```
+
+Or at runtime:
+
+```text
+127.0.0.1:6379> CONFIG SET notify-keyspace-events Ex
+OK
+```
+
+## Subscribing to expiry events
+
+Keyspace notifications use a two-terminal workflow. Open **Terminal 1** and subscribe before the key expires:
+
+```text
+127.0.0.1:6379> PSUBSCRIBE __keyevent@0__:expired
+Reading messages... (press Ctrl-C to quit)
+```
+
+In **Terminal 2**, set a key with a short TTL to trigger the event:
+
+```text
+127.0.0.1:6379> SET demo:token "abc" EX 3
+OK
+```
+
+After 3 seconds, Terminal 1 receives the notification:
+
+```text
+1) "pmessage"
+2) "__keyevent@0__:expired"
+3) "__keyevent@0__:expired"
+4) "demo:token"
+```
+
+The fourth line is the key name — your subscriber now knows exactly which key expired.
+
+## Runnable commands
+
+The commands below enable notifications and set a key with a TTL so you can observe the configuration in action. To see the expired event, open a second `redis-cli`, run `PSUBSCRIBE __keyevent@0__:expired`, then in the first terminal run `SET demo:token "hello" EX 5` and wait 5 seconds.
+
+export const notificationsCode = `CONFIG SET notify-keyspace-events Ex
+SET demo:token "hello" EX 5
+TTL demo:token`;
+
+<TryRedis client:visible code={notificationsCode} />
+
+<Callout title="Keyspace notifications — react to expirations via Pub/Sub">
+
+Keyspace notifications let any subscriber react to key lifecycle events without polling. Subscribe to `__keyevent@0__:expired` to trigger cache invalidation, job scheduling, or session cleanup when keys expire. Enable only the event classes you need — broad flags like `KEA` (all events) add measurable overhead on write-heavy workloads.
+
+</Callout>
+
+export const quizKeyspaceNotifications = [
+  {
+    q: "Which CONFIG flag enables keyevent channels (`__keyevent@...`)?",
+    options: ["K", "E", "x", "g"],
+    answer: 1,
+  },
+  {
+    q: "What channel pattern delivers expiry events on database 0?",
+    options: [
+      "__expire@0__:keyevent",
+      "__keyevent@0__:expired",
+      "__event@0__:expired",
+      "__keyspace@0__:expire",
+    ],
+    answer: 1,
+  },
+  {
+    q: "Are keyspace notifications enabled by default in Redis?",
+    options: ["Yes", "No", "Only for expiry events", "Only in Redis 7+"],
+    answer: 1,
+  },
+  {
+    q: "Which PSUBSCRIBE pattern matches all keyevent channels on database 0?",
+    options: [
+      "keyevent:0:*",
+      "__keyevent@0__:*",
+      "SUBSCRIBE keyevent",
+      "CONFIG GET notify",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="persistence-expiration/keyspace-notifications" questions={quizKeyspaceNotifications} />
+
+<ProgressTracker client:visible id="persistence-expiration/keyspace-notifications" />

@@ -1,0 +1,129 @@
+---
+title: 'RDB Snapshots and AOF'
+description: 'How Redis saves data to disk: RDB periodic snapshots, AOF command log, BGSAVE, BGREWRITEAOF, and hybrid mode.'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## RDB — Periodic Snapshots
+
+RDB (Redis Database) persistence saves a point-in-time snapshot of the entire dataset to a compact binary file. On startup, Redis loads this file to restore state — making RDB the fastest way to get back up after a restart.
+
+### How snapshots are triggered
+
+**Manual commands:**
+
+- `SAVE` — blocks the server while writing the snapshot. Avoid in production.
+- `BGSAVE` — forks a child process to write the snapshot in the background. The parent keeps serving requests.
+
+**Automatic thresholds** are configured in `redis.conf` using the `save` directive. The format is `save <seconds> <changed-keys>` — Redis takes a snapshot if at least `<changed-keys>` keys were modified within the last `<seconds>` seconds.
+
+```ini
+save 3600 1
+save 300 100
+save 60 10000
+dbfilename dump.rdb
+dir /var/lib/redis
+```
+
+The three `save` lines above mean: snapshot every hour if at least 1 key changed, every 5 minutes if at least 100 changed, or every minute if at least 10 000 changed. To disable automatic snapshots entirely, remove all `save` lines or set `save ""`.
+
+### RDB trade-offs
+
+RDB files are compact and fast to load. The downside is potential data loss: any writes made after the last snapshot are lost if Redis crashes before the next one.
+
+## AOF — Append-Only File
+
+AOF logs every write command that modifies the dataset, appending it to a file in the same text format Redis uses on the wire. On restart, Redis replays the file from top to bottom to reconstruct the dataset.
+
+Enable AOF in `redis.conf`:
+
+```ini
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
+```
+
+The `appendfsync` option controls how often Redis calls `fsync()` to flush the OS buffer to disk:
+
+- `always` — flush after every command. Maximum durability, lowest throughput.
+- `everysec` — flush once per second. Lose at most one second of writes. Recommended for most workloads.
+- `no` — let the OS decide when to flush. Fastest, least durable.
+
+Over time the AOF file grows. Redis compacts it with `BGREWRITEAOF`, which forks a child to rewrite the log using the minimal set of commands needed to recreate the current dataset.
+
+## Checking Persistence State with redis-cli
+
+```text
+127.0.0.1:6379> BGSAVE
+Background saving started
+127.0.0.1:6379> LASTSAVE
+(integer) 1700000000
+127.0.0.1:6379> CONFIG GET save
+1) "save"
+2) "3600 1 300 100 60 10000"
+127.0.0.1:6379> BGREWRITEAOF
+Background append only file rewriting started
+```
+
+`LASTSAVE` returns a Unix timestamp of the last successful `BGSAVE`. Use it to confirm that automatic snapshots are running on schedule.
+
+export const rdbAofCode = `BGSAVE
+LASTSAVE
+CONFIG GET save
+BGREWRITEAOF`;
+
+<TryRedis client:visible code={rdbAofCode} />
+
+## Hybrid Persistence
+
+Redis 4 introduced hybrid mode and Redis 7 refined it. In hybrid mode the AOF file starts with an embedded RDB snapshot (for fast loading) followed by the incremental AOF command log (for durability). You get the fast restart of RDB and the low data-loss of AOF in a single file.
+
+Enable hybrid mode in `redis.conf`:
+
+```ini
+aof-use-rdb-preamble yes
+```
+
+Hybrid mode is the default in Redis 7 when both RDB and AOF are enabled. It is the recommended persistence setup for most production workloads that need both speed and durability.
+
+<Callout title="RDB vs AOF — which to use">
+RDB gives compact periodic snapshots (fast restarts, small files) at the cost of potentially losing writes made since the last snapshot. AOF gives a durable command log (loss of at most one second with `everysec`) at the cost of a larger file and slightly slower restart. Most production deployments run both in hybrid mode. For a pure cache with no persistence requirement, disable both by removing all `save` lines and setting `appendonly no`.
+</Callout>
+
+export const quizRdbAof = [
+  {
+    q: "Which command triggers a background RDB snapshot without blocking the server?",
+    options: ["SAVE", "BGSAVE", "BGREWRITEAOF", "SNAPSHOT"],
+    answer: 1,
+  },
+  {
+    q: "What does setting `appendonly yes` in redis.conf enable?",
+    options: [
+      "Periodic RDB snapshots",
+      "Automatic key expiration",
+      "AOF command logging",
+      "Hybrid persistence mode",
+    ],
+    answer: 2,
+  },
+  {
+    q: "What is the default filename Redis uses for RDB snapshots?",
+    options: ["appendonly.aof", "redis.rdb", "dump.rdb", "snapshot.rdb"],
+    answer: 2,
+  },
+  {
+    q: "Which `appendfsync` value flushes the AOF buffer to disk exactly once per second?",
+    options: ["always", "no", "everysec", "periodic"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="persistence-expiration/rdb-aof" questions={quizRdbAof} />
+
+<ProgressTracker client:visible id="persistence-expiration/rdb-aof" />

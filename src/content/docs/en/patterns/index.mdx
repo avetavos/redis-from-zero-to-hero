@@ -1,0 +1,77 @@
+---
+title: Patterns Overview
+description: 'Why Redis shines for common application patterns: speed, atomicity, and TTL.'
+sidebar:
+  order: 1
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+Redis is not just a cache — it is a versatile data structure server that solves a class of problems that are difficult to handle well with a relational database alone. This module walks through four battle-tested patterns and explains exactly why Redis is the right tool for each.
+
+## Why Redis is Fast
+
+Redis stores all data in memory. A typical command completes in under a millisecond, orders of magnitude faster than a disk-backed database. Because Redis is **single-threaded**, every command executes sequentially with no locking overhead. You never have two commands interleaving their reads and writes, which makes operations **atomic by default** — without any extra effort from your application code.
+
+Redis also supports **TTL (Time To Live)**: every key can be given an expiration time. When the timer runs out, Redis silently removes the key. This built-in expiration is what makes caching and session management so clean — you do not need a background job to sweep stale data.
+
+## Patterns in This Module
+
+### 1. Caching (cache-aside)
+
+Your application checks Redis before hitting the database. On a miss it reads from the DB, stores the result in Redis with a TTL, and returns it. Subsequent reads are served directly from memory. This pattern can eliminate the majority of database load for read-heavy workloads.
+
+### 2. Rate Limiting (fixed-window counter)
+
+Each incoming request increments a counter key scoped to the caller and the current time window. If the counter exceeds the allowed limit, the request is rejected. Because Redis increments are atomic, there are no race conditions even under heavy concurrent traffic.
+
+### 3. Session Store (hash per session + TTL)
+
+User sessions are stored as Redis hashes — one key per session, with individual fields for each piece of session data. Setting a TTL on the session key means idle sessions expire automatically. Reads and writes are O(1) and far faster than a database row lookup.
+
+### 4. Distributed Lock (SET NX PX + Lua release)
+
+The `SET key value NX PX milliseconds` command sets a key **only if it does not already exist** and gives it a timeout. This is the foundation of a distributed lock: only one caller wins the race, and the lock is guaranteed to release even if the holder crashes.
+
+<Callout title="One server, four patterns">
+All four patterns run on a single Redis instance with no plugins or extensions. The primitives — strings, hashes, atomic commands, and TTL — are built into every Redis version.
+</Callout>
+
+export const quizIndex = [
+  {
+    q: "What makes Redis commands atomic by default?",
+    options: [
+      "Redis uses a database lock",
+      "Redis is single-threaded and executes commands sequentially",
+      "Redis uses optimistic locking",
+      "Redis wraps every command in a transaction"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which Redis feature lets keys automatically disappear after a timeout?",
+    options: [
+      "EXPIRE / TTL",
+      "DEL",
+      "PERSIST",
+      "OBJECT FREQ"
+    ],
+    answer: 0
+  },
+  {
+    q: "Which pattern uses `SET key val NX PX` to prevent concurrent work?",
+    options: [
+      "Cache-aside",
+      "Rate limiting",
+      "Session store",
+      "Distributed lock"
+    ],
+    answer: 3
+  }
+];
+
+<Quiz client:visible id="patterns/index" questions={quizIndex} />
+
+<ProgressTracker client:visible id="patterns/index" />

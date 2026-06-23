@@ -1,0 +1,175 @@
+---
+title: Counters
+description: 'การเพิ่มและลดค่าแบบ atomic ด้วย INCR, INCRBY และ INCRBYFLOAT — ปลอดภัยสำหรับการใช้งานพร้อมกันหลายเธรด'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## จำนวนเต็มที่เก็บเป็น string
+
+Redis เก็บทุกอย่างเป็น string แต่มันรู้ได้ว่าเมื่อไรที่ string เป็นจำนวนเต็ม (หรือ float) ที่ถูกต้อง และยอมให้คุณทำเลขคณิตกับมันได้ผ่านคำสั่งเฉพาะ จุดสำคัญคือ operation เหล่านี้เป็น **atomic** — Redis ทำแต่ละคำสั่งเป็นขั้นตอนเดียวที่ขัดจังหวะไม่ได้
+
+## INCR และ DECR
+
+`INCR key` เพิ่มค่าจำนวนเต็มขึ้นทีละ 1 ส่วน `DECR key` ลดลงทีละ 1 ถ้า key ไม่มีอยู่ Redis จะถือว่าค่าที่หายไปนั้นเป็น `0` ก่อนจะลงมือทำ operation
+
+```text
+127.0.0.1:6379> SET pageviews:home 0
+OK
+127.0.0.1:6379> INCR pageviews:home
+(integer) 1
+127.0.0.1:6379> INCR pageviews:home
+(integer) 2
+127.0.0.1:6379> INCR pageviews:home
+(integer) 3
+127.0.0.1:6379> DECR pageviews:home
+(integer) 2
+```
+
+export const incrCode = `SET pageviews:home 0
+INCR pageviews:home
+INCR pageviews:home
+INCR pageviews:home
+DECR pageviews:home`;
+
+<TryRedis client:visible code={incrCode} />
+
+## INCRBY และ DECRBY
+
+เมื่อคุณต้องการบวกหรือลบค่าอื่นที่ไม่ใช่ 1 ให้ใช้ `INCRBY` และ `DECRBY`:
+
+```text
+127.0.0.1:6379> SET score:player1 100
+OK
+127.0.0.1:6379> INCRBY score:player1 50
+(integer) 150
+127.0.0.1:6379> DECRBY score:player1 30
+(integer) 120
+127.0.0.1:6379> INCRBY score:player1 -10
+(integer) 110
+```
+
+export const incrbyCode = `SET score:player1 100
+INCRBY score:player1 50
+DECRBY score:player1 30
+INCRBY score:player1 -10`;
+
+<TryRedis client:visible code={incrbyCode} />
+
+## INCRBYFLOAT
+
+สำหรับเลขคณิตแบบ floating-point (ราคา, ค่าเฉลี่ย, ข้อมูล sensor) ให้ใช้ `INCRBYFLOAT` ไม่มีคำสั่ง `DECRBYFLOAT` — แค่ส่ง delta ที่เป็นค่าลบเข้าไปแทน
+
+```text
+127.0.0.1:6379> SET temperature 22.5
+OK
+127.0.0.1:6379> INCRBYFLOAT temperature 1.3
+"23.8"
+127.0.0.1:6379> INCRBYFLOAT temperature -5.0
+"18.8"
+127.0.0.1:6379> GET temperature
+"18.8"
+```
+
+export const floatCode = `SET temperature 22.5
+INCRBYFLOAT temperature 1.3
+INCRBYFLOAT temperature -5.0
+GET temperature`;
+
+<TryRedis client:visible code={floatCode} />
+
+## รูปแบบใช้งานจริง: counter นับ page-view
+
+เพราะ `INCR` จะตั้งค่า key ที่หายไปเป็น 0 ก่อนเพิ่มค่า คุณจึงไม่จำเป็นต้อง `SET 0` ก่อนเลย รวมเข้ากับ `EXPIRE` เพื่อทำ counter แบบ rolling-window:
+
+```text
+127.0.0.1:6379> INCR views:article:42
+(integer) 1
+127.0.0.1:6379> INCR views:article:42
+(integer) 2
+127.0.0.1:6379> INCR views:article:42
+(integer) 3
+127.0.0.1:6379> GET views:article:42
+"3"
+```
+
+export const pageviewCode = `INCR views:article:42
+INCR views:article:42
+INCR views:article:42
+GET views:article:42`;
+
+<TryRedis client:visible code={pageviewCode} />
+
+## รูปแบบใช้งานจริง: rate limiter
+
+ติดตามว่า IP หนึ่งยิง request มากี่ครั้งภายในหนึ่ง window ใช้ `INCR` ร่วมกับ `EXPIRE` ที่ตั้งเฉพาะตอน increment ครั้งแรก:
+
+```text
+127.0.0.1:6379> INCR ratelimit:ip:203.0.113.5
+(integer) 1
+127.0.0.1:6379> EXPIRE ratelimit:ip:203.0.113.5 60
+(integer) 1
+127.0.0.1:6379> INCR ratelimit:ip:203.0.113.5
+(integer) 2
+127.0.0.1:6379> TTL ratelimit:ip:203.0.113.5
+(integer) 57
+```
+
+ใน code ของแอปพลิเคชันคุณจะเช็กว่า: ถ้าผลลัพธ์ของ `INCR` เกิน limit ที่ตั้งไว้ (เช่น 100) ก็ปฏิเสธ request นั้น key จะลบตัวเองอัตโนมัติหลังผ่านไป 60 วินาที เป็นการ reset window ใหม่
+
+export const ratelimitCode = `INCR ratelimit:ip:203.0.113.5
+EXPIRE ratelimit:ip:203.0.113.5 60
+INCR ratelimit:ip:203.0.113.5
+TTL ratelimit:ip:203.0.113.5`;
+
+<TryRedis client:visible code={ratelimitCode} />
+
+<Callout title="INCR เป็น atomic — ไม่มี race แบบ read-modify-write">
+
+ในแอปพลิเคชันแบบ multi-threaded counter ที่เขียนแบบไร้เดียงสาจะมีหน้าตาประมาณนี้: อ่านค่า, บวก 1, แล้วเขียนกลับ สองเธรดที่ทำแบบนี้พร้อมกันอาจอ่านค่าเดียวกันและให้ผลรวมที่ผิด (race condition คลาสสิก)
+
+`INCR` เลี่ยงปัญหานี้ได้ทั้งหมด Redis ทำงานแบบ single-threaded ในการ execute คำสั่ง ดังนั้น `INCR` จึงเป็น operation ที่แบ่งแยกไม่ได้ — ไม่มีคำสั่งอื่นมาแทรกระหว่างการ read กับ write ได้ หนึ่งหมื่น request ที่เรียก `INCR pageviews` พร้อมกันจะให้ผลลัพธ์เป็น 10,000 พอดีโดยไม่มีค่าสูญหาย
+
+</Callout>
+
+export const quizCounters = [
+  {
+    q: "INCR ใช้ค่าอะไรเมื่อ key ยังไม่มีอยู่?",
+    options: ["1", "0", "nil", "มันคืน error"],
+    answer: 1,
+  },
+  {
+    q: "คำสั่งใดเพิ่มค่าแบบ floating-point?",
+    options: ["INCR", "INCRBY", "INCRBYFLOAT", "INCRFLOAT"],
+    answer: 2,
+  },
+  {
+    q: "ทำไม INCR ถึงปลอดภัยสำหรับ counter ที่ใช้พร้อมกันหลายเธรด?",
+    options: [
+      "มันใช้ lock ฝั่ง client",
+      "มันเป็น operation แบบ atomic ที่ Redis ทำเป็นขั้นตอนเดียว",
+      "มัน queue request ไว้แล้วประมวลผลทีละตัวฝั่ง client",
+      "มันใช้ transaction ของ Redis (MULTI/EXEC) ภายใน",
+    ],
+    answer: 1,
+  },
+  {
+    q: "คุณจะลบ 5 ด้วย INCRBYFLOAT ได้อย่างไร?",
+    options: [
+      "DECRBYFLOAT key 5",
+      "INCRBYFLOAT key -5",
+      "INCRBY key -5.0",
+      "ลบด้วย INCRBYFLOAT ไม่ได้",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="keys-strings/counters" questions={quizCounters} />
+
+<ProgressTracker client:visible id="keys-strings/counters" />

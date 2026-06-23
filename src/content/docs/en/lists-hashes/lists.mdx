@@ -1,0 +1,166 @@
+---
+title: 'Lists'
+description: 'LPUSH, RPUSH, LRANGE, LINDEX, LLEN, LSET, LREM, and LTRIM — Redis lists are ordered linked lists with O(1) push and pop.'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is a Redis List?
+
+A Redis List is an ordered collection of strings implemented as a **doubly linked list**. This gives you O(1) push and pop at both ends, making lists ideal for queues, stacks, and activity feeds. The trade-off: accessing an element in the middle is O(N), so lists are best used when you mostly work at the head or tail.
+
+## LPUSH and RPUSH
+
+`LPUSH key val [val ...]` prepends one or more values to the head of the list. When you push multiple values at once, the last argument ends up at the head — each value is pushed individually from left to right.
+
+`RPUSH key val [val ...]` appends one or more values to the tail.
+
+```text
+127.0.0.1:6379> RPUSH tasks "buy milk"
+(integer) 1
+127.0.0.1:6379> RPUSH tasks "write code" "review PR"
+(integer) 3
+127.0.0.1:6379> LPUSH tasks "urgent: fix bug"
+(integer) 4
+```
+
+export const listBasicsCode = `RPUSH tasks "buy milk"
+RPUSH tasks "write code" "review PR"
+LPUSH tasks "urgent: fix bug"
+LRANGE tasks 0 -1
+LLEN tasks
+LINDEX tasks 0
+LINDEX tasks -1`;
+
+<TryRedis client:visible code={listBasicsCode} />
+
+## LRANGE, LLEN, and LINDEX
+
+Once you have a list, these three commands cover most read patterns:
+
+- `LRANGE key start stop` — returns elements from index `start` to `stop` (inclusive, 0-based). Use `-1` for the last element, `-2` for second-to-last, and so on.
+- `LLEN key` — returns the number of elements in the list.
+- `LINDEX key index` — returns the single element at the given index. Negative indices count from the tail.
+
+```text
+127.0.0.1:6379> LRANGE tasks 0 -1
+1) "urgent: fix bug"
+2) "buy milk"
+3) "write code"
+4) "review PR"
+127.0.0.1:6379> LLEN tasks
+(integer) 4
+127.0.0.1:6379> LINDEX tasks 0
+"urgent: fix bug"
+127.0.0.1:6379> LINDEX tasks -1
+"review PR"
+```
+
+`LRANGE tasks 0 -1` is the idiomatic way to fetch every element in a list. `LINDEX` is O(N) — it traverses from the nearest end — so prefer it only for the first or last few positions.
+
+## LSET and LREM
+
+`LSET key index value` overwrites the element at a specific index. The list must already contain an element at that position, otherwise Redis returns an error.
+
+`LREM key count value` removes occurrences of `value`:
+- `count > 0` — remove up to `count` occurrences scanning from head to tail
+- `count < 0` — remove up to `|count|` occurrences scanning from tail to head
+- `count = 0` — remove **all** occurrences
+
+```text
+127.0.0.1:6379> LSET tasks 1 "buy oat milk"
+OK
+127.0.0.1:6379> LRANGE tasks 0 -1
+1) "urgent: fix bug"
+2) "buy oat milk"
+3) "write code"
+4) "review PR"
+127.0.0.1:6379> RPUSH tasks "write code"
+(integer) 5
+127.0.0.1:6379> LREM tasks 0 "write code"
+(integer) 2
+```
+
+export const listEditCode = `RPUSH tasks "buy milk"
+RPUSH tasks "write code" "review PR"
+LPUSH tasks "urgent: fix bug"
+LSET tasks 1 "buy oat milk"
+LRANGE tasks 0 -1
+RPUSH tasks "write code"
+LREM tasks 0 "write code"
+LRANGE tasks 0 -1`;
+
+<TryRedis client:visible code={listEditCode} />
+
+## LTRIM — keep only a slice
+
+`LTRIM key start stop` modifies the list **in place**, retaining only the elements in `[start, stop]` and discarding everything outside that range. It returns `OK` immediately, making it safe to call after every write.
+
+```text
+127.0.0.1:6379> DEL recent
+(integer) 1
+127.0.0.1:6379> RPUSH recent "page-A" "page-B" "page-C" "page-D" "page-E"
+(integer) 5
+127.0.0.1:6379> LTRIM recent 0 2
+OK
+127.0.0.1:6379> LRANGE recent 0 -1
+1) "page-A"
+2) "page-B"
+3) "page-C"
+```
+
+export const ltrimCode = `DEL recent
+RPUSH recent "page-A" "page-B" "page-C" "page-D" "page-E"
+LRANGE recent 0 -1
+LTRIM recent 0 2
+LRANGE recent 0 -1`;
+
+<TryRedis client:visible code={ltrimCode} />
+
+<Callout title="Recent-items feed with LPUSH + LTRIM">
+
+Combining `LPUSH` and `LTRIM` keeps a fixed-size "last N" list in O(1) amortized time. After each new event: `LPUSH activity:user:42 "viewed:item:99"` then `LTRIM activity:user:42 0 49` keeps the 50 most recent items automatically.
+
+</Callout>
+
+export const quizLists = [
+  {
+    q: "What does `LRANGE tasks 0 -1` return?",
+    options: [
+      "Only the first element",
+      "Only the last element",
+      "All elements from first to last",
+      "An error — negative index is invalid",
+    ],
+    answer: 2,
+  },
+  {
+    q: "Which push command adds an element to the HEAD of a list?",
+    options: ["RPUSH", "LPUSH", "APUSH", "HEADPUSH"],
+    answer: 1,
+  },
+  {
+    q: "What does `LREM key 0 val` do?",
+    options: [
+      "Removes the element at index 0",
+      "Removes all occurrences of val",
+      "Removes the first val found from the head",
+      "Clears the entire list",
+    ],
+    answer: 1,
+  },
+  {
+    q: "After `LTRIM mylist 0 2`, how many elements remain?",
+    options: ["0", "1", "2", "3"],
+    answer: 3,
+  },
+];
+
+<Quiz client:visible id="lists-hashes/lists" questions={quizLists} />
+
+<ProgressTracker client:visible id="lists-hashes/lists" />

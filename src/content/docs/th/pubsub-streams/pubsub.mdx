@@ -1,0 +1,147 @@
+---
+title: Pub/Sub
+description: 'SUBSCRIBE, UNSUBSCRIBE และ PUBLISH — ช่องสัญญาณ การส่งข้อความแบบ fire-and-forget และการสาธิตสองเทอร์มินัล'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Pub/Sub ทำงานอย่างไร
+
+Redis Pub/Sub ทำตาม pattern publish-subscribe แบบคลาสสิก:
+
+1. Client เรียก `SUBSCRIBE channel` และเข้าสู่โหมดฟัง มันไม่สามารถออกคำสั่งปกติได้อีกต่อไป — มันจะรับแต่ push message จาก Redis เท่านั้น
+2. Client อื่นใดเรียก `PUBLISH channel message` Redis จะส่งต่อข้อความนั้นไปยัง subscriber ที่เชื่อมต่ออยู่ทุกคนของ channel นั้นทันที
+3. ข้อความไม่เคยถูกเก็บไว้ หากไม่มี subscriber เชื่อมต่ออยู่ ข้อความจะถูกทิ้งอย่างเงียบ ๆ หาก subscriber เชื่อมต่ออยู่เมื่อสิบวินาทีก่อนแต่ตัดการเชื่อมต่อไปแล้ว มันจะไม่ได้รับอะไรเลย
+
+แต่ละ channel เป็นแค่ชื่อ — Redis สร้างและลบ channel โดยปริยายเมื่อ subscriber มาและไป ไม่จำเป็นต้องสร้าง channel ก่อนที่จะ publish ไปยังมัน
+
+## SUBSCRIBE และ PUBLISH — การสาธิตสองเทอร์มินัล
+
+การโต้ตอบด้านล่างต้องใช้ session `redis-cli` สองอันที่รันพร้อมกัน เริ่ม Terminal 1 ก่อน แล้วส่งจาก Terminal 2
+
+```text
+# Terminal 1 — subscriber
+127.0.0.1:6379> SUBSCRIBE news
+Reading messages... (press Ctrl-C to quit or any command to unsubscribe)
+1) "subscribe"
+2) "news"
+3) (integer) 1
+
+# Terminal 2 — publisher (in a second redis-cli session)
+127.0.0.1:6379> PUBLISH news "Breaking: Redis is fast"
+(integer) 1
+
+# Back in Terminal 1 — message arrives automatically
+1) "message"
+2) "news"
+3) "Breaking: Redis is fast"
+```
+
+ข้อความยืนยันที่ Redis ส่งกลับไปยัง subscriber เมื่อ `SUBSCRIBE` มีสามส่วน:
+
+| ส่วน | ค่า | ความหมาย |
+|---|---|---|
+| 1 | `"subscribe"` | ประเภท event |
+| 2 | `"news"` | ชื่อ channel |
+| 3 | `(integer) 1` | จำนวน channel ทั้งหมดที่ client นี้ subscribe อยู่ขณะนี้ |
+
+เมื่อข้อความที่ publish มาถึง มันก็มีสามส่วนเช่นกัน: ประเภท event `"message"`, ชื่อ channel และ payload
+
+ตัวเลขที่ `PUBLISH` คืนกลับมาคือจำนวน subscriber ที่ได้รับข้อความ ค่าที่คืนมาเป็น `0` หมายความว่าไม่มีใครฟังอยู่
+
+export const pubsubCode = `PUBLISH news "Breaking: Redis is fast"
+PUBLISH news "Another update"`;
+
+<TryRedis client:visible code={pubsubCode} label="Copy PUBLISH command" />
+
+## UNSUBSCRIBE
+
+เพื่อออกจาก channel client ที่ subscribe อยู่จะส่ง `UNSUBSCRIBE` คุณสามารถระบุชื่อ channel เฉพาะหรือละเว้นชื่อ channel เพื่อ unsubscribe จากทุก channel พร้อมกันในครั้งเดียว
+
+```text
+# Unsubscribe from one channel
+127.0.0.1:6379> UNSUBSCRIBE news
+1) "unsubscribe"
+2) "news"
+3) (integer) 0
+
+# Unsubscribe from all channels (no argument)
+127.0.0.1:6379> UNSUBSCRIBE
+1) "unsubscribe"
+2) (nil)
+3) (integer) 0
+```
+
+เมื่อจำนวนการ subscribe ลดเหลือ `0` client จะออกจากโหมดฟังและสามารถออกคำสั่งปกติได้อีกครั้ง
+
+## SUBSCRIBE หลายช่องพร้อมกัน
+
+การเรียก `SUBSCRIBE` ครั้งเดียวรับชื่อ channel ได้หลายชื่อ client จะรับข้อความจากทุก channel บน connection เดียวกัน
+
+```text
+127.0.0.1:6379> SUBSCRIBE sports weather finance
+1) "subscribe"
+2) "sports"
+3) (integer) 1
+1) "subscribe"
+2) "weather"
+3) (integer) 2
+1) "subscribe"
+2) "finance"
+3) (integer) 3
+```
+
+Redis ส่งการตอบกลับยืนยันหนึ่งครั้งต่อ channel ฟิลด์ที่สามจะเพิ่มขึ้นเมื่อเพิ่มการ subscribe แต่ละครั้ง แสดงผลรวมที่ทำงานอยู่
+
+<Callout title="Pub/Sub แบบ fire-and-forget — ผู้รับที่ออฟไลน์จะไม่ได้รับข้อความ">
+
+ไม่มี buffer ไม่มีการ retry และไม่มีประวัติ ทันทีที่ `PUBLISH` คืนค่า ข้อความก็หายไปแล้ว subscriber ที่ออฟไลน์แม้เพียงหนึ่ง millisecond ในช่วงนั้นจะไม่มีวันเห็นมัน หากแอปพลิเคชันของคุณรับการสูญหายของข้อความไม่ได้ ให้ใช้ Redis Streams แทน
+
+</Callout>
+
+export const quizPubsub = [
+  {
+    q: "`PUBLISH channel message` คืนค่าอะไร?",
+    options: [
+      "OK",
+      "Message ID",
+      "จำนวน subscriber ที่ได้รับข้อความ",
+      "จำนวน channel ที่ publisher เชื่อมต่ออยู่",
+    ],
+    answer: 2,
+  },
+  {
+    q: "client รัน SUBSCRIBE news แล้ว มันสามารถรัน GET mykey โดยไม่ต้อง unsubscribe ก่อนได้ไหม?",
+    options: [
+      "ได้ ทุกคำสั่งใช้ได้ขณะที่ subscribe อยู่",
+      "ได้ แต่เฉพาะคำสั่งอ่านเท่านั้น",
+      "ไม่ได้ — client ที่ subscribe อยู่ใช้ได้เฉพาะ SUBSCRIBE, UNSUBSCRIBE, PING และ RESET",
+      "ไม่ได้ — ต้องเปิด connection ใหม่ก่อน",
+    ],
+    answer: 2,
+  },
+  {
+    q: "publisher ส่งข้อความไปยัง channel ที่มี subscriber ศูนย์คน จะเกิดอะไรขึ้นกับข้อความ?",
+    options: [
+      "Redis เก็บไว้และส่งเมื่อ subscriber ถัดไปเชื่อมต่อ",
+      "Redis คืน error",
+      "Redis ทิ้งทันที",
+      "Redis ใส่ไว้ใน dead-letter queue",
+    ],
+    answer: 2,
+  },
+  {
+    q: "ฟิลด์ตอบกลับใดใน push message ที่มีชื่อ channel?",
+    options: ["Field 1", "Field 2", "Field 3", "Field 0"],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="pubsub-streams/pubsub" questions={quizPubsub} />
+
+<ProgressTracker client:visible id="pubsub-streams/pubsub" />

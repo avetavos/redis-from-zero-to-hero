@@ -1,0 +1,154 @@
+---
+title: 'Modeling Objects with Hashes'
+description: 'Store objects as hashes, use HINCRBY and HINCRBYFLOAT for numeric fields, and HSETNX for conditional sets.'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## One hash per object — the canonical pattern
+
+The idiomatic way to model a domain object in Redis is to store all its fields under a single hash key. A user record, for example, lives entirely under `user:1`:
+
+```text
+127.0.0.1:6379> HSET user:1 name "Ada" email "ada@example.com" age "28" points "0"
+(integer) 4
+127.0.0.1:6379> HGETALL user:1
+1) "name"
+2) "Ada"
+3) "email"
+4) "ada@example.com"
+5) "age"
+6) "28"
+7) "points"
+8) "0"
+```
+
+Compare that to the many-keys alternative:
+
+| Approach | Keys required |
+|---|---|
+| Hash | `user:1` — one key, one `HSET` |
+| Separate strings | `user:1:name`, `user:1:email`, `user:1:age`, `user:1:points` — four keys |
+
+The hash approach uses less memory and lets you fetch or update a specific field — with `HGET` / `HSET` — without loading or touching any other field in the object.
+
+export const hashObjectCode = `HSET user:1 name "Ada" email "ada@example.com" age "28" points "0"
+HGETALL user:1`;
+
+<TryRedis client:visible code={hashObjectCode} />
+
+## HINCRBY and HINCRBYFLOAT
+
+When a hash field holds a number, Redis can increment it atomically — no read-modify-write race:
+
+- `HINCRBY key field increment` — increment an integer field by an integer amount
+- `HINCRBYFLOAT key field increment` — increment a float field by a float amount
+
+```text
+127.0.0.1:6379> HINCRBY user:1 points 10
+(integer) 10
+127.0.0.1:6379> HINCRBY user:1 age 1
+(integer) 29
+127.0.0.1:6379> HINCRBYFLOAT user:1 score 1.5
+"1.5"
+127.0.0.1:6379> HINCRBYFLOAT user:1 score 0.5
+"2"
+127.0.0.1:6379> HGET user:1 points
+"10"
+```
+
+If the field does not exist yet, both commands treat its starting value as `0` before applying the increment, so `HINCRBY user:1 points 5` on a missing `points` field creates it with the value `5`.
+
+export const hincrbyCode = `HSET user:1 name "Ada" email "ada@example.com" age "28" points "0"
+HINCRBY user:1 points 10
+HINCRBY user:1 age 1
+HINCRBYFLOAT user:1 score 1.5
+HINCRBYFLOAT user:1 score 0.5
+HGET user:1 points`;
+
+<TryRedis client:visible code={hincrbyCode} />
+
+## HSETNX — conditional field set
+
+`HSETNX key field value` sets a field **only if it does not already exist**. It returns `1` if the field was created, `0` if it was already present and left unchanged.
+
+```text
+127.0.0.1:6379> HSETNX user:1 email "newemail@example.com"
+(integer) 0
+127.0.0.1:6379> HGET user:1 email
+"ada@example.com"
+127.0.0.1:6379> HSETNX user:1 referrer "bob"
+(integer) 1
+127.0.0.1:6379> HGET user:1 referrer
+"bob"
+```
+
+A practical use case: stamp a `created_at` field exactly once when the object is first written. Because `HSETNX` is atomic, two concurrent writers cannot both win — only the first call returns `1`.
+
+export const hsetnxCode = `HSET user:1 name "Ada" email "ada@example.com"
+HSETNX user:1 email "newemail@example.com"
+HGET user:1 email
+HSETNX user:1 referrer "bob"
+HGET user:1 referrer`;
+
+<TryRedis client:visible code={hsetnxCode} />
+
+## Hash vs many string keys — when to use which
+
+| | Hash (one key) | Many string keys |
+|---|---|---|
+| Memory | Compact (listpack for small hashes) | Higher overhead per key |
+| Fetch one field | `HGET user:1 name` | `GET user:1:name` |
+| Fetch all fields | `HGETALL user:1` | `MGET user:1:name user:1:email ...` |
+| Atomic increment | `HINCRBY` | `INCR user:1:points` |
+| TTL per field | Not possible | Yes (each key has its own TTL) |
+
+Rule of thumb: prefer one hash per object. Use separate string keys only if you need per-field TTL.
+
+<Callout title="Prefer one hash per object over many string keys">
+
+Storing `user:1` as a single hash is more memory-efficient than splitting it into `user:1:name`, `user:1:email`, etc. Redis uses a compact listpack encoding for hashes with fewer than 128 fields — saving roughly 50–80 bytes per object compared to separate string keys. Reserve the many-keys pattern only when you need per-field expiration.
+
+</Callout>
+
+export const quizHashObjects = [
+  {
+    q: "What does `HINCRBY user:1 points 5` do if `points` field does not exist yet?",
+    options: [
+      "Returns an error",
+      "Creates the field with value 5",
+      "Creates the field with value 0",
+      "Does nothing",
+    ],
+    answer: 1,
+  },
+  {
+    q: "What does `HSETNX user:1 email 'new@example.com'` return if the field already exists?",
+    options: ["1", "0", "The existing value", "An error"],
+    answer: 1,
+  },
+  {
+    q: "Which approach uses less memory for storing a user object in Redis?",
+    options: [
+      "One hash key with all fields",
+      "One string key per field",
+      "Both use the same memory",
+      "It depends on the OS",
+    ],
+    answer: 0,
+  },
+  {
+    q: "Which command atomically increments a float field in a hash?",
+    options: ["HINCRBY", "HINCR", "HINCRBYFLOAT", "HFLOATINCR"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="lists-hashes/hash-objects" questions={quizHashObjects} />
+
+<ProgressTracker client:visible id="lists-hashes/hash-objects" />

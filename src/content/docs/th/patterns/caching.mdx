@@ -1,0 +1,121 @@
+---
+title: Caching (Cache-aside)
+description: 'ใช้ Redis เป็น read-through cache: ตรวจสอบ Redis ก่อน ถ้าไม่พบค่อยไปที่ DB แล้วเขียนกลับพร้อม TTL'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+pattern **cache-aside** (หรือที่รู้จักในชื่อ *lazy loading*) ให้แอปพลิเคชันของคุณควบคุมว่าอะไรจะเข้าไปในแคชและเมื่อไหร่ Redis อยู่หน้าฐานข้อมูลของคุณ: ถ้าข้อมูลอยู่ที่นั่น ก็ข้ามฐานข้อมูลไปได้เลย ถ้าไม่มี ก็ดึงจาก DB แล้วนำมาเก็บในแคชสำหรับครั้งถัดไป
+
+## วิธีการทำงานของ Cache-aside
+
+```text
+1. GET cache:user:42
+2. if nil → query DB → SET cache:user:42 <result> EX 300
+3. else → return cached value
+```
+
+แอปพลิเคชันเป็นผู้ควบคุมทั้งการอ่านและการเขียนลงในแคช ไม่มีการโหลดข้อมูลล่วงหน้า รายการถูกสร้างขึ้นตามความต้องการและหมดอายุโดยอัตโนมัติผ่าน TTL
+
+## การอ่านและเขียน Cache Entry
+
+```text
+127.0.0.1:6379> GET cache:user:42
+(nil)
+127.0.0.1:6379> SET cache:user:42 "{\"name\":\"Ada\",\"email\":\"ada@example.com\"}" EX 300
+OK
+127.0.0.1:6379> TTL cache:user:42
+(integer) 299
+127.0.0.1:6379> GET cache:user:42
+"{\"name\":\"Ada\",\"email\":\"ada@example.com\"}"
+```
+
+`EX 300` กำหนด TTL เป็น 300 วินาที (5 นาที) หลังจากนั้น key จะหายไปและคำขอถัดไปจะเป็น cache miss ซึ่งจะทำให้อ่านข้อมูลใหม่จาก DB
+
+export const cacheLookupCode = `GET cache:user:42
+SET cache:user:42 "{\\"name\\":\\"Ada\\",\\"email\\":\\"ada@example.com\\"}" EX 300
+TTL cache:user:42
+GET cache:user:42`;
+
+<TryRedis client:visible code={cacheLookupCode} />
+
+## การยกเลิก Cache
+
+เมื่อข้อมูลต้นฉบับเปลี่ยนแปลง เช่น ผู้ใช้อัปเดตโปรไฟล์ของตน รายการในแคชจะกลายเป็นข้อมูลเก่า วิธีที่ง่ายและเชื่อถือได้ที่สุดคือการลบ key ทันทีเพื่อให้การอ่านครั้งถัดไปดึงข้อมูลใหม่จาก DB
+
+```text
+127.0.0.1:6379> SET cache:user:42 "{\"name\":\"Ada updated\"}" EX 300
+OK
+127.0.0.1:6379> DEL cache:user:42
+(integer) 1
+127.0.0.1:6379> GET cache:user:42
+(nil)
+```
+
+export const cacheInvalidateCode = `SET cache:user:42 "{\\"name\\":\\"Ada updated\\"}" EX 300
+DEL cache:user:42
+GET cache:user:42`;
+
+<TryRedis client:visible code={cacheInvalidateCode} />
+
+## Cache Stampede
+
+**cache stampede** เกิดขึ้นเมื่อ key ยอดนิยมหมดอายุและคำขอพร้อมกันหลายสิบ (หรือหลายพัน) รายการเกิด cache miss ในเวลาเดียวกัน ทั้งหมดแข่งกันไปยังฐานข้อมูลพร้อมกัน ทำให้เกิดการพุ่งสูงของภาระบน DB อย่างกะทันหัน — ซึ่งเป็นสิ่งที่การแคชตั้งใจป้องกันอยู่
+
+มีสองวิธีที่ใช้บรรเทาปัญหานี้ทั่วไป: ใช้ `SET ... NX` เพื่อให้เฉพาะผู้เขียนรายแรกเท่านั้นที่นำข้อมูลเข้า key และให้รายอื่นรอ หรือใช้ **probabilistic early expiration** — เทคนิคที่รีเฟรช key แบบสุ่มก่อนที่มันจะหมดอายุ โดยอ้างอิงจาก TTL ที่เหลืออยู่และต้นทุนการคำนวณที่ประมาณไว้ ทั้งสองกลยุทธ์ช่วยลดผลกระทบ thundering-herd โดยไม่ต้องใช้บริการ lock ภายนอก
+
+<Callout title="Cache-aside + TTL คือการใช้งาน Redis ที่พบบ่อยที่สุด">
+ใช้ TTL สั้น ๆ (หน่วยวินาทีถึงนาที) เพื่อไม่ให้ข้อมูลเก่าสะสม ควร invalidate (DEL) เสมอเมื่อ source-of-truth เปลี่ยนแปลง
+</Callout>
+
+export const quizCaching = [
+  {
+    q: "ใน cache-aside แอปพลิเคชันเขียนลง Redis เมื่อไหร่?",
+    options: [
+      "ทุกครั้งที่อ่าน",
+      "เฉพาะเมื่อ cache miss หลังจากอ่านจาก DB",
+      "เฉพาะเมื่อ TTL หมดอายุ",
+      "ทุกครั้งที่เขียนลง DB"
+    ],
+    answer: 1
+  },
+  {
+    q: "คำสั่งใดที่ลบ cache entry ที่ล้าสมัย?",
+    options: [
+      "EXPIRE",
+      "TTL",
+      "DEL",
+      "UNLINK"
+    ],
+    answer: 2
+  },
+  {
+    q: "cache stampede คืออะไร?",
+    options: [
+      "key ที่ไม่มีวันหมดอายุ",
+      "คำขอจำนวนมากที่พลาด cache ของ key ยอดนิยมที่หมดอายุพร้อมกันและไปกดดัน DB",
+      "ข้อผิดพลาด out-of-memory ของ Redis",
+      "หมดเวลาการเชื่อมต่อเครือข่าย"
+    ],
+    answer: 1
+  },
+  {
+    q: "option ใดของ SET ที่กำหนด TTL เป็นวินาที?",
+    options: [
+      "PX",
+      "NX",
+      "EX",
+      "XX"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="patterns/caching" questions={quizCaching} />
+
+<ProgressTracker client:visible id="patterns/caching" />

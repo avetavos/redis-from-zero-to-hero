@@ -1,0 +1,151 @@
+---
+title: Set Operations
+description: 'SINTER, SUNION, SDIFF and their STORE variants — common friends, audience overlap, and server-side set algebra.'
+sidebar:
+  order: 3
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Server-side set algebra
+
+Redis can compute **intersection**, **union**, and **difference** between two or more Sets entirely on the server. You never need to pull all members to the client and compute locally.
+
+## SINTER — intersection
+
+`SINTER key [key ...]` returns only the members that appear in **every** listed Set. Classic use case: mutual friends.
+
+```text
+127.0.0.1:6379> SADD user:1:follows "alice" "bob" "carol" "dave"
+(integer) 4
+127.0.0.1:6379> SADD user:2:follows "bob" "carol" "eve" "frank"
+(integer) 4
+127.0.0.1:6379> SINTER user:1:follows user:2:follows
+1) "bob"
+2) "carol"
+```
+
+export const sinterCode = `SADD user:1:follows "alice" "bob" "carol" "dave"
+SADD user:2:follows "bob" "carol" "eve" "frank"
+SINTER user:1:follows user:2:follows`;
+
+<TryRedis client:visible code={sinterCode} />
+
+## SUNION — union
+
+`SUNION key [key ...]` returns all members from **any** of the listed Sets, deduplicated. Use case: combined audience across campaigns.
+
+```text
+127.0.0.1:6379> SADD campaign:A "user:1" "user:2" "user:3"
+(integer) 3
+127.0.0.1:6379> SADD campaign:B "user:2" "user:4" "user:5"
+(integer) 3
+127.0.0.1:6379> SUNION campaign:A campaign:B
+1) "user:1"
+2) "user:2"
+3) "user:3"
+4) "user:4"
+5) "user:5"
+```
+
+export const sunionCode = `SADD campaign:A "user:1" "user:2" "user:3"
+SADD campaign:B "user:2" "user:4" "user:5"
+SUNION campaign:A campaign:B`;
+
+<TryRedis client:visible code={sunionCode} />
+
+## SDIFF — difference
+
+`SDIFF key [key ...]` returns members in the **first** Set that do not appear in any subsequent Set. Use case: find users in one group but not another.
+
+```text
+127.0.0.1:6379> SADD plan:premium "user:1" "user:2" "user:3"
+(integer) 3
+127.0.0.1:6379> SADD notified:promo "user:2" "user:3"
+(integer) 2
+127.0.0.1:6379> SDIFF plan:premium notified:promo
+1) "user:1"
+```
+
+export const sdiffCode = `SADD plan:premium "user:1" "user:2" "user:3"
+SADD notified:promo "user:2" "user:3"
+SDIFF plan:premium notified:promo`;
+
+<TryRedis client:visible code={sdiffCode} />
+
+## SINTERSTORE, SUNIONSTORE, SDIFFSTORE
+
+The `*STORE` variants write the result to a **destination key** instead of returning it. The destination is a regular Set you can inspect later.
+
+```text
+127.0.0.1:6379> SADD group:eng "alice" "bob" "carol"
+(integer) 3
+127.0.0.1:6379> SADD group:ops "carol" "dave"
+(integer) 2
+127.0.0.1:6379> SINTERSTORE overlap:eng-ops group:eng group:ops
+(integer) 1
+127.0.0.1:6379> SMEMBERS overlap:eng-ops
+1) "carol"
+127.0.0.1:6379> SUNIONSTORE all:staff group:eng group:ops
+(integer) 4
+127.0.0.1:6379> SMEMBERS all:staff
+1) "alice"
+2) "bob"
+3) "carol"
+4) "dave"
+```
+
+export const storeCode = `SADD group:eng "alice" "bob" "carol"
+SADD group:ops "carol" "dave"
+SINTERSTORE overlap:eng-ops group:eng group:ops
+SMEMBERS overlap:eng-ops
+SUNIONSTORE all:staff group:eng group:ops
+SMEMBERS all:staff`;
+
+<TryRedis client:visible code={storeCode} />
+
+<Callout title="Set algebra runs server-side — no data transfer needed">
+
+With `SINTER`, `SUNION`, and `SDIFF`, Redis does all the computation in-process. For large Sets (millions of members), this avoids transferring the entire collection to your application server just to intersect or diff it locally. The `*STORE` variants go further: the result is materialized as a new key that other clients can read immediately.
+
+</Callout>
+
+export const quizSetOps = [
+  {
+    q: "Which command returns members present in ALL listed sets?",
+    options: ["SUNION", "SDIFF", "SINTER", "SMEMBERS"],
+    answer: 2,
+  },
+  {
+    q: "What does SDIFF key1 key2 return?",
+    options: [
+      "Members in key2 but not key1",
+      "Members in key1 but not key2",
+      "Members in both key1 and key2",
+      "All members from key1 and key2",
+    ],
+    answer: 1,
+  },
+  {
+    q: "What is the effect of SINTERSTORE destination key1 key2?",
+    options: [
+      "Reads the intersection into a local variable",
+      "Computes the intersection and stores it in destination",
+      "Copies key1 and key2 into destination",
+      "Returns the intersection without storing it",
+    ],
+    answer: 1,
+  },
+  {
+    q: "SUNION across two sets with some overlapping members returns how many copies of a shared member?",
+    options: ["Two", "Zero", "One", "It depends on insertion order"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="sets-sorted-sets/set-operations" questions={quizSetOps} />
+
+<ProgressTracker client:visible id="sets-sorted-sets/set-operations" />

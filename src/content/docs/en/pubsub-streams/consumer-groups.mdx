@@ -1,0 +1,127 @@
+---
+title: Consumer Groups
+description: 'XGROUP CREATE, XREADGROUP, XACK, and XPENDING — split a stream across workers with at-least-once delivery.'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is a consumer group
+
+A consumer group lets multiple workers (consumers) read from the same stream, with each entry delivered to only ONE consumer in the group. Redis tracks which entries have been delivered but not yet acknowledged. This enables at-least-once processing.
+
+## Creating a group — XGROUP CREATE
+
+```text
+127.0.0.1:6379> XADD jobs * type "email" to "ada@example.com"
+"1700000000000-0"
+127.0.0.1:6379> XADD jobs * type "sms" to "+6681234567"
+"1700000000001-0"
+127.0.0.1:6379> XGROUP CREATE jobs workers $ MKSTREAM
+OK
+```
+
+`$` means "start from the latest entry" — only new messages added after the group is created will be delivered. Use `0` to read from the beginning of the stream. `MKSTREAM` creates the stream automatically if it does not exist yet.
+
+## XREADGROUP — reading as a consumer
+
+```text
+127.0.0.1:6379> XADD jobs * type "email" to "bob@example.com"
+"1700000000002-0"
+127.0.0.1:6379> XREADGROUP GROUP workers consumer-1 COUNT 1 STREAMS jobs >
+1) 1) "jobs"
+   2) 1) 1) "1700000000002-0"
+            2) 1) "type"
+               2) "email"
+               3) "to"
+               4) "bob@example.com"
+```
+
+The special ID `>` means "give me new undelivered entries". Once delivered, the entry is placed in the Pending Entries List (PEL) for `consumer-1` until it is explicitly acknowledged.
+
+## XACK — acknowledging entries
+
+```text
+127.0.0.1:6379> XACK jobs workers 1700000000002-0
+(integer) 1
+```
+
+Once acknowledged, the entry is removed from the PEL. Only call `XACK` after your worker has successfully processed the message — acknowledging too early risks data loss if the worker crashes mid-processing.
+
+## XPENDING — inspecting unacknowledged entries
+
+```text
+127.0.0.1:6379> XPENDING jobs workers - + 10
+1) 1) "1700000000002-0"
+   2) "consumer-1"
+   3) (integer) 4321
+   4) (integer) 1
+```
+
+Each row shows: the entry ID, the consumer holding it, how long it has been idle in milliseconds, and how many times it has been delivered. This is your primary tool for detecting stuck or slow consumers.
+
+export const cgCode = `XADD jobs * type "email" to "ada@example.com"
+XADD jobs * type "sms" to "+6681234567"
+XGROUP CREATE jobs workers 0 MKSTREAM
+XREADGROUP GROUP workers consumer-1 COUNT 10 STREAMS jobs >
+XACK jobs workers 1700000000000-0
+XPENDING jobs workers - + 10`;
+
+<TryRedis client:visible code={cgCode} label="Copy sequence (update IDs from XADD output)" />
+
+<Callout title="Consumer groups split a stream across workers with acknowledgements">
+
+Consumer groups give you at-least-once delivery. If a consumer crashes before calling `XACK`, the entry stays in the PEL and can be claimed by another worker using `XCLAIM` or `XAUTOCLAIM`. This makes Redis Streams a reliable foundation for distributed task queues.
+
+</Callout>
+
+export const quizConsumerGroups = [
+  {
+    q: "What does `XREADGROUP GROUP g consumer STREAMS s >` mean?",
+    options: [
+      "Deliver new undelivered entries to this consumer",
+      "Re-deliver all pending entries from the beginning",
+      "Acknowledge all entries in the group",
+      "Delete the consumer group",
+    ],
+    answer: 0,
+  },
+  {
+    q: "What happens to a stream entry after XACK is called?",
+    options: [
+      "It is deleted from the stream entirely",
+      "It is moved to a dead-letter stream",
+      "It is removed from the Pending Entries List",
+      "It is redelivered to another consumer",
+    ],
+    answer: 2,
+  },
+  {
+    q: "What does XPENDING show?",
+    options: [
+      "All entries ever written to the stream",
+      "Entries that have been delivered but not yet acknowledged",
+      "Entries waiting to be delivered",
+      "The number of active consumer groups",
+    ],
+    answer: 1,
+  },
+  {
+    q: "In `XGROUP CREATE jobs workers 0 MKSTREAM`, what does `0` mean?",
+    options: [
+      "Only deliver zero entries at a time",
+      "Start from the latest entry only",
+      "Start reading from the beginning of the stream",
+      "Create zero consumers initially",
+    ],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="pubsub-streams/consumer-groups" questions={quizConsumerGroups} />
+
+<ProgressTracker client:visible id="pubsub-streams/consumer-groups" />

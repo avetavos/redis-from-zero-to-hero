@@ -1,0 +1,124 @@
+---
+title: 'Run Redis with Docker'
+description: 'Start a Redis 7 container, connect with redis-cli, and manage the container lifecycle.'
+sidebar:
+  order: 3
+---
+
+import RunRedis from '../../../../components/RunRedis.astro';
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Docker is the fastest path to a local Redis
+
+You do not need to install Redis on your machine. A single `docker run` command pulls the official image and starts a ready-to-use server in seconds.
+
+<RunRedis />
+
+## The default command explained
+
+```bash
+docker run -d --name redis -p 6379:6379 redis:7-alpine
+```
+
+| Flag | What it does |
+|------|--------------|
+| `-d` | Run in detached (background) mode so your terminal stays free |
+| `--name redis` | Give the container a stable name you can reference in later commands |
+| `-p 6379:6379` | Publish port 6379 from the container to your host on the same port |
+| `redis:7-alpine` | Use the official Redis 7 image built on Alpine Linux — small and fast |
+
+## Connecting with redis-cli
+
+Once the container is running, open an interactive CLI session inside it:
+
+```bash
+docker exec -it redis redis-cli
+```
+
+`docker exec` runs a command inside a running container. `-it` allocates an interactive TTY so you get the familiar `127.0.0.1:6379>` prompt. From there you can run any Redis command.
+
+<Callout title="Name the container and publish port 6379">
+
+`--name redis` lets every subsequent command refer to the container by name instead of a hash (e.g. `docker stop redis` instead of `docker stop a3f9…`). `-p 6379:6379` exposes the port so any Redis client on your host — redis-cli, your application, or a GUI tool — can connect to `127.0.0.1:6379` without extra configuration.
+
+</Callout>
+
+## Adding persistence with a named volume
+
+By default the container stores data in a temporary layer that disappears when you remove the container. Attach a named volume to keep your data across restarts:
+
+```bash
+docker run -d --name redis -p 6379:6379 -v redisdata:/data redis:7-alpine
+```
+
+Docker creates the `redisdata` volume automatically. The `/data` path is where the official Redis image writes its `dump.rdb` snapshot file.
+
+## Container lifecycle
+
+```bash
+# Stop the running container (Redis shuts down cleanly)
+docker stop redis
+
+# Start it again — data in the named volume is preserved
+docker start redis
+
+# Remove the container entirely (volume survives unless you also delete it)
+docker rm redis
+```
+
+## Viewing logs
+
+```bash
+# Print all logs produced so far
+docker logs redis
+
+# Follow logs in real time (Ctrl-C to stop)
+docker logs -f redis
+```
+
+The logs show the Redis startup banner, the port it is listening on, and any warnings — useful for diagnosing configuration issues.
+
+export const dockerCode = `docker run -d --name redis -p 6379:6379 redis:7-alpine
+docker exec -it redis redis-cli`;
+
+<TryRedis client:visible code={dockerCode} />
+
+export const quizDocker = [
+  {
+    q: "What does the `-d` flag do in `docker run -d`?",
+    options: [
+      "Deletes the container after it exits",
+      "Runs the container in detached (background) mode",
+      "Disables networking for the container",
+      "Downloads the image without starting it",
+    ],
+    answer: 1,
+  },
+  {
+    q: "Which flag publishes the Redis port so your host can connect to it?",
+    options: [
+      "--name redis",
+      "-v redisdata:/data",
+      "-p 6379:6379",
+      "--expose 6379",
+    ],
+    answer: 2,
+  },
+  {
+    q: "How do you open an interactive redis-cli session inside the running container?",
+    options: [
+      "docker attach redis",
+      "docker exec -it redis redis-cli",
+      "docker run -it redis redis-cli",
+      "docker connect redis",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="intro-setup/run-with-docker" questions={quizDocker} />
+
+<ProgressTracker client:visible id="intro-setup/run-with-docker" />

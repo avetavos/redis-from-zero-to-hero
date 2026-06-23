@@ -1,0 +1,114 @@
+---
+title: 'Redis คืออะไร?'
+description: 'In-memory key-value store, single-threaded event loop, และ use case ทั่วไปที่ทำให้ Redis ขาดไม่ได้'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## In-memory key-value data store
+
+Redis เก็บทุก key และค่าที่เชื่อมโยงโดยตรงใน **RAM** เมื่อแอปพลิเคชันของคุณ set key ข้อมูลจะอยู่ในหน่วยความจำ — ไม่มีการค้นหาดิสก์ ไม่มี page fault ไม่มี overhead ของ file system เมื่ออ่าน key กลับมา คำตอบก็มาจากหน่วยความจำเดิมนั้น นี่คือเหตุผลที่ความหน่วงของ Redis อยู่ต่ำกว่ามิลลิวินาทีอย่างสม่ำเสมอแม้ภายใต้โหลดหนัก
+
+แต่ละค่ามี type Redis ไม่ใช่แค่ที่เก็บ string ธรรมดา — มันเข้าใจโครงสร้างข้อมูลโดยธรรมชาติ: Strings, Lists, Hashes, Sets, Sorted Sets, Streams และอีกมาก เซิร์ฟเวอร์สามารถดำเนินการกับโครงสร้างเหล่านั้นแบบ atomic ซึ่งหมายความว่าคุณสามารถ append ลงใน list, เพิ่มค่า counter, หรือ pop จาก queue ได้โดยไม่ต้องล็อคระดับ application
+
+## Single-threaded event loop
+
+Redis ประมวลผลคำสั่งผ่าน **single-threaded event loop** thread เดียวอ่านคำสั่งจาก network socket, ดำเนินการให้เสร็จสมบูรณ์, เขียน reply แล้วจึงไปยังคำสั่งถัดไป ไม่มี parallelism ภายใน Redis instance เดียว
+
+การออกแบบนี้มีผลสำคัญสองประการ:
+
+- **ความเร็ว** — ไม่มี context switching, ไม่มี mutex contention, ไม่มี lock overhead event loop ดึงประสิทธิภาพสูงสุดออกจาก core เดียว
+- **Thread safety โดยการออกแบบ** — เนื่องจากมีคำสั่งเดียวทำงานในแต่ละครั้ง ทุกคำสั่งจึง atomic โดยปริยาย คุณไม่ต้องกังวลว่า client สองตัวจะทำให้ shared state เสียหายระหว่างการทำงาน
+
+## Data-structure server ไม่ใช่แค่ cache
+
+ประโยคที่ว่า "Redis คือ cache" เป็นเรื่องทั่วไปแต่ไม่ครบถ้วน cache ธรรมดา map key ไปยัง blob ที่ไม่รู้โครงสร้าง Redis map key ไปยัง **โครงสร้างข้อมูลที่หลากหลาย** ที่คุณสามารถจัดการได้ฝั่งเซิร์ฟเวอร์:
+
+| ประเภท | คำอธิบาย |
+|------|-------------|
+| String | ข้อความ, ตัวเลข, หรือ raw bytes ได้ถึง 512 MB |
+| List | ลำดับที่เรียงไว้; push/pop จากทั้งสองด้าน |
+| Hash | field-value map ภายใน key เดียว |
+| Set | คอลเลกชันของ member ที่ไม่ซ้ำกันแบบไม่มีลำดับ |
+| Sorted Set | Set ที่แต่ละ member มี numeric score |
+| Stream | บันทึกแบบ append-only ของ entry ที่มี timestamp |
+
+เนื่องจาก operation เกิดขึ้นฝั่งเซิร์ฟเวอร์ คุณจึงหลีกเลี่ยง round trip แทนที่จะ GET → แก้ไข locally → SET คุณใช้ LPUSH หรือ ZINCRBY ใน network call เดียว
+
+## Use case ทั่วไป
+
+| Use case | Redis feature |
+|----------|--------------|
+| Cache (แคช) | TTL-based expiry บน key ใดก็ได้ |
+| Session store (เก็บ session) | Hash ต่อ session ID, อ่านได้เร็ว |
+| Task queue (คิวงาน) | LPUSH / BRPOP บน List |
+| Leaderboard (ตารางคะแนน) | Sorted Set กับ ZADD / ZRANK |
+| Rate limiter (จำกัดอัตราคำขอ) | INCR + EXPIRE บน counter key |
+| Pub/Sub messaging (ส่งข้อความ) | PUBLISH / SUBSCRIBE channels |
+
+## ตรวจสอบ type เบื้องต้น
+
+รัน PING เพื่อยืนยันว่าเซิร์ฟเวอร์ทำงานอยู่ แล้วใช้ TYPE เพื่อตรวจสอบ key ใดก็ได้:
+
+```text
+127.0.0.1:6379> PING
+PONG
+127.0.0.1:6379> SET language "Redis"
+OK
+127.0.0.1:6379> TYPE language
+string
+```
+
+export const pingCode = `PING`;
+
+<TryRedis client:visible code={pingCode} />
+
+<Callout title="Redis คือ data-structure server ไม่ใช่แค่ cache">
+
+เนื่องจาก Redis เข้าใจ Lists, Hashes, Sets, Sorted Sets, และ Streams มันจึงสามารถแทนที่เครื่องมือเฉพาะทางหลายตัวในครั้งเดียวได้: queue, leaderboard engine, pub/sub broker, และใช่ cache — ทั้งหมดในรูปแบบ dependency เดียว
+
+โครงสร้างข้อมูล built-in ยังหมายความว่าเซิร์ฟเวอร์สามารถบังคับใช้ invariant ที่คุณจะต้องจัดการใน application code เอง Sorted Set จะเรียงลำดับเสมอ Set จะมี member ที่ไม่ซ้ำกันเสมอ การรับประกันความถูกต้องนี้ไม่มีค่าใช้จ่ายใดเพิ่มเติม และยังคงมีผลแม้จะมี writer พร้อมกันหลายตัว
+
+</Callout>
+
+export const quizWhat = [
+  {
+    q: "ทำไม Redis จึงเร็วกว่าฐานข้อมูลที่ใช้ดิสก์?",
+    options: [
+      "ใช้ CPU หลายคอร์พร้อมกัน",
+      "เก็บข้อมูลทั้งหมดใน RAM",
+      "บีบอัดข้อมูลก่อนเก็บ",
+      "ข้าม network serialization",
+    ],
+    answer: 1,
+  },
+  {
+    q: "Single-threaded event loop ทำให้ Redis thread-safe ได้อย่างไร?",
+    options: [
+      "ใช้ read-write locks รอบทุกคำสั่ง",
+      "คัดลอกข้อมูลก่อนแก้ไข",
+      "มีคำสั่งเดียวที่ทำงานในแต่ละครั้ง จึงไม่มีการแก้ไขพร้อมกัน",
+      "รัน client แต่ละตัวในกระบวนการแยกต่างหาก",
+    ],
+    answer: 2,
+  },
+  {
+    q: "ประเภทข้อมูล Redis ใดที่คุณจะใช้เพื่อสร้าง leaderboard ที่มีการจัดอันดับ?",
+    options: ["List", "Hash", "Sorted Set", "Stream"],
+    answer: 2,
+  },
+  {
+    q: "คำสั่งใดที่ใช้ตรวจสอบประเภทข้อมูลของ Redis key ที่มีอยู่?",
+    options: ["TYPEOF", "DATATYPE", "TYPE", "KIND"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="intro-setup/what-is-redis" questions={quizWhat} />
+
+<ProgressTracker client:visible id="intro-setup/what-is-redis" />

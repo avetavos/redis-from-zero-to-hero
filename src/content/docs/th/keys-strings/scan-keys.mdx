@@ -1,0 +1,213 @@
+---
+title: SCAN & Key Operations
+description: 'EXISTS, DEL, TYPE, RENAME และการวนไล่ keyspace อย่างปลอดภัยด้วย SCAN — พร้อมเหตุผลว่าทำไม KEYS ถึงอันตรายบน production'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## operation พื้นฐานของ key
+
+คำสั่งเหล่านี้ทำงานได้กับ key ทุกตัวไม่ว่าจะเป็น type ใด
+
+### EXISTS
+
+คืน `1` ถ้า key มีอยู่ และคืน `0` ถ้าไม่มี คุณสามารถเช็กหลาย key พร้อมกันได้ — ค่าที่คืนกลับมาคือจำนวน key ที่มีอยู่
+
+```text
+127.0.0.1:6379> SET user:1 "Ada"
+OK
+127.0.0.1:6379> EXISTS user:1
+(integer) 1
+127.0.0.1:6379> EXISTS user:99
+(integer) 0
+127.0.0.1:6379> EXISTS user:1 user:99 user:1
+(integer) 2
+```
+
+### DEL
+
+ลบ key หนึ่งตัวหรือมากกว่า คืนจำนวน key ที่ถูกลบจริง ๆ (key ที่ไม่มีอยู่จะไม่ถูกนับ)
+
+```text
+127.0.0.1:6379> SET a "1"
+OK
+127.0.0.1:6379> SET b "2"
+OK
+127.0.0.1:6379> DEL a b nonexistent
+(integer) 2
+127.0.0.1:6379> EXISTS a
+(integer) 0
+```
+
+### TYPE
+
+คืน type ของข้อมูลที่เก็บไว้ที่ key หนึ่ง: `string`, `list`, `set`, `zset`, `hash` หรือ `stream`
+
+```text
+127.0.0.1:6379> SET mystr "hello"
+OK
+127.0.0.1:6379> TYPE mystr
+string
+127.0.0.1:6379> TYPE nonexistent:key
+none
+```
+
+### RENAME
+
+เปลี่ยนชื่อ key ถ้า key ปลายทางมีอยู่แล้ว มันจะถูกเขียนทับ ใช้ `RENAMENX` เพื่อเปลี่ยนชื่อเฉพาะกรณีที่ปลายทางยังไม่มีอยู่
+
+```text
+127.0.0.1:6379> SET old:key "value"
+OK
+127.0.0.1:6379> RENAME old:key new:key
+OK
+127.0.0.1:6379> EXISTS old:key
+(integer) 0
+127.0.0.1:6379> GET new:key
+"value"
+```
+
+export const keyOpsCode = `SET user:1 "Ada"
+EXISTS user:1
+EXISTS user:99
+SET a "1"
+SET b "2"
+DEL a b nonexistent
+SET mystr "hello"
+TYPE mystr
+SET old:key "value"
+RENAME old:key new:key
+GET new:key`;
+
+<TryRedis client:visible code={keyOpsCode} />
+
+## KEYS — และทำไมคุณต้องไม่ใช้มันบน production
+
+`KEYS pattern` คืน key ทุกตัวที่ตรงกับ pattern แบบ glob มันสะดวกมากสำหรับการพัฒนาและ debug
+
+```text
+127.0.0.1:6379> MSET user:1 "Ada" user:2 "Bob" session:abc "tok" session:xyz "tok2"
+OK
+127.0.0.1:6379> KEYS user:*
+1) "user:2"
+2) "user:1"
+127.0.0.1:6379> KEYS *
+1) "user:2"
+2) "user:1"
+3) "session:abc"
+4) "session:xyz"
+```
+
+`KEYS` เป็นการ scan ทั้ง keyspace แบบ **blocking และ O(N)** บน Redis server ที่มี key เป็นล้านตัว มันอาจใช้เวลาหลายวินาที และ block client ตัวอื่นทั้งหมดตลอดช่วงเวลานั้น อย่ารันมันกับ production server เด็ดขาด — ใช้ `SCAN` แทน
+
+## SCAN — การวนไล่ keyspace อย่างปลอดภัย
+
+`SCAN` เป็น iterator ที่ใช้ cursor การเรียกแต่ละครั้งจะประมวลผล key เป็น batch เล็ก ๆ และคืนค่ากลับมา:
+1. cursor ตัวใหม่ (เพื่อส่งต่อให้การเรียกครั้งถัดไป)
+2. รายการ key จาก batch นี้
+
+เมื่อ cursor ที่คืนกลับมาเป็น `0` แสดงว่าการวนไล่เสร็จสมบูรณ์
+
+```text
+127.0.0.1:6379> MSET k1 a k2 b k3 c k4 d k5 e k6 f k7 g k8 h k9 i k10 j
+OK
+127.0.0.1:6379> SCAN 0 MATCH k* COUNT 3
+1) "7"
+2) 1) "k9"
+   2) "k3"
+   3) "k1"
+127.0.0.1:6379> SCAN 7 MATCH k* COUNT 3
+1) "4"
+2) 1) "k8"
+   2) "k2"
+127.0.0.1:6379> SCAN 4 MATCH k* COUNT 3
+1) "0"
+2) 1) "k10"
+   2) "k4"
+   3) "k7"
+   4) "k5"
+   5) "k6"
+```
+
+`COUNT` เป็นเพียง **คำใบ้** ไม่ใช่ขีดจำกัดตายตัว — Redis อาจคืน key มากกว่าหรือน้อยกว่านั้นในแต่ละครั้ง การวนไล่จะเสร็จสมบูรณ์เสมอเมื่อ cursor กลับมาเป็น `0`
+
+export const scanCode = `MSET k1 a k2 b k3 c k4 d k5 e k6 f k7 g k8 h k9 i k10 j
+SCAN 0 MATCH k* COUNT 3
+SCAN 0 MATCH k* COUNT 100`;
+
+<TryRedis client:visible code={scanCode} />
+
+## option ของ SCAN
+
+| Option | คำอธิบาย |
+|--------|-------------|
+| `MATCH pattern` | กรองผลลัพธ์ด้วย pattern แบบ glob (การกรองเกิดขึ้นหลังการสุ่มตัวอย่าง) |
+| `COUNT hint` | แนะนำว่าจะสุ่มตัวอย่างกี่ item ต่อการเรียกหนึ่งครั้ง (ค่าเริ่มต้น 10) |
+| `TYPE type` | คืนเฉพาะ key ที่เป็น type ที่ระบุ (Redis 6.0+) |
+
+loop สำหรับ scan ทั้งหมดที่ใช้จริงใน script จะมีหน้าตาประมาณนี้:
+
+```text
+127.0.0.1:6379> SCAN 0 MATCH session:* COUNT 100
+1) "42"
+2) 1) "session:abc"
+127.0.0.1:6379> SCAN 42 MATCH session:* COUNT 100
+1) "0"
+2) 1) "session:xyz"
+```
+
+เรียก `SCAN` ด้วย cursor ที่คืนกลับมาเรื่อย ๆ จนกว่า cursor จะกลับมาเป็น `0` แล้วรวบรวมผลลัพธ์จากทุกรอบเข้าด้วยกัน
+
+export const fullScanCode = `SCAN 0 MATCH session:* COUNT 100`;
+
+<TryRedis client:visible code={fullScanCode} />
+
+<Callout title="อย่ารัน KEYS * บน production server — ใช้ SCAN">
+
+`KEYS *` จะ block Redis server ทั้งตัวจนกว่าจะ scan ทุก key เสร็จ บน server ที่มี key 10 ล้านตัว มันอาจ block แอปพลิเคชันของคุณนานหลายวินาที ทำให้เกิด timeout และความล้มเหลวลูกโซ่ลามไปทุก service ที่ใช้ Redis instance นั้นร่วมกัน
+
+`SCAN` กระจายงานออกเป็นการเรียกเล็ก ๆ หลายครั้ง แต่ละครั้งคืนค่ากลับมาอย่างรวดเร็ว แอปพลิเคชันของคุณจึงยังตอบสนองได้ ข้อแลกเปลี่ยนคือคุณอาจเห็น key ตัวหนึ่งโผล่มา แล้วมันถูกลบไปก่อนที่คุณจะประมวลผลมัน — ออกแบบ consumer ของคุณให้รับมือกรณีนั้นได้อย่างนุ่มนวล
+
+</Callout>
+
+export const quizScanKeys = [
+  {
+    q: "SCAN คืนค่าอะไรเมื่อการวนไล่ทั้งหมดเสร็จสมบูรณ์?",
+    options: [
+      "รายการว่าง",
+      "ค่า cursor เป็น 0",
+      "string 'DONE'",
+      "ค่า cursor เป็น -1",
+    ],
+    answer: 1,
+  },
+  {
+    q: "ทำไม KEYS ถึงอันตรายบน production Redis server?",
+    options: [
+      "มันลบ key ที่ตรงกันออกอย่างถาวร",
+      "มัน block server ตลอดช่วงเวลาที่ scan keyspace ทั้งหมด",
+      "มันต้องใช้สิทธิ์ admin",
+      "มันทำงานได้เฉพาะกับ keyspace ที่เล็กกว่า 1000 key เท่านั้น",
+    ],
+    answer: 1,
+  },
+  {
+    q: "EXISTS user:1 user:1 user:2 คืนค่าอะไรถ้า user:1 มีอยู่ แต่ user:2 ไม่มี?",
+    options: ["1", "2", "3", "error"],
+    answer: 1,
+  },
+  {
+    q: "TYPE คืนค่าอะไรสำหรับ key ที่ไม่มีอยู่?",
+    options: ["nil", "none", "0", "string"],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="keys-strings/scan-keys" questions={quizScanKeys} />
+
+<ProgressTracker client:visible id="keys-strings/scan-keys" />

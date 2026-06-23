@@ -1,0 +1,170 @@
+---
+title: 'Using redis-cli'
+description: 'Connect to Redis, verify with PING, switch databases, inspect the keyspace, and get inline help.'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## redis-cli — the standard Redis client
+
+redis-cli is the command-line interface bundled with every Redis installation (and available inside the official Docker image). It supports two modes: **interactive** (a live REPL prompt) and **inline** (a single command passed directly from your shell).
+
+## Connecting options
+
+The most common flags:
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `-h host` | `127.0.0.1` | Redis server hostname or IP |
+| `-p port` | `6379` | Redis server port |
+| `-n db-number` | `0` | Select a database number (0–15) on connect |
+
+```bash
+# Connect to the default host and port
+redis-cli
+
+# Connect explicitly — useful when targeting a remote server
+redis-cli -h 127.0.0.1 -p 6379
+
+# Connect and immediately switch to database 1
+redis-cli -n 1
+```
+
+## Inline mode vs interactive mode
+
+In **inline mode** you pass a single command as arguments to redis-cli and the result is printed to stdout — handy for scripts:
+
+```bash
+redis-cli PING
+```
+
+In **interactive mode** you run `redis-cli` with no command arguments and get the `127.0.0.1:6379>` prompt where you can type commands one by one.
+
+## PING — verifying the connection
+
+`PING` is the lightest possible check that the server is reachable:
+
+```text
+127.0.0.1:6379> PING
+PONG
+```
+
+Pass an optional message and Redis echoes it back — useful for testing round-trip latency in scripts:
+
+```text
+127.0.0.1:6379> PING "hello world"
+"hello world"
+```
+
+<Callout title="PING verifies the connection">
+
+`PING` should always be the first command you run after connecting. If you get `PONG` the TCP connection is up, Redis is accepting commands, and authentication (if required) has passed. If you see a timeout or `Connection refused` instead, the server is not reachable — check that the container is running and the port is published.
+
+</Callout>
+
+## ECHO — sending a string back
+
+`ECHO` returns the argument unchanged. It is mainly useful for testing that the client encodes strings correctly:
+
+```text
+127.0.0.1:6379> ECHO "Hello"
+"Hello"
+```
+
+## SELECT — switching databases
+
+Redis provides 16 logical databases numbered 0 to 15. They share the same server process and memory but have completely separate keyspaces. The default is database 0.
+
+```text
+127.0.0.1:6379> SELECT 1
+OK
+127.0.0.1:6379[1]> SET greeting "hi from db1"
+OK
+127.0.0.1:6379[1]> SELECT 0
+OK
+127.0.0.1:6379> GET greeting
+(nil)
+```
+
+Notice the prompt changes to `127.0.0.1:6379[1]` when you are on a database other than 0.
+
+## DBSIZE — counting keys
+
+`DBSIZE` returns the number of keys in the currently selected database:
+
+```text
+127.0.0.1:6379> DBSIZE
+(integer) 5
+```
+
+## FLUSHDB — clearing the current database
+
+`FLUSHDB` deletes every key in the current database. This is irreversible — use it only in development or test environments:
+
+```text
+127.0.0.1:6379> FLUSHDB
+OK
+127.0.0.1:6379> DBSIZE
+(integer) 0
+```
+
+## Built-in HELP
+
+redis-cli ships with inline documentation. Use `HELP` followed by a command name or a category tag:
+
+```text
+127.0.0.1:6379> HELP SET
+127.0.0.1:6379> HELP @string
+```
+
+`HELP @string` lists every command in the string group — a fast way to discover commands without leaving the terminal.
+
+export const cliCode = `PING
+ECHO "Hello"
+SELECT 1
+DBSIZE
+SELECT 0`;
+
+<TryRedis client:visible code={cliCode} />
+
+export const quizCli = [
+  {
+    q: "Which flag selects a specific Redis database when connecting with redis-cli?",
+    options: ["-d", "-n", "-s", "-b"],
+    answer: 1,
+  },
+  {
+    q: "What does PING return when the server is reachable?",
+    options: ["OK", "PONG", "(integer) 1", "nil"],
+    answer: 1,
+  },
+  {
+    q: "What does FLUSHDB do?",
+    options: [
+      "Flushes the write-ahead log to disk",
+      "Removes all keys from all databases",
+      "Removes all keys from the currently selected database",
+      "Disconnects all clients",
+    ],
+    answer: 2,
+  },
+  {
+    q: "How do you list all commands in the string group from within redis-cli?",
+    options: [
+      "HELP strings",
+      "HELP @string",
+      "LIST @string",
+      "COMMANDS string",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="intro-setup/redis-cli" questions={quizCli} />
+
+<ProgressTracker client:visible id="intro-setup/redis-cli" />

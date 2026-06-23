@@ -1,0 +1,92 @@
+---
+title: 'คำสั่งแรกของคุณ'
+description: 'เรียนรู้คำสั่งพื้นฐานของ Redis ได้แก่ SET, GET, EXISTS, TYPE, KEYS และ DEL พร้อมทดลองใช้งานจริงใน Redis CLI'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+Redis ทำงานบนโมเดล **key-value** ที่เรียบง่าย — คุณเก็บข้อมูลโดยการผูก value เข้ากับ key จากนั้นดึงข้อมูลกลับมาด้วย key เดิมนั้น ไม่มี schema ไม่มีตาราง เพียงแค่ key และ value เท่านั้น
+
+## SET, GET และ Friends
+
+คำสั่งพื้นฐานที่สุดใน Redis คือ `SET` และ `GET` ลองดูตัวอย่างด้านล่างเพื่อทำความเข้าใจว่าคำสั่งเหล่านี้ทำงานร่วมกับ `EXISTS`, `TYPE`, `KEYS` และ `DEL` อย่างไร
+
+```text
+127.0.0.1:6379> SET name "Redis"
+OK
+127.0.0.1:6379> GET name
+"Redis"
+127.0.0.1:6379> SET score 100
+OK
+127.0.0.1:6379> EXISTS name
+(integer) 1
+127.0.0.1:6379> EXISTS missing
+(integer) 0
+127.0.0.1:6379> TYPE name
+string
+127.0.0.1:6379> KEYS *
+1) "score"
+2) "name"
+127.0.0.1:6379> DEL name
+(integer) 1
+127.0.0.1:6379> GET name
+(nil)
+```
+
+export const firstCmdsCode = `SET name "Redis"
+GET name
+SET score 100
+EXISTS name
+EXISTS missing
+TYPE name
+KEYS *
+DEL name
+GET name`
+
+<TryRedis client:visible code={firstCmdsCode} />
+
+<Callout title="ทุก value ถูกเก็บไว้ใต้ key — เลือกชื่อ key ที่ชัดเจน">
+  แนวปฏิบัติที่นิยมใช้กันใน Redis คือการตั้งชื่อ key โดยใช้เครื่องหมายโคลอน (`:`) เป็นตัวคั่น เช่น `user:42:email` หรือ `session:abc123` รูปแบบนี้ช่วยให้ key มีความหมายชัดเจน จัดกลุ่มได้ง่าย และหลีกเลี่ยงการชนกันของชื่อ key ในระบบที่มีข้อมูลหลายประเภท
+</Callout>
+
+export const quizFirst = [
+  {
+    q: '`DEL` คืนค่าอะไรกลับมา?',
+    options: [
+      'OK หากลบ key ทั้งหมดสำเร็จ',
+      'จำนวน key ที่ถูกลบจริง',
+      'value ของ key ที่ถูกลบ',
+      '1 หากลบได้อย่างน้อยหนึ่ง key ไม่เช่นนั้นเป็น 0',
+    ],
+    answer: 1,
+  },
+  {
+    q: '`EXISTS` คืนค่าอะไรเมื่อ key ไม่มีอยู่จริง?',
+    options: ['(nil)', '0', 'false', '-1'],
+    answer: 1,
+  },
+  {
+    q: '`TYPE` คืนค่าอะไรสำหรับ key ที่เก็บค่า string ธรรมดา?',
+    options: ['str', 'text', 'string', 'varchar'],
+    answer: 2,
+  },
+  {
+    q: 'ทำไมควรหลีกเลี่ยง `KEYS *` ใน production?',
+    options: [
+      'ต้องการสิทธิ์ผู้ดูแลระบบในการรัน',
+      'ใช้งานได้เฉพาะฐานข้อมูลที่มี key น้อยกว่า 1000 ตัว',
+      'บล็อก server จนกว่าจะสแกน key ทั้งหมดเสร็จ',
+      'ลบ key ที่ตรงกับ pattern ทิ้งถาวร',
+    ],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="intro-setup/first-commands" questions={quizFirst} />
+
+<ProgressTracker client:visible id="intro-setup/first-commands" />

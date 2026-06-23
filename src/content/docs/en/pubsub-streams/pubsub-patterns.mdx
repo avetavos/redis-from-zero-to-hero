@@ -1,0 +1,134 @@
+---
+title: Pattern Subscriptions
+description: 'PSUBSCRIBE and PUNSUBSCRIBE with glob patterns — match many channels with one subscription.'
+sidebar:
+  order: 3
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Pattern subscriptions
+
+`PSUBSCRIBE` works like `SUBSCRIBE` but accepts a **glob pattern** instead of a literal channel name. A single `PSUBSCRIBE` call can therefore match dozens of channels at once without listing each one individually.
+
+The three glob wildcards Redis supports are:
+
+| Pattern | Meaning |
+|---------|---------|
+| `*` | Match any sequence of characters (including none) |
+| `?` | Match exactly one character |
+| `[abc]` | Match one character from the set — e.g. `[abc]` matches `a`, `b`, or `c` |
+
+For example, `news.*` matches `news.sports`, `news.tech`, `news.finance`, and any other channel that begins with `news.`.
+
+## PSUBSCRIBE demo
+
+The interaction below uses two terminals. Terminal 1 subscribes with a pattern; Terminal 2 publishes to several channels.
+
+```text
+-- Terminal 1 --
+127.0.0.1:6379> PSUBSCRIBE news.*
+Reading messages... (press Ctrl-C to quit)
+1) "psubscribe"
+2) "news.*"
+3) (integer) 1
+
+-- Terminal 2 --
+127.0.0.1:6379> PUBLISH news.sports "score update"
+(integer) 1
+127.0.0.1:6379> PUBLISH news.tech "new release"
+(integer) 1
+
+-- Terminal 1 receives --
+1) "pmessage"
+2) "news.*"
+3) "news.sports"
+4) "score update"
+1) "pmessage"
+2) "news.*"
+3) "news.tech"
+4) "new release"
+```
+
+Notice the reply format: `pmessage` delivers four parts — the event type, the **matched pattern**, the **actual channel**, and the **payload**. This is different from a plain `message` reply, which only has three parts.
+
+export const psubCode = `PUBLISH news.sports "score update"
+PUBLISH news.tech "new release"
+PUBLISH weather.today "sunny"`;
+
+<TryRedis client:visible code={psubCode} label="Publish to channels matched by news.*" />
+
+## PUNSUBSCRIBE
+
+`PUNSUBSCRIBE pattern` removes a pattern subscription. Calling it with no argument unsubscribes from all active patterns.
+
+```text
+127.0.0.1:6379> PUNSUBSCRIBE news.*
+1) "punsubscribe"
+2) "news.*"
+3) (integer) 0
+```
+
+The third element is the count of remaining pattern subscriptions. When it reaches `0` the client exits pattern-subscribe mode and can issue regular commands again.
+
+## Keyspace notifications (teaser)
+
+Redis itself uses the Pub/Sub mechanism internally to emit events about keyspace activity. When enabled, Redis publishes to special built-in channels such as:
+
+- `__keyevent@0__:expired` — fires whenever a key in database 0 expires
+- `__keyspace@0__:mykey` — fires whenever any command touches `mykey`
+
+You can enable these notifications with:
+
+```text
+127.0.0.1:6379> CONFIG SET notify-keyspace-events KEA
+OK
+```
+
+Then subscribe with `PSUBSCRIBE __keyevent@0__:*` to catch every keyspace event on database 0. This is an advanced pattern useful for cache invalidation and audit logging — a deeper dive belongs in its own lesson.
+
+<Callout title="Pattern subscriptions match many channels with one subscriber">
+
+A single `PSUBSCRIBE news.*` replaces a dozen individual `SUBSCRIBE` calls. The trade-off is a small overhead: Redis must match every published message against every active pattern. Keep patterns specific enough that the fan-out stays manageable in high-throughput systems.
+
+</Callout>
+
+export const quizPsubscribe = [
+  {
+    q: "Which glob wildcard matches exactly one character in a PSUBSCRIBE pattern?",
+    options: ["*", "?", "[?]", "#"],
+    answer: 1,
+  },
+  {
+    q: "How many parts does a pmessage reply contain?",
+    options: ["2", "3", "4", "5"],
+    answer: 2,
+  },
+  {
+    q: "What is the second element in a pmessage reply?",
+    options: [
+      "The payload",
+      "The actual channel the message was published to",
+      "The pattern that matched",
+      "The subscriber count",
+    ],
+    answer: 2,
+  },
+  {
+    q: "Which command would you use to receive messages from both `alerts.low` and `alerts.high` with a single subscription?",
+    options: [
+      "SUBSCRIBE alerts.*",
+      "PSUBSCRIBE alerts.*",
+      "SUBSCRIBE alerts.low alerts.high",
+      "MULTISUBSCRIBE alerts.*",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="pubsub-streams/pubsub-patterns" questions={quizPsubscribe} />
+
+<ProgressTracker client:visible id="pubsub-streams/pubsub-patterns" />

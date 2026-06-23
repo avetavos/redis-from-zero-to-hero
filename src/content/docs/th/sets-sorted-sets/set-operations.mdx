@@ -1,0 +1,151 @@
+---
+title: Set Operations
+description: 'SINTER, SUNION, SDIFF และ STORE variants — เพื่อน r่วมกัน, กลุ่มผู้ชม, และ set algebra บนเซิร์ฟเวอร์'
+sidebar:
+  order: 3
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Set algebra บนเซิร์ฟเวอร์
+
+Redis คำนวณ **intersection**, **union**, และ **difference** ระหว่าง Set สองตัวขึ้นไปได้ทั้งหมดบนเซิร์ฟเวอร์ คุณไม่ต้องดึงสมาชิกทั้งหมดมาที่ client แล้วคำนวณเอง
+
+## SINTER — intersection
+
+`SINTER key [key ...]` คืนเฉพาะสมาชิกที่ปรากฏใน **ทุก** Set ที่ระบุ use case คลาสสิก: เพื่อนร่วมกัน
+
+```text
+127.0.0.1:6379> SADD user:1:follows "alice" "bob" "carol" "dave"
+(integer) 4
+127.0.0.1:6379> SADD user:2:follows "bob" "carol" "eve" "frank"
+(integer) 4
+127.0.0.1:6379> SINTER user:1:follows user:2:follows
+1) "bob"
+2) "carol"
+```
+
+export const sinterCode = `SADD user:1:follows "alice" "bob" "carol" "dave"
+SADD user:2:follows "bob" "carol" "eve" "frank"
+SINTER user:1:follows user:2:follows`;
+
+<TryRedis client:visible code={sinterCode} />
+
+## SUNION — union
+
+`SUNION key [key ...]` คืนสมาชิกทั้งหมดจาก **ทุก** Set ที่ระบุ โดย deduplicate ให้ use case: กลุ่มผู้ชมรวมจากหลาย campaign
+
+```text
+127.0.0.1:6379> SADD campaign:A "user:1" "user:2" "user:3"
+(integer) 3
+127.0.0.1:6379> SADD campaign:B "user:2" "user:4" "user:5"
+(integer) 3
+127.0.0.1:6379> SUNION campaign:A campaign:B
+1) "user:1"
+2) "user:2"
+3) "user:3"
+4) "user:4"
+5) "user:5"
+```
+
+export const sunionCode = `SADD campaign:A "user:1" "user:2" "user:3"
+SADD campaign:B "user:2" "user:4" "user:5"
+SUNION campaign:A campaign:B`;
+
+<TryRedis client:visible code={sunionCode} />
+
+## SDIFF — difference
+
+`SDIFF key [key ...]` คืนสมาชิกใน Set **แรก** ที่ไม่ปรากฏใน Set ต่อๆ ไป use case: ค้นหาผู้ใช้ในกลุ่มหนึ่งแต่ไม่อยู่ในอีกกลุ่ม
+
+```text
+127.0.0.1:6379> SADD plan:premium "user:1" "user:2" "user:3"
+(integer) 3
+127.0.0.1:6379> SADD notified:promo "user:2" "user:3"
+(integer) 2
+127.0.0.1:6379> SDIFF plan:premium notified:promo
+1) "user:1"
+```
+
+export const sdiffCode = `SADD plan:premium "user:1" "user:2" "user:3"
+SADD notified:promo "user:2" "user:3"
+SDIFF plan:premium notified:promo`;
+
+<TryRedis client:visible code={sdiffCode} />
+
+## SINTERSTORE, SUNIONSTORE, SDIFFSTORE
+
+`*STORE` variants เขียนผลลัพธ์ไปยัง **destination key** แทนที่จะ return มา destination จะเป็น Set ปกติที่ตรวจสอบได้ภายหลัง
+
+```text
+127.0.0.1:6379> SADD group:eng "alice" "bob" "carol"
+(integer) 3
+127.0.0.1:6379> SADD group:ops "carol" "dave"
+(integer) 2
+127.0.0.1:6379> SINTERSTORE overlap:eng-ops group:eng group:ops
+(integer) 1
+127.0.0.1:6379> SMEMBERS overlap:eng-ops
+1) "carol"
+127.0.0.1:6379> SUNIONSTORE all:staff group:eng group:ops
+(integer) 4
+127.0.0.1:6379> SMEMBERS all:staff
+1) "alice"
+2) "bob"
+3) "carol"
+4) "dave"
+```
+
+export const storeCode = `SADD group:eng "alice" "bob" "carol"
+SADD group:ops "carol" "dave"
+SINTERSTORE overlap:eng-ops group:eng group:ops
+SMEMBERS overlap:eng-ops
+SUNIONSTORE all:staff group:eng group:ops
+SMEMBERS all:staff`;
+
+<TryRedis client:visible code={storeCode} />
+
+<Callout title="Set algebra ทำงานบนเซิร์ฟเวอร์ — ไม่ต้องส่งข้อมูล">
+
+ด้วย `SINTER`, `SUNION`, และ `SDIFF` Redis ทำการคำนวณทั้งหมดใน-process สำหรับ Set ขนาดใหญ่ (ล้าน member) วิธีนี้หลีกเลี่ยงการส่ง collection ทั้งหมดไปยัง application server เพื่อ intersect หรือ diff เอง `*STORE` variants ยิ่งไปกว่านั้น: ผลลัพธ์ถูก materialize เป็น key ใหม่ที่ client อื่นอ่านได้ทันที
+
+</Callout>
+
+export const quizSetOps = [
+  {
+    q: "คำสั่งใดคืนสมาชิกที่มีอยู่ใน SET ทั้งหมดที่ระบุ?",
+    options: ["SUNION", "SDIFF", "SINTER", "SMEMBERS"],
+    answer: 2,
+  },
+  {
+    q: "SDIFF key1 key2 คืนอะไร?",
+    options: [
+      "สมาชิกใน key2 ที่ไม่มีใน key1",
+      "สมาชิกใน key1 ที่ไม่มีใน key2",
+      "สมาชิกที่มีทั้งใน key1 และ key2",
+      "สมาชิกทั้งหมดจาก key1 และ key2",
+    ],
+    answer: 1,
+  },
+  {
+    q: "SINTERSTORE destination key1 key2 มีผลอย่างไร?",
+    options: [
+      "อ่าน intersection ไปยัง local variable",
+      "คำนวณ intersection และเก็บไว้ใน destination",
+      "คัดลอก key1 และ key2 ไปยัง destination",
+      "คืน intersection โดยไม่เก็บ",
+    ],
+    answer: 1,
+  },
+  {
+    q: "SUNION ข้าม Set สองตัวที่มีสมาชิกซ้ำกัน จะมีสมาชิกนั้นกี่สำเนา?",
+    options: ["สอง", "ศูนย์", "หนึ่ง", "ขึ้นอยู่กับลำดับการ insert"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="sets-sorted-sets/set-operations" questions={quizSetOps} />
+
+<ProgressTracker client:visible id="sets-sorted-sets/set-operations" />

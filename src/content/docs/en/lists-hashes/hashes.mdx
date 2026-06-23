@@ -1,0 +1,133 @@
+---
+title: 'Hashes'
+description: 'HSET, HGET, HMGET, HGETALL, HDEL, HEXISTS, HKEYS, HVALS, and HLEN — store field-value pairs under one key.'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Hashes — a flat dictionary under one key
+
+Redis Hashes store multiple field-value pairs under a single key. Think of it as a flat dictionary or a row in a database — one key holds many named fields.
+
+## HSET and HGET
+
+`HSET key field value [field value ...]` sets one or more fields. Redis 7+ allows multiple field-value pairs in a single call. `HGET key field` retrieves one field by name. If the field does not exist, Redis returns `(nil)`.
+
+```text
+127.0.0.1:6379> HSET product:1 name "Redis Mug" price "12.99" stock "200"
+(integer) 3
+127.0.0.1:6379> HGET product:1 name
+"Redis Mug"
+127.0.0.1:6379> HGET product:1 price
+"12.99"
+127.0.0.1:6379> HGET product:1 missing-field
+(nil)
+```
+
+export const hsetGetCode = `HSET product:1 name "Redis Mug" price "12.99" stock "200"
+HGET product:1 name
+HGET product:1 price
+HGET product:1 missing-field`;
+
+<TryRedis client:visible code={hsetGetCode} />
+
+## HMGET and HGETALL
+
+`HMGET key field [field ...]` fetches multiple fields in one round-trip and returns `(nil)` for any field that does not exist. `HGETALL key` returns every field-value pair in the hash as an alternating list of field names and values.
+
+```text
+127.0.0.1:6379> HMGET product:1 name stock
+1) "Redis Mug"
+2) "200"
+127.0.0.1:6379> HGETALL product:1
+1) "name"
+2) "Redis Mug"
+3) "price"
+4) "12.99"
+5) "stock"
+6) "200"
+```
+
+export const hmgetCode = `HMGET product:1 name stock
+HGETALL product:1`;
+
+<TryRedis client:visible code={hmgetCode} />
+
+## HDEL and HEXISTS
+
+`HDEL key field [field ...]` removes one or more fields and returns the number of fields actually deleted. `HEXISTS key field` returns `1` if the field exists, `0` if it does not — useful for conditional logic without fetching the value itself.
+
+```text
+127.0.0.1:6379> HEXISTS product:1 price
+(integer) 1
+127.0.0.1:6379> HEXISTS product:1 color
+(integer) 0
+127.0.0.1:6379> HDEL product:1 price
+(integer) 1
+127.0.0.1:6379> HEXISTS product:1 price
+(integer) 0
+```
+
+export const hdelCode = `HSET product:1 name "Redis Mug" price "12.99" stock "200"
+HEXISTS product:1 price
+HEXISTS product:1 color
+HDEL product:1 price
+HEXISTS product:1 price
+HKEYS product:1
+HVALS product:1
+HLEN product:1`;
+
+<TryRedis client:visible code={hdelCode} />
+
+## HKEYS, HVALS, and HLEN
+
+`HKEYS key` returns all field names. `HVALS key` returns all field values. `HLEN key` returns the total number of fields in the hash. After deleting `price` above, the hash now has two fields: `name` and `stock`.
+
+```text
+127.0.0.1:6379> HKEYS product:1
+1) "name"
+2) "stock"
+127.0.0.1:6379> HVALS product:1
+1) "Redis Mug"
+2) "200"
+127.0.0.1:6379> HLEN product:1
+(integer) 2
+```
+
+<Callout title="A hash stores an object's fields under one key — memory-efficient">
+
+Redis uses a compact encoding (listpack) for small hashes automatically. Instead of storing `product:1:name`, `product:1:price`, and `product:1:stock` as three separate string keys, one `HSET product:1 ...` stores them together under a single key — lower memory, fewer round-trips, and logical grouping.
+
+</Callout>
+
+export const quizHashes = [
+  {
+    q: "Which command returns ALL field-value pairs of a hash?",
+    options: ["HGET", "HMGET", "HGETALL", "HKEYS"],
+    answer: 2,
+  },
+  {
+    q: "What does `HGET key missing-field` return?",
+    options: ["An empty string", "(nil)", "An error", "0"],
+    answer: 1,
+  },
+  {
+    q: "How many fields does `HSET user:1 name 'Ana' age '30'` create?",
+    options: ["1", "2", "4", "It depends on whether the fields exist"],
+    answer: 1,
+  },
+  {
+    q: "Which command counts the number of fields in a hash?",
+    options: ["HCOUNT", "HLEN", "HSIZE", "HHOW"],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="lists-hashes/hashes" questions={quizHashes} />
+
+<ProgressTracker client:visible id="lists-hashes/hashes" />

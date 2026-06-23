@@ -1,0 +1,162 @@
+---
+title: Redis Streams
+description: 'XADD, XLEN, XRANGE, XREVRANGE, and XREAD — an append-only log that persists entries.'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Streams — an append-only log
+
+A Redis Stream is a data structure that behaves like a persistent, ordered log. Unlike Pub/Sub — where messages vanish the moment they are delivered — a stream **stores every entry** and lets you read them again at any time, from any position.
+
+Each entry has two parts:
+
+- **ID** — a unique timestamp-based identifier in the form `<milliseconds>-<sequence>`. You can let Redis generate it automatically by passing `*`, or supply your own.
+- **Fields** — one or more key-value pairs that form the payload of the entry, similar to a hash.
+
+Streams are ideal for event logs, activity feeds, metrics pipelines, and any workload where you need both real-time delivery and historical replay.
+
+## XADD — appending entries
+
+`XADD key id field value [field value ...]` appends a new entry to the stream. Using `*` as the ID lets Redis assign a monotonically increasing timestamp-based ID automatically.
+
+```text
+127.0.0.1:6379> XADD events * action "login" user "ada"
+"1526919030474-0"
+127.0.0.1:6379> XADD events * action "purchase" user "ada" item "book"
+"1526919030474-1"
+127.0.0.1:6379> XLEN events
+(integer) 2
+```
+
+`XLEN` returns the number of entries currently in the stream — exactly like `LLEN` for lists.
+
+## XRANGE and XREVRANGE — reading a range
+
+`XRANGE key start end [COUNT n]` returns entries from oldest to newest. Two special IDs simplify range queries:
+
+- `-` — the earliest entry in the stream
+- `+` — the latest entry in the stream
+
+`XREVRANGE key end start` reverses the direction, returning entries newest-first.
+
+```text
+127.0.0.1:6379> XRANGE events - +
+1) 1) "1526919030474-0"
+   2) 1) "action"
+      2) "login"
+      3) "user"
+      4) "ada"
+2) 1) "1526919030474-1"
+   2) 1) "action"
+      2) "purchase"
+      3) "user"
+      4) "ada"
+      5) "item"
+      6) "book"
+127.0.0.1:6379> XRANGE events - + COUNT 1
+1) 1) "1526919030474-0"
+   2) 1) "action"
+      2) "login"
+      3) "user"
+      4) "ada"
+127.0.0.1:6379> XREVRANGE events + - COUNT 1
+1) 1) "1526919030474-1"
+   2) 1) "action"
+      2) "purchase"
+      3) "user"
+      4) "ada"
+      5) "item"
+      6) "book"
+```
+
+## XREAD — reading new entries
+
+`XREAD COUNT n STREAMS key id` reads up to `n` entries from the stream starting **after** the given ID. Passing `0` as the ID reads from the very beginning.
+
+```text
+127.0.0.1:6379> XREAD COUNT 10 STREAMS events 0
+1) 1) "events"
+   2) 1) 1) "1526919030474-0"
+         2) 1) "action"
+            2) "login"
+            3) "user"
+            4) "ada"
+      2) 1) "1526919030474-1"
+         2) 1) "action"
+            2) "purchase"
+            3) "user"
+            4) "ada"
+            5) "item"
+            6) "book"
+```
+
+To wait for entries that do not exist yet, add the `BLOCK` option with a timeout in milliseconds (`0` means wait forever) and use `$` as the ID — `$` means "only entries newer than the last one at the time this command was issued":
+
+```text
+127.0.0.1:6379> XREAD BLOCK 0 STREAMS events $
+(Blocks until a new entry arrives...)
+```
+
+This turns `XREAD` into a long-poll listener. When another client runs `XADD events * ...`, the blocked client receives the new entry immediately.
+
+export const streamsCode = `XADD events * action "login" user "ada"
+XADD events * action "purchase" user "ada" item "book"
+XLEN events
+XRANGE events - +
+XREAD COUNT 10 STREAMS events 0`;
+
+<TryRedis client:visible code={streamsCode} label="Append and read stream entries" />
+
+<Callout title="Unlike Pub/Sub, streams persist entries you can re-read">
+
+Pub/Sub is fire-and-forget: a message published while a subscriber is offline is lost forever. A stream keeps every entry on disk (subject to optional `MAXLEN` trimming) so late consumers, crashed workers, and audit tools can all read the full history. This makes streams the right choice whenever delivery guarantees or historical access matter.
+
+</Callout>
+
+export const quizStreams = [
+  {
+    q: "What does passing `*` as the ID to XADD do?",
+    options: [
+      "Appends to all streams",
+      "Lets Redis auto-generate a timestamp-based ID",
+      "Overwrites the last entry",
+      "Creates a wildcard entry",
+    ],
+    answer: 1,
+  },
+  {
+    q: "Which XRANGE argument means 'the earliest entry in the stream'?",
+    options: ["0", "$", "-", "^"],
+    answer: 2,
+  },
+  {
+    q: "What does the sequence number in an entry ID like `1526919030474-3` represent?",
+    options: [
+      "The database index",
+      "A counter that disambiguates entries with the same millisecond timestamp",
+      "The number of fields in the entry",
+      "The stream partition",
+    ],
+    answer: 1,
+  },
+  {
+    q: "What is the key difference between Redis Streams and Redis Pub/Sub?",
+    options: [
+      "Streams support pattern matching; Pub/Sub does not",
+      "Pub/Sub persists messages; Streams do not",
+      "Streams persist entries that can be re-read; Pub/Sub messages are lost if no subscriber is listening",
+      "Streams require a consumer group; Pub/Sub does not",
+    ],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="pubsub-streams/streams" questions={quizStreams} />
+
+<ProgressTracker client:visible id="pubsub-streams/streams" />

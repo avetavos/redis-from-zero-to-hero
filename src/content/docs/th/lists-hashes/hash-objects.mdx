@@ -1,0 +1,154 @@
+---
+title: 'การจำลอง Object ด้วย Hashes'
+description: 'จัดเก็บ object เป็น hash ใช้ HINCRBY และ HINCRBYFLOAT สำหรับฟิลด์ตัวเลข และ HSETNX สำหรับการตั้งค่าแบบมีเงื่อนไข'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## หนึ่ง hash ต่อหนึ่ง object — รูปแบบมาตรฐาน
+
+วิธีที่ถูกต้องในการจำลอง domain object ใน Redis คือการเก็บทุกฟิลด์ไว้ภายใต้ hash key เดียว ตัวอย่างเช่น ข้อมูลผู้ใช้จะอยู่ทั้งหมดภายใต้ `user:1`:
+
+```text
+127.0.0.1:6379> HSET user:1 name "Ada" email "ada@example.com" age "28" points "0"
+(integer) 4
+127.0.0.1:6379> HGETALL user:1
+1) "name"
+2) "Ada"
+3) "email"
+4) "ada@example.com"
+5) "age"
+6) "28"
+7) "points"
+8) "0"
+```
+
+เปรียบเทียบกับแนวทางการใช้หลาย key:
+
+| แนวทาง | จำนวน key ที่ต้องใช้ |
+|---|---|
+| Hash | `user:1` — หนึ่ง key, หนึ่ง `HSET` |
+| String แยก | `user:1:name`, `user:1:email`, `user:1:age`, `user:1:points` — สี่ key |
+
+แนวทาง hash ใช้หน่วยความจำน้อยกว่า และช่วยให้คุณดึงหรืออัปเดตฟิลด์เฉพาะได้ด้วย `HGET` / `HSET` โดยไม่ต้องโหลดหรือแตะฟิลด์อื่นในออบเจกต์
+
+export const hashObjectCode = `HSET user:1 name "Ada" email "ada@example.com" age "28" points "0"
+HGETALL user:1`;
+
+<TryRedis client:visible code={hashObjectCode} />
+
+## HINCRBY และ HINCRBYFLOAT
+
+เมื่อฟิลด์ใน hash เก็บค่าตัวเลข Redis สามารถเพิ่มค่าได้แบบ atomic — ไม่มีปัญหา race condition จาก read-modify-write:
+
+- `HINCRBY key field increment` — เพิ่มค่าฟิลด์ integer ด้วยจำนวนเต็ม
+- `HINCRBYFLOAT key field increment` — เพิ่มค่าฟิลด์ float ด้วยตัวเลขทศนิยม
+
+```text
+127.0.0.1:6379> HINCRBY user:1 points 10
+(integer) 10
+127.0.0.1:6379> HINCRBY user:1 age 1
+(integer) 29
+127.0.0.1:6379> HINCRBYFLOAT user:1 score 1.5
+"1.5"
+127.0.0.1:6379> HINCRBYFLOAT user:1 score 0.5
+"2"
+127.0.0.1:6379> HGET user:1 points
+"10"
+```
+
+หากฟิลด์ยังไม่มีอยู่ ทั้งสองคำสั่งจะถือว่าค่าเริ่มต้นคือ `0` ก่อนจะนำค่า increment ไปบวก ดังนั้น `HINCRBY user:1 points 5` บนฟิลด์ `points` ที่ไม่มีอยู่จะสร้างฟิลด์ใหม่ด้วยค่า `5`
+
+export const hincrbyCode = `HSET user:1 name "Ada" email "ada@example.com" age "28" points "0"
+HINCRBY user:1 points 10
+HINCRBY user:1 age 1
+HINCRBYFLOAT user:1 score 1.5
+HINCRBYFLOAT user:1 score 0.5
+HGET user:1 points`;
+
+<TryRedis client:visible code={hincrbyCode} />
+
+## HSETNX — การตั้งค่าฟิลด์แบบมีเงื่อนไข
+
+`HSETNX key field value` ตั้งค่าฟิลด์ **เฉพาะเมื่อฟิลด์นั้นยังไม่มีอยู่เท่านั้น** คำสั่งจะคืนค่า `1` ถ้าสร้างฟิลด์สำเร็จ หรือ `0` ถ้าฟิลด์มีอยู่แล้วและไม่ได้เปลี่ยนแปลง
+
+```text
+127.0.0.1:6379> HSETNX user:1 email "newemail@example.com"
+(integer) 0
+127.0.0.1:6379> HGET user:1 email
+"ada@example.com"
+127.0.0.1:6379> HSETNX user:1 referrer "bob"
+(integer) 1
+127.0.0.1:6379> HGET user:1 referrer
+"bob"
+```
+
+กรณีใช้งานจริง: บันทึกฟิลด์ `created_at` เพียงครั้งเดียวเมื่อสร้าง object ครั้งแรก เนื่องจาก `HSETNX` ทำงานแบบ atomic จึงมั่นใจได้ว่าถ้ามี writer สองตัวแข่งกัน จะมีเพียงตัวแรกเท่านั้นที่ได้รับ `1`
+
+export const hsetnxCode = `HSET user:1 name "Ada" email "ada@example.com"
+HSETNX user:1 email "newemail@example.com"
+HGET user:1 email
+HSETNX user:1 referrer "bob"
+HGET user:1 referrer`;
+
+<TryRedis client:visible code={hsetnxCode} />
+
+## Hash vs หลาย string key — เลือกใช้เมื่อไหร่
+
+| | Hash (หนึ่ง key) | หลาย string key |
+|---|---|---|
+| หน่วยความจำ | กะทัดรัด (listpack สำหรับ hash ขนาดเล็ก) | overhead ต่อ key สูงกว่า |
+| ดึงหนึ่งฟิลด์ | `HGET user:1 name` | `GET user:1:name` |
+| ดึงทุกฟิลด์ | `HGETALL user:1` | `MGET user:1:name user:1:email ...` |
+| เพิ่มค่าแบบ atomic | `HINCRBY` | `INCR user:1:points` |
+| TTL ต่อฟิลด์ | ไม่สามารถทำได้ | ได้ (แต่ละ key มี TTL ของตัวเอง) |
+
+กฎทั่วไป: เลือกใช้ hash หนึ่งอันต่อหนึ่ง object เสมอ ใช้ string key แยกเฉพาะเมื่อต้องการกำหนด TTL แยกต่างหากในแต่ละฟิลด์
+
+<Callout title="Prefer one hash per object over many string keys">
+
+การเก็บ `user:1` เป็น hash เดียวใช้หน่วยความจำน้อยกว่าการแยกเป็น `user:1:name`, `user:1:email` ฯลฯ Redis ใช้ encoding แบบ listpack สำหรับ hash ที่มีไม่เกิน 128 ฟิลด์ — ช่วยประหยัดได้ประมาณ 50–80 bytes ต่อออบเจกต์เมื่อเทียบกับ string key แยก สงวน pattern หลาย key ไว้ใช้เฉพาะเมื่อต้องการกำหนด expiration ระดับฟิลด์เท่านั้น
+
+</Callout>
+
+export const quizHashObjects = [
+  {
+    q: "`HINCRBY user:1 points 5` จะทำอะไรถ้าฟิลด์ `points` ยังไม่มีอยู่?",
+    options: [
+      "คืนค่าเป็น error",
+      "สร้างฟิลด์พร้อมค่า 5",
+      "สร้างฟิลด์พร้อมค่า 0",
+      "ไม่ทำอะไรเลย",
+    ],
+    answer: 1,
+  },
+  {
+    q: "`HSETNX user:1 email 'new@example.com'` จะคืนค่าอะไรถ้าฟิลด์มีอยู่แล้ว?",
+    options: ["1", "0", "ค่าที่มีอยู่เดิม", "Error"],
+    answer: 1,
+  },
+  {
+    q: "แนวทางใดใช้หน่วยความจำน้อยกว่าในการเก็บข้อมูลผู้ใช้ใน Redis?",
+    options: [
+      "Hash key เดียวพร้อมทุกฟิลด์",
+      "String key หนึ่งอันต่อหนึ่งฟิลด์",
+      "ทั้งสองใช้หน่วยความจำเท่ากัน",
+      "ขึ้นอยู่กับ OS",
+    ],
+    answer: 0,
+  },
+  {
+    q: "คำสั่งใดเพิ่มค่าฟิลด์ float ใน hash แบบ atomic?",
+    options: ["HINCRBY", "HINCR", "HINCRBYFLOAT", "HFLOATINCR"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="lists-hashes/hash-objects" questions={quizHashObjects} />
+
+<ProgressTracker client:visible id="lists-hashes/hash-objects" />

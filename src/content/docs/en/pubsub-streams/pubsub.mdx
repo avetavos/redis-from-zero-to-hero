@@ -1,0 +1,147 @@
+---
+title: Pub/Sub
+description: 'SUBSCRIBE, UNSUBSCRIBE, and PUBLISH — channels, fire-and-forget messaging, and the two-terminal demo.'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## How Pub/Sub works
+
+Redis Pub/Sub follows the classic publish-subscribe pattern:
+
+1. A client calls `SUBSCRIBE channel` and enters listening mode. It can no longer issue regular commands — it only receives push messages from Redis.
+2. Any other client calls `PUBLISH channel message`. Redis immediately forwards that message to every currently connected subscriber of that channel.
+3. The message is never stored. If no subscribers are connected, the message is silently discarded. If a subscriber was connected ten seconds ago but disconnected, it gets nothing.
+
+Each channel is just a name — Redis creates and destroys channels implicitly as subscribers come and go. There is no need to create a channel before publishing to it.
+
+## SUBSCRIBE and PUBLISH — two-terminal demo
+
+The interaction below requires two separate `redis-cli` sessions running at the same time. Start Terminal 1 first, then send from Terminal 2.
+
+```text
+# Terminal 1 — subscriber
+127.0.0.1:6379> SUBSCRIBE news
+Reading messages... (press Ctrl-C to quit or any command to unsubscribe)
+1) "subscribe"
+2) "news"
+3) (integer) 1
+
+# Terminal 2 — publisher (in a second redis-cli session)
+127.0.0.1:6379> PUBLISH news "Breaking: Redis is fast"
+(integer) 1
+
+# Back in Terminal 1 — message arrives automatically
+1) "message"
+2) "news"
+3) "Breaking: Redis is fast"
+```
+
+The confirmation message Redis sends back to the subscriber on `SUBSCRIBE` has three parts:
+
+| Part | Value | Meaning |
+|---|---|---|
+| 1 | `"subscribe"` | Event type |
+| 2 | `"news"` | Channel name |
+| 3 | `(integer) 1` | Total channels this client is now subscribed to |
+
+When a published message arrives, it also has three parts: the event type `"message"`, the channel name, and the payload.
+
+The integer returned by `PUBLISH` is the number of subscribers who received the message. A return value of `0` means nobody was listening.
+
+export const pubsubCode = `PUBLISH news "Breaking: Redis is fast"
+PUBLISH news "Another update"`;
+
+<TryRedis client:visible code={pubsubCode} label="Copy PUBLISH command" />
+
+## UNSUBSCRIBE
+
+To leave a channel, a subscribed client sends `UNSUBSCRIBE`. You can name a specific channel or omit the channel name to unsubscribe from all channels at once.
+
+```text
+# Unsubscribe from one channel
+127.0.0.1:6379> UNSUBSCRIBE news
+1) "unsubscribe"
+2) "news"
+3) (integer) 0
+
+# Unsubscribe from all channels (no argument)
+127.0.0.1:6379> UNSUBSCRIBE
+1) "unsubscribe"
+2) (nil)
+3) (integer) 0
+```
+
+Once the subscription count drops to `0`, the client exits listening mode and can issue normal commands again.
+
+## SUBSCRIBE to multiple channels
+
+A single `SUBSCRIBE` call accepts any number of channel names. The client receives messages from all of them on the same connection.
+
+```text
+127.0.0.1:6379> SUBSCRIBE sports weather finance
+1) "subscribe"
+2) "sports"
+3) (integer) 1
+1) "subscribe"
+2) "weather"
+3) (integer) 2
+1) "subscribe"
+2) "finance"
+3) (integer) 3
+```
+
+Redis sends one confirmation reply per channel. The third field increments as each subscription is added, giving you the running total.
+
+<Callout title="Pub/Sub is fire-and-forget — offline subscribers miss messages">
+
+There is no buffer, no retry, and no history. The moment `PUBLISH` returns, the message is gone. A subscriber that was offline for a single millisecond during that window will never see it. If your application cannot accept message loss, use Redis Streams instead.
+
+</Callout>
+
+export const quizPubsub = [
+  {
+    q: "What does `PUBLISH channel message` return?",
+    options: [
+      "OK",
+      "The message ID",
+      "The number of subscribers who received the message",
+      "The number of channels the publisher is connected to",
+    ],
+    answer: 2,
+  },
+  {
+    q: "A client runs SUBSCRIBE news. Can it also run GET mykey without unsubscribing first?",
+    options: [
+      "Yes, any command works while subscribed",
+      "Yes, but only read commands",
+      "No — a subscribed client can only use SUBSCRIBE, UNSUBSCRIBE, PING, and RESET",
+      "No — it must open a new connection first",
+    ],
+    answer: 2,
+  },
+  {
+    q: "A publisher sends a message to a channel with zero subscribers. What happens to the message?",
+    options: [
+      "Redis stores it and delivers it when the next subscriber connects",
+      "Redis returns an error",
+      "Redis discards it immediately",
+      "Redis puts it in a dead-letter queue",
+    ],
+    answer: 2,
+  },
+  {
+    q: "Which reply field in a push message contains the channel name?",
+    options: ["Field 1", "Field 2", "Field 3", "Field 0"],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="pubsub-streams/pubsub" questions={quizPubsub} />
+
+<ProgressTracker client:visible id="pubsub-streams/pubsub" />

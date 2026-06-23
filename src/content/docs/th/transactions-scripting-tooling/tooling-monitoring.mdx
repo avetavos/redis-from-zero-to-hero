@@ -1,0 +1,190 @@
+---
+title: Tooling & Monitoring
+description: 'เครื่องมือ redis-cli: MONITOR, INFO, --scan, --bigkeys, --latency, SLOWLOG, CLIENT LIST และภาพรวม RedisInsight GUI'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## redis-cli ไม่ใช่แค่ REPL
+
+`redis-cli` มาพร้อม diagnostic flag ที่หลากหลายเกินกว่าแค่การพิมพ์คำสั่ง การรู้จักเครื่องมือเหล่านี้ทำให้คุณระบุ query ช้า key ที่กินหน่วยความจำมาก และปัญหา connection ได้โดยไม่ต้องใช้ซอฟต์แวร์เพิ่มเติม
+
+## INFO — สถิติ server ในพริบตา
+
+`INFO` คืนบล็อก key-value สถิติขนาดใหญ่แบ่งตาม section เรียก section เฉพาะเพื่อลด noise:
+
+```text
+127.0.0.1:6379> INFO server
+# Server
+redis_version:7.2.4
+redis_mode:standalone
+os:Linux 5.15.0 x86_64
+...
+
+127.0.0.1:6379> INFO memory
+# Memory
+used_memory_human:1.02M
+used_memory_peak_human:1.03M
+...
+
+127.0.0.1:6379> INFO stats
+# Stats
+total_commands_processed:1024
+instantaneous_ops_per_sec:12
+...
+```
+
+export const infoCode = `INFO server
+INFO memory
+INFO keyspace`;
+
+<TryRedis client:visible code={infoCode} />
+
+## SLOWLOG — ค้นหาคำสั่งช้า
+
+Redis บันทึกคำสั่งที่ใช้เวลาเกิน threshold ที่กำหนดได้ (ค่าเริ่มต้น 10 ms) `SLOWLOG GET N` คืน N entry ล่าสุดพร้อม timestamp, duration และคำสั่งเต็ม:
+
+```text
+127.0.0.1:6379> SLOWLOG GET 5
+1) 1) (integer) 3
+   2) (integer) 1700000000
+   3) (integer) 15420
+   4) 1) "KEYS"
+      2) "*"
+   5) "127.0.0.1:54321"
+   6) ""
+```
+
+Reset log ด้วย `SLOWLOG RESET` ปรับ threshold ด้วย:
+
+```text
+127.0.0.1:6379> CONFIG SET slowlog-log-slower-than 5000
+OK
+```
+
+export const slowlogCode = `SLOWLOG GET 5
+SLOWLOG LEN
+SLOWLOG RESET`;
+
+<TryRedis client:visible code={slowlogCode} />
+
+## --bigkeys — ค้นหา key ที่กินหน่วยความจำมาก
+
+รันจาก shell (ไม่ใช่ REPL) เพื่อสแกน keyspace ทั้งหมดและรายงาน key ที่ใหญ่ที่สุดต่อแต่ละประเภท:
+
+```bash
+redis-cli --bigkeys
+```
+
+ตัวอย่างผลลัพธ์:
+
+```text
+-------- summary -------
+Biggest string found 'session:heavy' has 512000 bytes
+Biggest list   found 'log:events' has 1048576 items
+Biggest hash   found 'user:profile:1' has 312 fields
+```
+
+คำสั่งนี้ใช้ `SCAN` ภายในดังนั้นจึงไม่บล็อก server
+
+## --scan และ --pattern — วนซ้ำ keyspace
+
+```bash
+# แสดง key ทั้งหมดที่ตรง pattern (ใช้ SCAN ภายใน ไม่บล็อก)
+redis-cli --scan --pattern "session:*"
+
+# นับ key ที่ตรง
+redis-cli --scan --pattern "cache:*" | wc -l
+```
+
+## --latency — วัด round-trip time
+
+```bash
+redis-cli --latency
+redis-cli --latency-history   # sample ทุก 15 วินาที
+redis-cli --latency-dist      # ASCII histogram
+```
+
+คำสั่งเหล่านี้ ping Redis ในลูปและแสดง latency min/max/avg ใช้ตรวจจับ network jitter หรือ server ที่ช้าลงกะทันหัน
+
+## MONITOR — stream คำสั่งแบบ real-time
+
+`MONITOR` stream ทุกคำสั่งที่ server ประมวลผลแบบ real-time:
+
+```text
+127.0.0.1:6379> MONITOR
+OK
+1700000001.123456 [0 127.0.0.1:54322] "SET" "foo" "bar"
+1700000001.124000 [0 127.0.0.1:54322] "GET" "foo"
+```
+
+มีประโยชน์อย่างยิ่งในการ debug ว่าแอปพลิเคชันส่งอะไรจริงๆ กด `Ctrl+C` เพื่อหยุด
+
+## CLIENT LIST — ตรวจสอบ connection
+
+`CLIENT LIST` แสดง client ที่เชื่อมต่ออยู่ทุกตัวพร้อม id, address, database, command และ memory usage:
+
+```text
+127.0.0.1:6379> CLIENT LIST
+id=5 addr=127.0.0.1:54321 laddr=127.0.0.1:6379 fd=8 name= age=0 idle=0 flags=N db=0 cmd=client|list ...
+```
+
+Kill connection ที่ค้างอยู่ด้วย `CLIENT KILL id 5`
+
+export const clientCode = `CLIENT LIST
+CLIENT GETNAME
+CLIENT INFO`;
+
+<TryRedis client:visible code={clientCode} />
+
+## RedisInsight — GUI สำหรับ Redis
+
+RedisInsight คือ GUI อย่างเป็นทางการที่ให้ใช้ฟรีจาก Redis Ltd มี visual keyspace browser, slow-log viewer, memory profiler และ built-in CLI ดาวน์โหลดได้จาก [redis.io/insight](https://redis.io/insight) และเชื่อมต่อกับ Redis instance ใดก็ได้ — local หรือ remote
+
+<Callout title="ใช้ --bigkeys, SLOWLOG และ INFO ในการวินิจฉัย หลีกเลี่ยง MONITOR ใน production">
+
+`MONITOR` มีประโยชน์มากสำหรับ debug แต่มีต้นทุนจริง: มันเพิ่ม write load ของ server ประมาณสองเท่าเพราะ Redis ต้องส่งสำเนาทุกคำสั่งไปยัง monitoring client แต่ละตัว ใช้เพียงสั้นๆ บน staging server หรือ replica ที่ traffic น้อย แล้ว disconnect สำหรับ production diagnostics ให้ใช้ `SLOWLOG`, `INFO stats` และ `--bigkeys` แทน — ออกแบบมาให้ปลอดภัยภายใต้ load
+
+</Callout>
+
+export const quizTooling = [
+  {
+    q: "คำสั่งใดแสดง N คำสั่ง Redis ที่ช้าที่สุดล่าสุดพร้อม duration?",
+    options: ["INFO stats", "SLOWLOG GET N", "MONITOR", "CLIENT LIST"],
+    answer: 1,
+  },
+  {
+    q: "ทำไมจึงควรหลีกเลี่ยงการเปิด MONITOR ทิ้งไว้ใน production?",
+    options: [
+      "มันลบ key",
+      "มันเพิ่ม server write load ประมาณสองเท่าต่อ monitoring client แต่ละตัว",
+      "มันบล็อก client ทั้งหมด",
+      "ใช้ได้เฉพาะ Redis 6 และต่ำกว่า",
+    ],
+    answer: 1,
+  },
+  {
+    q: "flag ของ redis-cli ที่สแกน keyspace ทั้งหมดและรายงาน key ที่ใหญ่ที่สุดต่อแต่ละประเภทคืออะไร?",
+    options: ["--scan", "--latency", "--bigkeys", "--pipe"],
+    answer: 2,
+  },
+  {
+    q: "เพื่อนับ key ที่ตรง 'cache:*' โดยไม่บล็อก server คุณจะใช้:",
+    options: [
+      "KEYS cache:*",
+      "redis-cli --scan --pattern 'cache:*' | wc -l",
+      "INFO keyspace",
+      "SLOWLOG GET cache",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="transactions-scripting-tooling/tooling-monitoring" questions={quizTooling} />
+
+<ProgressTracker client:visible id="transactions-scripting-tooling/tooling-monitoring" />

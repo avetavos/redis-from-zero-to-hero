@@ -1,0 +1,139 @@
+---
+title: Lua Scripting
+description: 'EVAL, redis.call, ความเป็น atomic ของ script, SCRIPT LOAD และ EVALSHA สำหรับ logic ฝั่ง server ที่ cache ไว้'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ทำไมต้องใช้ Lua scripting?
+
+Transaction จัดการการเขียนแบบกลุ่มได้ แต่ไม่สามารถแสดง conditional logic ได้ หากคุณต้องการอ่านค่า ตรวจสอบ แล้วเขียนกลับเฉพาะในเงื่อนไขบางอย่าง — ทั้งหมดนี้แบบ atomic — คุณต้องใช้ Lua script
+
+Redis มี Lua 5.1 interpreter ในตัว script รันทั้งหมดบน server: ไม่มี network round-trip ระหว่างขั้นตอน และไม่มีคำสั่งอื่นรันได้ในขณะที่ script กำลังทำงาน
+
+## EVAL — รัน Lua script
+
+คำสั่ง `EVAL` รับ Lua script string จำนวน key ที่จะเข้าถึง ชื่อ key และ argument เพิ่มเติม:
+
+```text
+EVAL script numkeys [key [key ...]] [arg [arg ...]]
+```
+
+ภายใน script key ถูกเข้าถึงผ่าน `KEYS[1]`, `KEYS[2]`, ... และ argument ผ่าน `ARGV[1]`, `ARGV[2]`, ...
+
+```text
+127.0.0.1:6379> EVAL "return redis.call('SET', KEYS[1], ARGV[1])" 1 mykey "hello"
+OK
+127.0.0.1:6379> GET mykey
+"hello"
+```
+
+`redis.call(command, ...)` รันคำสั่ง Redis จาก Lua หากคำสั่งเกิด error `redis.call` จะส่ง error นั้นเป็น Lua error (ซึ่งกลายเป็น Redis error ให้ client) ใช้ `redis.pcall` หากต้องการ catch error ใน Lua แทน
+
+## ตัวอย่าง INCR แบบปฏิบัติ
+
+Read-modify-write แบบ atomic ที่ง่ายที่สุด: เพิ่มค่า counter
+
+```text
+127.0.0.1:6379> EVAL "return redis.call('INCR', KEYS[1])" 1 counter
+(integer) 1
+127.0.0.1:6379> EVAL "return redis.call('INCR', KEYS[1])" 1 counter
+(integer) 2
+127.0.0.1:6379> GET counter
+"2"
+```
+
+export const evalIncrCode = `EVAL "return redis.call('INCR', KEYS[1])" 1 counter
+EVAL "return redis.call('INCR', KEYS[1])" 1 counter
+GET counter`;
+
+<TryRedis client:visible code={evalIncrCode} />
+
+## Conditional logic ใน Lua
+
+นี่คือ pattern ที่ set key เฉพาะเมื่อค่าปัจจุบันต่ำกว่า threshold — สิ่งที่ทำไม่ได้แบบ atomic ด้วย `MULTI`/`EXEC` เพราะต้องการ branching logic:
+
+```lua
+-- rate-limiter: เพิ่ม counter; คืน 1 ถ้าต่ำกว่า limit, 0 ถ้าเกิน
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+if current <= tonumber(ARGV[2]) then
+  return 1
+else
+  return 0
+end
+```
+
+```text
+127.0.0.1:6379> EVAL "local c=redis.call('INCR',KEYS[1]) if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end if c<=tonumber(ARGV[2]) then return 1 else return 0 end" 1 ratelimit:user1 60 5
+(integer) 1
+```
+
+## SCRIPT LOAD และ EVALSHA
+
+การส่ง script text เต็มทุก request เปลือง bandwidth `SCRIPT LOAD` อัปโหลด script ครั้งเดียวและคืน SHA1 hash แล้วคุณเรียกใช้ด้วย `EVALSHA`:
+
+```text
+127.0.0.1:6379> SCRIPT LOAD "return redis.call('INCR', KEYS[1])"
+"2068d9c36e28e0f50d70bedb00173c36e5f4f39d"
+127.0.0.1:6379> EVALSHA 2068d9c36e28e0f50d70bedb00173c36e5f4f39d 1 counter
+(integer) 3
+```
+
+script ถูก cache ใน Redis memory ตลอด lifetime ของ server (หรือจนกว่าจะ `SCRIPT FLUSH`) หาก script ไม่ถูกพบ — เช่น หลัง server restart — `EVALSHA` คืน error `NOSCRIPT` และ client ควร fallback ไปใช้ `EVAL` เพื่ออัปโหลดใหม่
+
+export const evalShaCode = `SCRIPT LOAD "return redis.call('INCR', KEYS[1])"
+EVALSHA 2068d9c36e28e0f50d70bedb00173c36e5f4f39d 1 counter
+GET counter`;
+
+<TryRedis client:visible code={evalShaCode} />
+
+<Callout title="Lua script รันบน server แบบ atomic">
+
+เมื่อคุณรัน `EVAL` หรือ `EVALSHA` script ทั้งหมดรันบน Redis server ในขั้นตอนเดียวโดยไม่ถูกขัดจังหวะ ไม่มีคำสั่ง client อื่นรันระหว่างสองบรรทัดใดๆ ของโค้ด Lua ของคุณ สิ่งนี้ทำให้ Lua เหมาะสำหรับ pattern read-modify-write (rate limiter, distributed lock, conditional update) ที่ไม่สามารถแสดงด้วย `MULTI`/`EXEC` ได้เพราะต้องการ branching logic
+
+</Callout>
+
+export const quizLua = [
+  {
+    q: "ภายใน Lua script คุณเข้าถึง key แรกที่ส่งให้ EVAL อย่างไร?",
+    options: ["KEYS(1)", "KEYS[1]", "ARGV[0]", "keys.first"],
+    answer: 1,
+  },
+  {
+    q: "SCRIPT LOAD คืนค่าอะไร?",
+    options: [
+      "script text กลับมา",
+      "SHA1 hash ของ script",
+      "integer script ID",
+      "OK",
+    ],
+    answer: 1,
+  },
+  {
+    q: "EVALSHA คืน error อะไรเมื่อ script ไม่ได้ถูก cache ไว้?",
+    options: ["NOTFOUND", "NOSCRIPT", "MISSING", "CACHEFAIL"],
+    answer: 1,
+  },
+  {
+    q: "Lua script ที่รันด้วย EVAL เป็น atomic เพราะ:",
+    options: [
+      "ใช้ MULTI/EXEC ภายใน",
+      "ไม่มีคำสั่งอื่นรันบน server ขณะที่ script ทำงาน",
+      "มัน lock key ตลอดระยะเวลา",
+      "มันรันใน process แยกต่างหาก",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="transactions-scripting-tooling/lua-scripting" questions={quizLua} />
+
+<ProgressTracker client:visible id="transactions-scripting-tooling/lua-scripting" />

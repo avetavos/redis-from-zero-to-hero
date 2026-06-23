@@ -1,0 +1,129 @@
+---
+title: 'RDB Snapshots และ AOF'
+description: 'วิธีที่ Redis บันทึกข้อมูลลงดิสก์: RDB snapshot, AOF command log, BGSAVE, BGREWRITEAOF และ hybrid mode'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## RDB — Periodic Snapshots
+
+การ persistence แบบ RDB (Redis Database) บันทึก snapshot ของชุดข้อมูลทั้งหมด ณ เวลาหนึ่งลงในไฟล์ binary แบบกะทัดรัด เมื่อ startup Redis จะโหลดไฟล์นี้เพื่อกู้คืนสถานะ — ทำให้ RDB เป็นวิธีที่เร็วที่สุดในการกลับมาทำงานหลัง restart
+
+### วิธีการเรียก snapshot
+
+**คำสั่งด้วยตนเอง:**
+
+- `SAVE` — บล็อกเซิร์ฟเวอร์ขณะเขียน snapshot หลีกเลี่ยงในการใช้งาน production
+- `BGSAVE` — fork child process เพื่อเขียน snapshot ในพื้นหลัง parent ยังคงรับ request ต่อไป
+
+**Threshold อัตโนมัติ** ถูกกำหนดใน `redis.conf` โดยใช้ directive `save` รูปแบบคือ `save <seconds> <changed-keys>` — Redis ถ่าย snapshot หากมีการแก้ไข key อย่างน้อย `<changed-keys>` ภายใน `<seconds>` วินาทีที่ผ่านมา
+
+```ini
+save 3600 1
+save 300 100
+save 60 10000
+dbfilename dump.rdb
+dir /var/lib/redis
+```
+
+บรรทัด `save` สามบรรทัดข้างต้นหมายความว่า: snapshot ทุกชั่วโมงหาก key เปลี่ยนอย่างน้อย 1 รายการ, ทุก 5 นาทีหากเปลี่ยนอย่างน้อย 100 รายการ, หรือทุกนาทีหากเปลี่ยนอย่างน้อย 10,000 รายการ หากต้องการปิด snapshot อัตโนมัติทั้งหมด ให้ลบบรรทัด `save` ทั้งหมด หรือตั้งค่า `save ""`
+
+### ข้อดีข้อเสียของ RDB
+
+ไฟล์ RDB มีขนาดกะทัดรัดและโหลดได้รวดเร็ว ข้อเสียคืออาจสูญเสียข้อมูลได้: ข้อมูลที่เขียนหลัง snapshot ล่าสุดจะหายไปหาก Redis crash ก่อน snapshot ถัดไป
+
+## AOF — Append-Only File
+
+AOF บันทึกคำสั่งเขียนทุกคำสั่งที่แก้ไขชุดข้อมูล โดย append ลงในไฟล์ในรูปแบบ text เดียวกับที่ Redis ใช้ส่งข้อมูล เมื่อ restart Redis จะเล่น file ซ้ำตั้งแต่ต้นจนจบเพื่อสร้างชุดข้อมูลขึ้นใหม่
+
+เปิดใช้ AOF ใน `redis.conf`:
+
+```ini
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
+```
+
+ตัวเลือก `appendfsync` ควบคุมความถี่ที่ Redis เรียก `fsync()` เพื่อ flush OS buffer ลงดิสก์:
+
+- `always` — flush หลังทุกคำสั่ง durability สูงสุด throughput ต่ำสุด
+- `everysec` — flush ทุกวินาที สูญเสียข้อมูลได้มากที่สุดหนึ่งวินาที แนะนำสำหรับ workload ส่วนใหญ่
+- `no` — ให้ OS ตัดสินใจเมื่อจะ flush เร็วที่สุด durability ต่ำสุด
+
+เมื่อเวลาผ่านไป ไฟล์ AOF จะขยายใหญ่ขึ้น Redis จะบีบอัดด้วย `BGREWRITEAOF` ซึ่ง fork child เพื่อเขียน log ใหม่โดยใช้ชุดคำสั่งขั้นต่ำที่จำเป็นในการสร้างชุดข้อมูลปัจจุบันขึ้นใหม่
+
+## การตรวจสอบสถานะ Persistence ด้วย redis-cli
+
+```text
+127.0.0.1:6379> BGSAVE
+Background saving started
+127.0.0.1:6379> LASTSAVE
+(integer) 1700000000
+127.0.0.1:6379> CONFIG GET save
+1) "save"
+2) "3600 1 300 100 60 10000"
+127.0.0.1:6379> BGREWRITEAOF
+Background append only file rewriting started
+```
+
+`LASTSAVE` คืนค่า Unix timestamp ของ `BGSAVE` ที่สำเร็จล่าสุด ใช้เพื่อยืนยันว่า snapshot อัตโนมัติกำลังทำงานตามตารางเวลา
+
+export const rdbAofCode = `BGSAVE
+LASTSAVE
+CONFIG GET save
+BGREWRITEAOF`;
+
+<TryRedis client:visible code={rdbAofCode} />
+
+## Hybrid Persistence
+
+Redis 4 แนะนำ hybrid mode และ Redis 7 ปรับปรุงให้ดียิ่งขึ้น ใน hybrid mode ไฟล์ AOF จะเริ่มต้นด้วย RDB snapshot ที่ฝังไว้ (สำหรับการโหลดที่รวดเร็ว) ตามด้วย incremental AOF command log (สำหรับ durability) คุณได้รับทั้งการ restart ที่เร็วของ RDB และการสูญเสียข้อมูลน้อยของ AOF ในไฟล์เดียว
+
+เปิดใช้ hybrid mode ใน `redis.conf`:
+
+```ini
+aof-use-rdb-preamble yes
+```
+
+Hybrid mode เป็นค่าเริ่มต้นใน Redis 7 เมื่อเปิดใช้ทั้ง RDB และ AOF เป็น setup persistence ที่แนะนำสำหรับ production workload ส่วนใหญ่ที่ต้องการทั้งความเร็วและ durability
+
+<Callout title="RDB vs AOF — ควรใช้อะไร">
+RDB ให้ snapshot แบบ periodic ที่กะทัดรัด (restart เร็ว ไฟล์เล็ก) แลกกับการอาจสูญเสียข้อมูลที่เขียนหลัง snapshot ล่าสุด AOF ให้ command log ที่ทนทาน (สูญเสียได้มากที่สุดหนึ่งวินาทีด้วย `everysec`) แลกกับไฟล์ที่ใหญ่กว่าและ restart ที่ช้ากว่าเล็กน้อย Production deployment ส่วนใหญ่ใช้ทั้งสองแบบใน hybrid mode สำหรับ cache ล้วน ๆ ที่ไม่ต้องการ persistence ให้ปิดทั้งสองโดยลบบรรทัด `save` ทั้งหมดและตั้งค่า `appendonly no`
+</Callout>
+
+export const quizRdbAof = [
+  {
+    q: "คำสั่งใดที่เรียก RDB snapshot ในพื้นหลังโดยไม่บล็อกเซิร์ฟเวอร์?",
+    options: ["SAVE", "BGSAVE", "BGREWRITEAOF", "SNAPSHOT"],
+    answer: 1,
+  },
+  {
+    q: "การตั้งค่า `appendonly yes` ใน redis.conf เปิดใช้งานอะไร?",
+    options: [
+      "Periodic RDB snapshots",
+      "การหมดอายุของ key อัตโนมัติ",
+      "AOF command logging",
+      "Hybrid persistence mode",
+    ],
+    answer: 2,
+  },
+  {
+    q: "ชื่อไฟล์เริ่มต้นที่ Redis ใช้สำหรับ RDB snapshot คืออะไร?",
+    options: ["appendonly.aof", "redis.rdb", "dump.rdb", "snapshot.rdb"],
+    answer: 2,
+  },
+  {
+    q: "ค่า `appendfsync` ใดที่ flush AOF buffer ลงดิสก์ทุกหนึ่งวินาที?",
+    options: ["always", "no", "everysec", "periodic"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="persistence-expiration/rdb-aof" questions={quizRdbAof} />
+
+<ProgressTracker client:visible id="persistence-expiration/rdb-aof" />

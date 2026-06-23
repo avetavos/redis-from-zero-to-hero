@@ -1,0 +1,87 @@
+---
+title: 'Intro & Setup: Overview'
+description: 'What Redis is, how to run it with Docker, and your first redis-cli session.'
+sidebar:
+  order: 1
+---
+
+import RunRedis from '../../../../components/RunRedis.astro';
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+Redis is an **in-memory key-value data structure server** — it stores all data in RAM, which makes reads and writes extraordinarily fast. This module walks you through running Redis with Docker, opening a redis-cli session, and sending your first commands.
+
+<RunRedis />
+
+## What this module covers
+
+| Lesson | Topic |
+|--------|-------|
+| Intro & Setup: Overview | This page — what Redis is and the run → cli → command loop |
+| What is Redis? | In-memory model, event loop, and common use cases |
+| Run with Docker | Pulling the image, starting a container, persistence basics |
+| Redis CLI | Connecting, navigating history, inline help |
+| First Commands | PING, SET, GET, DEL, and the PONG you will always remember |
+
+## The run → cli → command loop
+
+Every Redis session follows the same three steps:
+
+1. Start a Redis server (here, with Docker)
+2. Connect to it with redis-cli
+3. Send commands and read replies
+
+Once your container is running (use the panel above), open a terminal and connect:
+
+```bash
+docker exec -it redis redis-cli
+```
+
+You will see the `127.0.0.1:6379>` prompt. Try these commands right away:
+
+```text
+127.0.0.1:6379> PING
+PONG
+127.0.0.1:6379> SET name "Redis"
+OK
+127.0.0.1:6379> GET name
+"Redis"
+```
+
+export const firstCode = `PING
+SET name "Redis"
+GET name`;
+
+<TryRedis client:visible code={firstCode} />
+
+<Callout title="Redis keeps data in memory — extremely fast">
+
+Because Redis never touches disk during a normal read or write, latency is measured in **microseconds** rather than milliseconds. A single server routinely handles hundreds of thousands of operations per second.
+
+The trade-off is that RAM is finite and more expensive than disk. Redis addresses this with optional persistence (RDB snapshots and AOF logs) and eviction policies that remove the least-useful keys when memory fills up. You will explore both later in the course.
+
+</Callout>
+
+export const quizIndex = [
+  {
+    q: "Where does Redis primarily store its data?",
+    options: ["On disk (SSD)", "In memory (RAM)", "In a relational database", "In a distributed file system"],
+    answer: 1,
+  },
+  {
+    q: "What does Redis reply with when you send the PING command?",
+    options: ["OK", "1", "PONG", "nil"],
+    answer: 2,
+  },
+  {
+    q: "Which command stores a value under a key in Redis?",
+    options: ["PUT", "INSERT", "SET", "STORE"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="intro-setup/index" questions={quizIndex} />
+
+<ProgressTracker client:visible id="intro-setup/index" />

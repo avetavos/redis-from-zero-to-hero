@@ -1,0 +1,98 @@
+---
+title: Memory Limits and Eviction
+description: 'maxmemory, eviction policies (noeviction, allkeys-lru, volatile-lru, allkeys-lfu, volatile-ttl), and when Redis removes keys automatically.'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Setting a memory limit
+
+`maxmemory` caps Redis memory usage. When the limit is reached, Redis applies the eviction policy to decide which keys to remove. You can set it in `redis.conf` or at runtime with `CONFIG SET`.
+
+```ini
+maxmemory 512mb
+maxmemory-policy allkeys-lru
+```
+
+## Eviction policies
+
+| Policy | Behavior |
+|--------|----------|
+| `noeviction` | Return error on writes when full (default; safe for databases) |
+| `allkeys-lru` | Evict least recently used key from all keys |
+| `volatile-lru` | Evict LRU from keys with a TTL set |
+| `allkeys-lfu` | Evict least frequently used key from all keys |
+| `volatile-lfu` | Evict LFU from keys with a TTL |
+| `volatile-ttl` | Evict the key with the shortest remaining TTL |
+| `allkeys-random` | Evict a random key from all keys |
+| `volatile-random` | Evict a random key from keys with a TTL |
+
+## Checking and changing policy at runtime
+
+```text
+127.0.0.1:6379> CONFIG GET maxmemory-policy
+1) "maxmemory-policy"
+2) "noeviction"
+127.0.0.1:6379> CONFIG SET maxmemory-policy allkeys-lru
+OK
+127.0.0.1:6379> CONFIG GET maxmemory
+1) "maxmemory"
+2) "0"
+127.0.0.1:6379> CONFIG SET maxmemory 256mb
+OK
+```
+
+export const evictionCode = `CONFIG GET maxmemory-policy
+CONFIG SET maxmemory-policy allkeys-lru
+CONFIG GET maxmemory
+CONFIG SET maxmemory 256mb`;
+
+<TryRedis client:visible code={evictionCode} />
+
+<Callout title="Cache vs database — choose the right policy">
+
+As a cache, set `maxmemory` plus an `allkeys-lru` or `allkeys-lfu` policy so Redis automatically removes the least useful keys. As a primary database, use `noeviction` so writes fail loudly rather than silently dropping data.
+
+</Callout>
+
+export const quizEviction = [
+  {
+    q: "Which eviction policy evicts the least recently used key from ALL keys?",
+    options: ["volatile-lru", "allkeys-lru", "allkeys-lfu", "volatile-ttl"],
+    answer: 1,
+  },
+  {
+    q: "What is the default eviction policy in Redis?",
+    options: ["allkeys-lru", "volatile-lru", "noeviction", "allkeys-random"],
+    answer: 2,
+  },
+  {
+    q: "The `volatile-ttl` policy evicts keys based on what criterion?",
+    options: [
+      "Least recently used among all keys",
+      "A random selection from all keys",
+      "The shortest remaining TTL among keys that have a TTL set",
+      "Least frequently used among all keys",
+    ],
+    answer: 2,
+  },
+  {
+    q: "Which command sets the eviction policy at runtime?",
+    options: [
+      "CONFIG SET maxmemory-policy",
+      "SET maxmemory-policy",
+      "CONFIG UPDATE eviction",
+      "POLICY SET eviction",
+    ],
+    answer: 0,
+  },
+];
+
+<Quiz client:visible id="persistence-expiration/eviction-policies" questions={quizEviction} />
+
+<ProgressTracker client:visible id="persistence-expiration/eviction-policies" />

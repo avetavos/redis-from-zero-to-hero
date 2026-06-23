@@ -1,0 +1,108 @@
+---
+title: 'Pub/Sub & Streams: Overview'
+description: 'Messaging in Redis: Pub/Sub fire-and-forget vs Streams durable log — when to use each.'
+sidebar:
+  order: 1
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Two messaging models in Redis
+
+Redis provides two distinct models for passing messages between clients. They serve different needs and are not interchangeable.
+
+| | Pub/Sub | Streams |
+|---|---|---|
+| **Persistence** | None — messages vanish after delivery | Durable append-only log |
+| **Offline subscribers** | Miss all messages sent while disconnected | Can catch up from any position |
+| **Delivery guarantee** | Fire-and-forget | At-least-once with consumer groups |
+| **Message history** | No history | Full history by default |
+| **Consumer groups** | Not supported | Supported (parallel processing) |
+| **Typical latency** | Sub-millisecond | Sub-millisecond |
+
+Pub/Sub routes a message to every connected subscriber of a channel, then discards it. Streams append every message to a log that persists independently of any subscriber.
+
+## When to use Pub/Sub
+
+Pub/Sub is the right choice when:
+
+- **Real-time notifications** — a user action must be broadcast to dashboards or browser tabs instantly and missing one update is acceptable.
+- **Live chat** — messages flow while both parties are connected; chat history is stored elsewhere.
+- **Fanout cache invalidation** — all app servers must drop a cached value at the same time; a missed message just means a slightly stale cache, which is fine.
+- **Event broadcasting** — metrics, presence signals, or ephemeral state updates where older values are meaningless by the time a subscriber reconnects.
+
+The common thread: the value of the message is tied to the moment it was sent. Once that moment passes, the message has no use.
+
+## When to use Streams
+
+Streams are the right choice when:
+
+- **Event sourcing** — every state change must be recorded and replayable from any point in time.
+- **Task queues** — workers process jobs and must not lose a task if a worker crashes.
+- **Audit logs** — a complete, ordered record of who did what, queryable after the fact.
+- **Offline subscribers** — consumers that go down and come back must be able to read everything they missed.
+- **Parallel processing** — consumer groups let multiple workers share a stream without duplicating messages.
+
+The common thread: the message matters even after it has been delivered. You need the log.
+
+## What this module covers
+
+| Lesson | Topic |
+|---|---|
+| Overview (this page) | Pub/Sub vs Streams — choosing the right model |
+| Pub/Sub | SUBSCRIBE, PUBLISH, UNSUBSCRIBE — the two-terminal demo |
+| Pub/Sub Patterns | PSUBSCRIBE, PUNSUBSCRIBE — glob-pattern channel matching |
+| Streams | XADD, XREAD, XRANGE, XLEN — writing and reading a stream |
+| Consumer Groups | XGROUP, XREADGROUP, XACK — parallel processing with acknowledgement |
+
+```text
+127.0.0.1:6379> PUBLISH chat "hello"
+(integer) 0
+```
+
+The reply `(integer) 0` means zero subscribers were connected at the time of the publish. Open a second `redis-cli` session, run `SUBSCRIBE chat`, then publish again to see a live delivery.
+
+export const overviewCode = `PUBLISH chat "hello"`;
+
+<TryRedis client:visible code={overviewCode} />
+
+<Callout title="Choose the right tool">
+
+Streams persist; Pub/Sub does not. If a subscriber disconnects for even one second, every Pub/Sub message sent during that window is gone forever. If your use case cannot tolerate missed messages, use a Stream.
+
+</Callout>
+
+export const quizOverview = [
+  {
+    q: "A subscriber disconnects for 5 seconds. Which model ensures it can read the messages it missed?",
+    options: ["Pub/Sub", "Streams", "Both", "Neither"],
+    answer: 1,
+  },
+  {
+    q: "What does Redis do with a Pub/Sub message after it has been delivered to connected subscribers?",
+    options: [
+      "Stores it in a list for 24 hours",
+      "Moves it to a dead-letter queue",
+      "Discards it immediately",
+      "Appends it to an internal log",
+    ],
+    answer: 2,
+  },
+  {
+    q: "Which feature is available in Streams but NOT in Pub/Sub?",
+    options: [
+      "Multiple subscribers per channel",
+      "Consumer groups for parallel processing",
+      "Sub-millisecond delivery",
+      "Named channels",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="pubsub-streams/index" questions={quizOverview} />
+
+<ProgressTracker client:visible id="pubsub-streams/index" />

@@ -1,0 +1,134 @@
+---
+title: การ Subscribe ด้วย Pattern
+description: 'PSUBSCRIBE และ PUNSUBSCRIBE พร้อม glob patterns — subscribe หลายช่องด้วยคำสั่งเดียว'
+sidebar:
+  order: 3
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## การ Subscribe ด้วย Pattern
+
+`PSUBSCRIBE` ทำงานเหมือน `SUBSCRIBE` แต่รับ **glob pattern** แทนชื่อช่องที่ระบุตายตัว การเรียก `PSUBSCRIBE` ครั้งเดียวจึงสามารถจับคู่กับช่องได้หลายสิบช่องพร้อมกันโดยไม่ต้องระบุทีละชื่อ
+
+wildcard แบบ glob ที่ Redis รองรับมีสามแบบ:
+
+| Pattern | ความหมาย |
+|---------|---------|
+| `*` | จับคู่กับอักขระใดก็ได้ (รวมถึงไม่มีเลย) |
+| `?` | จับคู่กับอักขระหนึ่งตัวอักษรเท่านั้น |
+| `[abc]` | จับคู่กับอักขระหนึ่งตัวจากกลุ่มที่กำหนด — เช่น `[abc]` จับคู่กับ `a`, `b`, หรือ `c` |
+
+ตัวอย่างเช่น `news.*` จับคู่กับ `news.sports`, `news.tech`, `news.finance` และช่องอื่น ๆ ที่ขึ้นต้นด้วย `news.`
+
+## การสาธิต PSUBSCRIBE
+
+การโต้ตอบด้านล่างใช้สอง terminal Terminal 1 subscribe ด้วย pattern ส่วน Terminal 2 publish ไปยังหลายช่อง
+
+```text
+-- Terminal 1 --
+127.0.0.1:6379> PSUBSCRIBE news.*
+Reading messages... (press Ctrl-C to quit)
+1) "psubscribe"
+2) "news.*"
+3) (integer) 1
+
+-- Terminal 2 --
+127.0.0.1:6379> PUBLISH news.sports "score update"
+(integer) 1
+127.0.0.1:6379> PUBLISH news.tech "new release"
+(integer) 1
+
+-- Terminal 1 receives --
+1) "pmessage"
+2) "news.*"
+3) "news.sports"
+4) "score update"
+1) "pmessage"
+2) "news.*"
+3) "news.tech"
+4) "new release"
+```
+
+สังเกตรูปแบบการตอบกลับ: `pmessage` ส่งกลับมาสี่ส่วน — ประเภทของ event, **pattern ที่จับคู่ได้**, **ช่องจริงที่รับข้อมูล**, และ **payload** ซึ่งต่างจากการตอบกลับแบบ `message` ธรรมดาที่มีเพียงสามส่วน
+
+export const psubCode = `PUBLISH news.sports "score update"
+PUBLISH news.tech "new release"
+PUBLISH weather.today "sunny"`;
+
+<TryRedis client:visible code={psubCode} label="Publish to channels matched by news.*" />
+
+## PUNSUBSCRIBE
+
+`PUNSUBSCRIBE pattern` ยกเลิกการ subscribe แบบ pattern การเรียกโดยไม่ระบุ argument จะยกเลิก pattern ทั้งหมดที่ active อยู่
+
+```text
+127.0.0.1:6379> PUNSUBSCRIBE news.*
+1) "punsubscribe"
+2) "news.*"
+3) (integer) 0
+```
+
+element ที่สามคือจำนวน pattern subscription ที่เหลืออยู่ เมื่อค่าถึง `0` client จะออกจากโหมด pattern-subscribe และสามารถออกคำสั่งปกติได้อีกครั้ง
+
+## Keyspace Notifications (เบื้องต้น)
+
+Redis ใช้กลไก Pub/Sub ภายในเพื่อส่ง event เกี่ยวกับกิจกรรมใน keyspace เมื่อเปิดใช้งาน Redis จะ publish ไปยังช่องพิเศษที่มีอยู่ในตัว เช่น:
+
+- `__keyevent@0__:expired` — ทำงานทุกครั้งที่ key ใน database 0 หมดอายุ
+- `__keyspace@0__:mykey` — ทำงานทุกครั้งที่มีคำสั่งใดก็ตามแตะ `mykey`
+
+คุณสามารถเปิดใช้งาน notification เหล่านี้ได้ด้วย:
+
+```text
+127.0.0.1:6379> CONFIG SET notify-keyspace-events KEA
+OK
+```
+
+จากนั้น subscribe ด้วย `PSUBSCRIBE __keyevent@0__:*` เพื่อรับทุก keyspace event บน database 0 นี่เป็น pattern ขั้นสูงที่มีประโยชน์สำหรับ cache invalidation และ audit logging — เนื้อหาเชิงลึกสมควรอยู่ในบทเรียนของตัวเอง
+
+<Callout title="Pattern subscription จับคู่หลายช่องด้วย subscriber เดียว">
+
+`PSUBSCRIBE news.*` เพียงครั้งเดียวแทนที่การเรียก `SUBSCRIBE` แยกกันหลายสิบครั้ง ข้อแลกเปลี่ยนคือ overhead เล็กน้อย: Redis ต้องจับคู่ทุกข้อความที่ publish กับทุก pattern ที่ active อยู่ ดังนั้นควรกำหนด pattern ให้เฉพาะเจาะจงพอที่ fan-out จะยังจัดการได้ในระบบที่มี throughput สูง
+
+</Callout>
+
+export const quizPsubscribe = [
+  {
+    q: "glob wildcard ตัวใดจับคู่กับอักขระหนึ่งตัวเท่านั้นใน PSUBSCRIBE pattern?",
+    options: ["*", "?", "[?]", "#"],
+    answer: 1,
+  },
+  {
+    q: "pmessage reply มีกี่ส่วน?",
+    options: ["2", "3", "4", "5"],
+    answer: 2,
+  },
+  {
+    q: "element ที่สองใน pmessage reply คืออะไร?",
+    options: [
+      "payload",
+      "ช่องจริงที่ข้อความถูก publish ไป",
+      "pattern ที่จับคู่ได้",
+      "จำนวน subscriber",
+    ],
+    answer: 2,
+  },
+  {
+    q: "คำสั่งใดที่คุณจะใช้รับข้อความจากทั้ง `alerts.low` และ `alerts.high` ด้วย subscription เดียว?",
+    options: [
+      "SUBSCRIBE alerts.*",
+      "PSUBSCRIBE alerts.*",
+      "SUBSCRIBE alerts.low alerts.high",
+      "MULTISUBSCRIBE alerts.*",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="pubsub-streams/pubsub-patterns" questions={quizPsubscribe} />
+
+<ProgressTracker client:visible id="pubsub-streams/pubsub-patterns" />

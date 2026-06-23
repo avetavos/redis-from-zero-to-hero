@@ -1,0 +1,163 @@
+---
+title: Transactions
+description: 'MULTI/EXEC/DISCARD, queued commands, no rollback, and optimistic locking with WATCH/UNWATCH.'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is a Redis transaction?
+
+A Redis transaction is a sequence of commands that are **queued** and then executed as a single, uninterrupted block. No other client's commands can interleave between the queued commands once `EXEC` is called.
+
+You open a transaction with `MULTI`, issue commands (they are queued, not executed immediately), then fire them all with `EXEC`. To abandon the queue, use `DISCARD`.
+
+```text
+127.0.0.1:6379> MULTI
+OK
+127.0.0.1:6379> SET balance 100
+QUEUED
+127.0.0.1:6379> DECRBY balance 30
+QUEUED
+127.0.0.1:6379> GET balance
+QUEUED
+127.0.0.1:6379> EXEC
+1) OK
+2) (integer) 70
+3) "70"
+```
+
+Notice: while inside `MULTI`, every command returns `QUEUED` instead of its result. The actual results come back as a list when `EXEC` fires.
+
+export const multiExecCode = `MULTI
+SET balance 100
+DECRBY balance 30
+GET balance
+EXEC`;
+
+<TryRedis client:visible code={multiExecCode} />
+
+## DISCARD — abandoning a transaction
+
+If you change your mind before calling `EXEC`, use `DISCARD` to flush the queue and exit the transaction block.
+
+```text
+127.0.0.1:6379> MULTI
+OK
+127.0.0.1:6379> SET temp "draft"
+QUEUED
+127.0.0.1:6379> DISCARD
+OK
+127.0.0.1:6379> EXISTS temp
+(integer) 0
+```
+
+export const discardCode = `MULTI
+SET temp "draft"
+DISCARD
+EXISTS temp`;
+
+<TryRedis client:visible code={discardCode} />
+
+## No rollback — errors in Redis transactions
+
+Redis transactions do **not** roll back on command errors. There are two categories of error:
+
+- **Syntax/type errors at queue time** (e.g., wrong number of arguments) — these cancel the entire transaction.
+- **Runtime errors during EXEC** (e.g., calling `INCR` on a string value) — Redis continues executing the remaining commands and only that specific command fails.
+
+```text
+127.0.0.1:6379> SET mystr "hello"
+OK
+127.0.0.1:6379> MULTI
+OK
+127.0.0.1:6379> SET k1 "a"
+QUEUED
+127.0.0.1:6379> INCR mystr
+QUEUED
+127.0.0.1:6379> SET k2 "b"
+QUEUED
+127.0.0.1:6379> EXEC
+1) OK
+2) (error) ERR value is not an integer or out of range
+3) OK
+```
+
+`k1` and `k2` were set successfully even though `INCR mystr` failed. Redis does not roll back the successful commands.
+
+## Optimistic locking with WATCH
+
+`WATCH` lets you implement a **check-and-set (CAS)** pattern: watch one or more keys before starting a transaction. If any watched key is modified by another client before `EXEC` fires, the entire transaction is aborted and `EXEC` returns `(nil)` instead of a list of results. Your code can then retry.
+
+```text
+127.0.0.1:6379> SET stock 5
+OK
+127.0.0.1:6379> WATCH stock
+OK
+127.0.0.1:6379> MULTI
+OK
+127.0.0.1:6379> DECRBY stock 1
+QUEUED
+127.0.0.1:6379> EXEC
+1) (integer) 4
+```
+
+If another client changed `stock` between `WATCH` and `EXEC`, the `EXEC` call would return `(nil)` and you would retry the whole sequence from `WATCH`.
+
+`UNWATCH` cancels all watches without aborting the connection.
+
+export const watchCode = `SET stock 5
+WATCH stock
+MULTI
+DECRBY stock 1
+EXEC
+GET stock`;
+
+<TryRedis client:visible code={watchCode} />
+
+<Callout title="Transactions queue and run atomically, but there is no rollback">
+
+Redis transactions guarantee that the queued commands run without interruption, but **there is no rollback**. A runtime error in one command (e.g., wrong type) does not undo the commands that already succeeded. Use `WATCH` for optimistic check-and-set: if the watched key changes before `EXEC`, the transaction is aborted and your code retries from scratch.
+
+</Callout>
+
+export const quizTransactions = [
+  {
+    q: "What does a Redis command return while inside a MULTI block?",
+    options: ["Its result immediately", "QUEUED", "OK", "nil"],
+    answer: 1,
+  },
+  {
+    q: "What happens when EXEC is called and a watched key was changed by another client?",
+    options: [
+      "EXEC runs anyway and ignores the change",
+      "EXEC returns (nil) and the transaction is aborted",
+      "Redis rolls back all previous commands",
+      "An error is thrown and the connection closes",
+    ],
+    answer: 1,
+  },
+  {
+    q: "A runtime error in one command inside EXEC (e.g. INCR on a string) causes:",
+    options: [
+      "The entire transaction to roll back",
+      "Only that command to fail; others still execute",
+      "EXEC to return nil",
+      "Redis to crash",
+    ],
+    answer: 1,
+  },
+  {
+    q: "Which command cancels a queued transaction without executing it?",
+    options: ["ABORT", "ROLLBACK", "DISCARD", "UNWATCH"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="transactions-scripting-tooling/transactions" questions={quizTransactions} />
+
+<ProgressTracker client:visible id="transactions-scripting-tooling/transactions" />

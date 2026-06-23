@@ -1,0 +1,114 @@
+---
+title: 'What is Redis?'
+description: 'In-memory key-value store, single-threaded event loop, and the common use cases that make Redis indispensable.'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## In-memory key-value data store
+
+Redis stores every key and its associated value directly in **RAM**. When your application sets a key, the data lives in memory — no disk seek, no page fault, no file-system overhead. When it reads the key back, the answer comes from the same memory. This is why Redis latency is consistently sub-millisecond even under heavy load.
+
+Each value is typed. Redis is not a simple string bag — it understands data structures natively: Strings, Lists, Hashes, Sets, Sorted Sets, Streams, and more. The server can operate on those structures atomically, which means you can append to a list, increment a counter, or pop from a queue without any application-level locking.
+
+## Single-threaded event loop
+
+Redis processes commands through a **single-threaded event loop**. One thread reads a command from the network socket, executes it completely, writes the reply, then moves on to the next command. There is no parallelism inside a single Redis instance.
+
+This design has two important consequences:
+
+- **Speed** — no context switching, no mutex contention, no lock overhead. The event loop squeezes maximum throughput out of a single core.
+- **Thread safety by design** — because only one command runs at a time, every command is implicitly atomic. You never need to worry about two clients corrupting shared state mid-operation.
+
+## Data-structure server, not just a cache
+
+The phrase "Redis is a cache" is common but incomplete. A plain cache maps keys to opaque blobs. Redis maps keys to **rich data structures** you can manipulate on the server side:
+
+| Type | Description |
+|------|-------------|
+| String | Text, numbers, or raw bytes up to 512 MB |
+| List | Ordered sequence; push/pop from either end |
+| Hash | Field-value map inside a single key |
+| Set | Unordered collection of unique members |
+| Sorted Set | Set where each member carries a numeric score |
+| Stream | Append-only log of timestamped entries |
+
+Because operations happen server-side, you avoid round trips. Instead of GET → modify locally → SET, you do LPUSH or ZINCRBY in one network call.
+
+## Common use cases
+
+| Use case | Redis feature |
+|----------|--------------|
+| Cache | TTL-based expiry on any key |
+| Session store | Hash per session ID, fast reads |
+| Task queue | LPUSH / BRPOP on a List |
+| Leaderboard | Sorted Set with ZADD / ZRANK |
+| Rate limiter | INCR + EXPIRE on a counter key |
+| Pub/Sub messaging | PUBLISH / SUBSCRIBE channels |
+
+## A quick type check
+
+Run PING to confirm the server is alive, then use TYPE to inspect any key:
+
+```text
+127.0.0.1:6379> PING
+PONG
+127.0.0.1:6379> SET language "Redis"
+OK
+127.0.0.1:6379> TYPE language
+string
+```
+
+export const pingCode = `PING`;
+
+<TryRedis client:visible code={pingCode} />
+
+<Callout title="Redis is a data-structure server, not just a cache">
+
+Because Redis understands Lists, Hashes, Sets, Sorted Sets, and Streams, it can replace several purpose-built tools at once: a queue, a leaderboard engine, a pub/sub broker, and yes, a cache — all in a single dependency.
+
+The built-in data structures also mean the server can enforce invariants you would otherwise handle in application code. A Sorted Set always stays sorted. A Set always contains unique members. This correctness guarantee is free, and it holds even under concurrent writers.
+
+</Callout>
+
+export const quizWhat = [
+  {
+    q: "Why is Redis so fast compared to disk-based databases?",
+    options: [
+      "It uses multiple CPU cores in parallel",
+      "It stores all data in RAM",
+      "It compresses data before storing it",
+      "It skips network serialization",
+    ],
+    answer: 1,
+  },
+  {
+    q: "How does the single-threaded event loop make Redis thread-safe?",
+    options: [
+      "It uses read-write locks around every command",
+      "It copies data before modifying it",
+      "Only one command executes at a time, so there is no concurrent mutation",
+      "It runs each client in an isolated process",
+    ],
+    answer: 2,
+  },
+  {
+    q: "Which Redis data type would you use to implement a leaderboard with ranked scores?",
+    options: ["List", "Hash", "Sorted Set", "Stream"],
+    answer: 2,
+  },
+  {
+    q: "What command would you use to check the data type of an existing Redis key?",
+    options: ["TYPEOF", "DATATYPE", "TYPE", "KIND"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="intro-setup/what-is-redis" questions={quizWhat} />
+
+<ProgressTracker client:visible id="intro-setup/what-is-redis" />

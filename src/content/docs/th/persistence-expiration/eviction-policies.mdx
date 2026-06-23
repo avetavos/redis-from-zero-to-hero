@@ -1,0 +1,98 @@
+---
+title: ขีดจำกัดหน่วยความจำและ Eviction
+description: 'maxmemory, นโยบาย eviction (noeviction, allkeys-lru, volatile-lru, allkeys-lfu, volatile-ttl) และการที่ Redis ลบ key โดยอัตโนมัติ'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## การกำหนดขีดจำกัดหน่วยความจำ
+
+`maxmemory` จำกัดการใช้หน่วยความจำของ Redis เมื่อถึงขีดจำกัด Redis จะใช้นโยบาย eviction เพื่อตัดสินใจว่าจะลบ key ใด คุณสามารถตั้งค่าได้ใน `redis.conf` หรือที่ runtime ด้วย `CONFIG SET`
+
+```ini
+maxmemory 512mb
+maxmemory-policy allkeys-lru
+```
+
+## นโยบาย Eviction
+
+| นโยบาย | พฤติกรรม |
+|--------|----------|
+| `noeviction` | คืนค่า error เมื่อเขียนและหน่วยความจำเต็ม (ค่าเริ่มต้น; ปลอดภัยสำหรับฐานข้อมูล) |
+| `allkeys-lru` | ลบ key ที่ใช้งานน้อยที่สุดล่าสุดจากทุก key |
+| `volatile-lru` | ลบ LRU จาก key ที่มี TTL กำหนด |
+| `allkeys-lfu` | ลบ key ที่ใช้งานน้อยที่สุดจากทุก key |
+| `volatile-lfu` | ลบ LFU จาก key ที่มี TTL |
+| `volatile-ttl` | ลบ key ที่มี TTL เหลือน้อยที่สุด |
+| `allkeys-random` | ลบ key แบบสุ่มจากทุก key |
+| `volatile-random` | ลบ key แบบสุ่มจาก key ที่มี TTL |
+
+## การตรวจสอบและเปลี่ยนนโยบายที่ runtime
+
+```text
+127.0.0.1:6379> CONFIG GET maxmemory-policy
+1) "maxmemory-policy"
+2) "noeviction"
+127.0.0.1:6379> CONFIG SET maxmemory-policy allkeys-lru
+OK
+127.0.0.1:6379> CONFIG GET maxmemory
+1) "maxmemory"
+2) "0"
+127.0.0.1:6379> CONFIG SET maxmemory 256mb
+OK
+```
+
+export const evictionCode = `CONFIG GET maxmemory-policy
+CONFIG SET maxmemory-policy allkeys-lru
+CONFIG GET maxmemory
+CONFIG SET maxmemory 256mb`;
+
+<TryRedis client:visible code={evictionCode} />
+
+<Callout title="Cache กับ database — เลือกนโยบายที่เหมาะสม">
+
+เมื่อใช้เป็น cache ให้ตั้ง `maxmemory` พร้อมกับนโยบาย `allkeys-lru` หรือ `allkeys-lfu` เพื่อให้ Redis ลบ key ที่ใช้ประโยชน์น้อยที่สุดโดยอัตโนมัติ เมื่อใช้เป็นฐานข้อมูลหลัก ให้ใช้ `noeviction` เพื่อให้การเขียนล้มเหลวอย่างชัดเจนแทนที่จะสูญหายข้อมูลโดยไม่รู้ตัว
+
+</Callout>
+
+export const quizEviction = [
+  {
+    q: "นโยบาย eviction ใดที่ลบ key ที่ใช้งานน้อยที่สุดล่าสุดจากทุก key?",
+    options: ["volatile-lru", "allkeys-lru", "allkeys-lfu", "volatile-ttl"],
+    answer: 1,
+  },
+  {
+    q: "นโยบาย eviction เริ่มต้นใน Redis คืออะไร?",
+    options: ["allkeys-lru", "volatile-lru", "noeviction", "allkeys-random"],
+    answer: 2,
+  },
+  {
+    q: "นโยบาย `volatile-ttl` ลบ key ตามเกณฑ์ใด?",
+    options: [
+      "ใช้งานน้อยที่สุดล่าสุดจากทุก key",
+      "สุ่มจากทุก key",
+      "TTL ที่เหลือน้อยที่สุดจาก key ที่มี TTL กำหนด",
+      "ใช้งานน้อยที่สุดจากทุก key",
+    ],
+    answer: 2,
+  },
+  {
+    q: "คำสั่งใดที่ตั้งค่านโยบาย eviction ที่ runtime?",
+    options: [
+      "CONFIG SET maxmemory-policy",
+      "SET maxmemory-policy",
+      "CONFIG UPDATE eviction",
+      "POLICY SET eviction",
+    ],
+    answer: 0,
+  },
+];
+
+<Quiz client:visible id="persistence-expiration/eviction-policies" questions={quizEviction} />
+
+<ProgressTracker client:visible id="persistence-expiration/eviction-policies" />

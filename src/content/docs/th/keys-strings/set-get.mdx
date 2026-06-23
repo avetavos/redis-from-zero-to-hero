@@ -1,0 +1,182 @@
+---
+title: SET & GET
+description: 'การเก็บและดึง string: option ของ SET, MSET/MGET, APPEND และ STRLEN'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## SET และ GET — หัวใจของ string ใน Redis
+
+`SET key value` ใช้เก็บ string ส่วน `GET key` ใช้ดึงค่ากลับมา ถ้า key มีอยู่แล้ว `SET` จะ **เขียนทับ** ทันทีโดยไม่มีเงื่อนไข (เว้นแต่คุณจะเพิ่ม flag เงื่อนไขเข้าไป)
+
+```text
+127.0.0.1:6379> SET city "Bangkok"
+OK
+127.0.0.1:6379> GET city
+"Bangkok"
+127.0.0.1:6379> SET city "Chiang Mai"
+OK
+127.0.0.1:6379> GET city
+"Chiang Mai"
+```
+
+## option ของ SET
+
+`SET` ใน Redis 7 รองรับหลาย option ในคำสั่งเดียว:
+
+| Option | ความหมาย |
+|--------|---------|
+| `EX seconds` | ตั้งเวลาหมดอายุเป็นวินาที |
+| `PX milliseconds` | ตั้งเวลาหมดอายุเป็นมิลลิวินาที |
+| `EXAT unix-time-seconds` | หมดอายุที่ Unix timestamp (วินาที) |
+| `PXAT unix-time-ms` | หมดอายุที่ Unix timestamp (มิลลิวินาที) |
+| `NX` | set ก็ต่อเมื่อ key **ยังไม่มี** อยู่ |
+| `XX` | set ก็ต่อเมื่อ key **มี** อยู่แล้ว |
+| `GET` | คืนค่าเดิมก่อนเขียนทับ |
+| `KEEPTTL` | คง TTL เดิมไว้แทนที่จะ reset |
+
+```text
+127.0.0.1:6379> SET token "abc123" EX 60
+OK
+127.0.0.1:6379> TTL token
+(integer) 59
+127.0.0.1:6379> SET counter 0 NX
+OK
+127.0.0.1:6379> SET counter 99 NX
+(nil)
+127.0.0.1:6379> GET counter
+"0"
+127.0.0.1:6379> SET city "Phuket" GET
+"Chiang Mai"
+127.0.0.1:6379> GET city
+"Phuket"
+```
+
+export const setOptionsCode = `SET token "abc123" EX 60
+TTL token
+SET counter 0 NX
+SET counter 99 NX
+GET counter
+SET city "Phuket" GET
+GET city`;
+
+<TryRedis client:visible code={setOptionsCode} />
+
+## SETEX และ SETNX
+
+สองคำสั่งนี้เป็น alias แบบเก่าที่ใช้สะดวก — ใน Redis 7 นิยมใช้ `SET` พร้อม `EX` หรือ `NX` มากกว่า แต่คุณก็ยังจะเจอมันใน code เก่า ๆ อยู่:
+
+```text
+127.0.0.1:6379> SETEX session:user1 3600 "token-xyz"
+OK
+127.0.0.1:6379> TTL session:user1
+(integer) 3599
+127.0.0.1:6379> SETNX lock:job1 "worker-A"
+(integer) 1
+127.0.0.1:6379> SETNX lock:job1 "worker-B"
+(integer) 0
+127.0.0.1:6379> GET lock:job1
+"worker-A"
+```
+
+export const legacyCode = `SETEX session:user1 3600 "token-xyz"
+TTL session:user1
+SETNX lock:job1 "worker-A"
+SETNX lock:job1 "worker-B"
+GET lock:job1`;
+
+<TryRedis client:visible code={legacyCode} />
+
+## MSET และ MGET — operation แบบ batch
+
+set หรือ get หลาย key ได้ในรอบเดียว วิธีนี้เร็วกว่าการยิงทีละคำสั่งอย่างเห็นได้ชัดเมื่อคุณต้องการหลาย key พร้อมกัน
+
+```text
+127.0.0.1:6379> MSET user:1:name "Ada" user:1:lang "Python" user:2:name "Bob" user:2:lang "Go"
+OK
+127.0.0.1:6379> MGET user:1:name user:1:lang user:2:name user:2:lang
+1) "Ada"
+2) "Python"
+3) "Bob"
+4) "Go"
+127.0.0.1:6379> MGET user:1:name user:99:name
+1) "Ada"
+2) (nil)
+```
+
+export const msetCode = `MSET user:1:name "Ada" user:1:lang "Python" user:2:name "Bob" user:2:lang "Go"
+MGET user:1:name user:1:lang user:2:name user:2:lang
+MGET user:1:name user:99:name`;
+
+<TryRedis client:visible code={msetCode} />
+
+## APPEND และ STRLEN
+
+`APPEND` จะต่อค่าเข้าไปท้าย string เดิม (หรือสร้าง key ใหม่ถ้ายังไม่มี) ส่วน `STRLEN` จะคืนความยาวของค่าเป็นจำนวน byte
+
+```text
+127.0.0.1:6379> SET log "2024-01-01 boot"
+OK
+127.0.0.1:6379> APPEND log " | 2024-01-01 ready"
+(integer) 34
+127.0.0.1:6379> GET log
+"2024-01-01 boot | 2024-01-01 ready"
+127.0.0.1:6379> STRLEN log
+(integer) 34
+```
+
+export const appendCode = `SET log "2024-01-01 boot"
+APPEND log " | 2024-01-01 ready"
+GET log
+STRLEN log`;
+
+<TryRedis client:visible code={appendCode} />
+
+<Callout title="SET key val NX — รากฐานของ distributed lock">
+
+`SET key value NX` จะ set key **ก็ต่อเมื่อมันยังไม่มีอยู่** โดยคืน `OK` เมื่อสำเร็จ และคืน `(nil)` ถ้า key มีอยู่แล้ว ความเป็น atomic แบบนี้ทำให้มันเป็นองค์ประกอบพื้นฐานสำหรับ distributed lock อย่างง่าย:
+
+```text
+SET lock:resource "worker-id" NX EX 30
+```
+
+ถ้า worker สองตัวแย่งกัน จะมีเพียงตัวเดียวที่ได้ `OK` ส่วน `EX 30` ช่วยให้ lock ปลดตัวเองอัตโนมัติหลังผ่านไป 30 วินาที แม้ผู้ถือ lock จะ crash ไป
+
+</Callout>
+
+export const quizSetGet = [
+  {
+    q: "`SET key val NX` คืนค่าอะไรเมื่อ key มีอยู่แล้ว?",
+    options: ["OK", "(nil)", "error", "ค่าที่มีอยู่เดิม"],
+    answer: 1,
+  },
+  {
+    q: "คำสั่งใดใช้ set หลาย key ได้ในรอบเดียว?",
+    options: ["MULTISET", "MSET", "SETALL", "BATCH"],
+    answer: 1,
+  },
+  {
+    q: "`SET key val GET` ทำอะไร?",
+    options: [
+      "คืน key ก่อนที่จะ set",
+      "คืนค่าใหม่หลังจาก set",
+      "คืนค่าเดิมก่อนเขียนทับ",
+      "ทำงานก็ต่อเมื่อ key มีอยู่เท่านั้น",
+    ],
+    answer: 2,
+  },
+  {
+    q: "STRLEN คืนความยาวของ string เป็นหน่วยอะไร?",
+    options: ["ตัวอักษร", "byte", "คำ", "หน่วย code แบบ UTF-16"],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="keys-strings/set-get" questions={quizSetGet} />
+
+<ProgressTracker client:visible id="keys-strings/set-get" />

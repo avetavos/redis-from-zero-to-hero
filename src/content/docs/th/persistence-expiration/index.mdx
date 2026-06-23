@@ -1,0 +1,100 @@
+---
+title: 'Persistence & Expiration: ภาพรวม'
+description: 'Redis เก็บข้อมูลใน RAM แต่สามารถบันทึกลงดิสก์ได้ ภาพรวม RDB, AOF, TTL และ Eviction'
+sidebar:
+  order: 1
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Persistence ใน Redis คืออะไร?
+
+Redis เก็บข้อมูลทั้งหมดไว้ใน RAM ทำให้ทำงานได้รวดเร็วมาก แต่ RAM นั้นไม่ถาวร — ปิดเครื่องเมื่อไหร่ข้อมูลก็หายไป เพื่อให้ข้อมูลอยู่รอดหลังจาก restart Redis จึงมีกลไก persistence สองแบบที่ทำงานเสริมกัน โดยเขียนข้อมูลลงดิสก์
+
+คุณสามารถเลือกใช้แบบใดแบบหนึ่ง ทั้งสอง หรือไม่ใช้เลย ขึ้นอยู่กับกรณีการใช้งาน cache ล้วน ๆ อาจไม่ต้องการ persistence เลย แต่ session store หรือ primary database ควรใช้ทั้งสองแบบ
+
+## แนวคิดหลักสี่ประการในโมดูลนี้
+
+### RDB — Periodic Snapshots
+
+RDB (Redis Database) ถ่าย snapshot ของชุดข้อมูลทั้งหมด ณ เวลาหนึ่ง แล้วบันทึกลงไฟล์ binary ชื่อ `dump.rdb` Snapshot จะถูกเรียกโดยอัตโนมัติตาม threshold ที่กำหนดได้ (เช่น "มีการเปลี่ยนแปลงอย่างน้อย 100 key ในช่วง 5 นาทีที่ผ่านมา") หรือสั่งด้วยตนเองด้วย `BGSAVE` RDB มีขนาดกะทัดรัดและโหลดได้เร็วตอน restart แต่อาจสูญเสียข้อมูลที่เขียนหลัง snapshot ล่าสุดได้
+
+### AOF — Append-Only File
+
+AOF (Append-Only File) บันทึกคำสั่งเขียนทุกคำสั่งที่เซิร์ฟเวอร์รับเข้ามาลงในไฟล์ชื่อ `appendonly.aof` เมื่อ restart Redis จะเล่นซ้ำ log เพื่อสร้างชุดข้อมูลขึ้นใหม่ AOF ให้ความทนทานที่ละเอียดกว่ามาก — ด้วย `appendfsync everysec` คุณจะสูญเสียข้อมูลได้มากที่สุดเพียงหนึ่งวินาที ข้อเสียคือไฟล์มีขนาดใหญ่กว่าและ restart ช้ากว่าเล็กน้อย
+
+### Key Expiration / TTL
+
+Redis ช่วยให้คุณแนบเวลา time-to-live กับ key ใด ๆ ด้วย `EXPIRE` (วินาที) หรือ `PEXPIRE` (มิลลิวินาที) เมื่อ TTL หมดอายุ key จะถูกลบโดยอัตโนมัติ ใช้ `TTL` เพื่อตรวจสอบเวลาที่เหลือ และ `PERSIST` เพื่อลบการหมดอายุออกและทำให้ key อยู่ถาวร
+
+### Eviction Policies
+
+เมื่อ Redis หมดหน่วยความจำก็ต้องตัดสินใจว่าจะทำอย่างไร Eviction policies ควบคุมสิ่งนี้: `noeviction` คืนค่า error, `allkeys-lru` ลบ key ที่ใช้น้อยที่สุดในทุก key, `volatile-lru` ลบ key LRU เฉพาะในกลุ่ม key ที่มี TTL ตั้งไว้ เป็นต้น Policy ที่เหมาะสมขึ้นอยู่กับว่า Redis ทำหน้าที่เป็น cache หรือ primary store
+
+## บทเรียนในโมดูลนี้
+
+| # | บทเรียน | หัวข้อที่ครอบคลุม |
+|---|---------|------------------|
+| 1 | Persistence & Expiration: Overview *(หน้านี้)* | RDB, AOF, TTL, eviction — ภาพรวม |
+| 2 | RDB Snapshots and AOF | `BGSAVE`, `BGREWRITEAOF`, config directives, hybrid mode |
+| 3 | Key Expiration and TTL | `EXPIRE`, `PEXPIRE`, `TTL`, `PERSIST`, lazy vs active expiry |
+| 4 | Eviction Policies | `maxmemory`, LRU/LFU policies, `noeviction`, cache tuning |
+| 5 | Persistence in Practice | การเลือก strategy ที่เหมาะสม, การมอนิเตอร์, backup scripts |
+
+## ลองทำ — TTL เบื้องต้น
+
+โค้ดด้านล่างตั้ง key พร้อมการหมดอายุ 30 วินาที ตรวจสอบ TTL ที่เหลือ แล้วลบการหมดอายุออกเพื่อทำให้ key อยู่ถาวร
+
+export const overviewCode = `SET session:demo "hello" EX 30
+TTL session:demo
+PERSIST session:demo
+TTL session:demo`;
+
+```text
+127.0.0.1:6379> SET session:demo "hello" EX 30
+OK
+127.0.0.1:6379> TTL session:demo
+(integer) 30
+127.0.0.1:6379> PERSIST session:demo
+(integer) 1
+127.0.0.1:6379> TTL session:demo
+(integer) -1
+```
+
+`TTL` คืนค่า `-1` เมื่อ key มีอยู่แต่ไม่มีการหมดอายุ และ `-2` เมื่อ key ไม่มีอยู่เลย
+
+<TryRedis client:visible code={overviewCode} />
+
+<Callout title="Redis in-memory vs persistence">
+Redis เก็บข้อมูลทั้งหมดใน RAM เพื่อความเร็ว แต่เขียนลงดิสก์เพื่อความทนทาน Persistence เป็นตัวเลือก — ปิดทั้งหมดสำหรับ cache ล้วน ๆ หรือเปิดใช้ทั้ง RDB และ AOF เพื่อความปลอดภัยสูงสุด Hybrid mode (เปิดตัวใน Redis 4 และปรับปรุงใน Redis 7) รวมการโหลดที่รวดเร็วของ RDB กับความทนทานของ AOF ไว้ในไฟล์เดียว
+</Callout>
+
+export const quizOverview = [
+  {
+    q: "Redis เขียน RDB snapshot ลงไฟล์ชื่ออะไรโดยค่าเริ่มต้น?",
+    options: ["appendonly.aof", "dump.rdb", "redis.log", "snapshot.bin"],
+    answer: 1,
+  },
+  {
+    q: "TTL ที่มีค่า -2 ซึ่งคืนมาจากคำสั่ง TTL หมายความว่าอะไร?",
+    options: [
+      "Key มีอยู่และไม่มีการหมดอายุ",
+      "Key หมดอายุแล้วแต่ยังไม่ถูกลบ",
+      "Key ไม่มีอยู่",
+      "Key เป็น permanent และไม่สามารถหมดอายุได้",
+    ],
+    answer: 2,
+  },
+  {
+    q: "คำสั่งใดที่ลบการหมดอายุออกจาก key ทำให้เป็น permanent?",
+    options: ["EXPIRE", "TTL", "PERSIST", "DELETE"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="persistence-expiration/index" questions={quizOverview} />
+
+<ProgressTracker client:visible id="persistence-expiration/index" />

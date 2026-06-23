@@ -1,0 +1,149 @@
+---
+title: Sets
+description: 'SADD, SREM, SMEMBERS, SISMEMBER, SCARD, SRANDMEMBER, SPOP — uniqueness, tags, and membership checks.'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is a Redis Set?
+
+A Redis Set is an **unordered collection of unique strings**. Adding a member that already exists is a no-op — Redis does not create duplicates. This makes Sets ideal for tracking tags, visited pages, or any group where each value should appear exactly once.
+
+## SADD and SREM — adding and removing members
+
+`SADD key member [member ...]` adds one or more members. It returns the count of **new** members added (duplicates are not counted).
+`SREM key member [member ...]` removes members and returns how many were actually present.
+
+```text
+127.0.0.1:6379> SADD article:1:tags "redis" "database" "caching"
+(integer) 3
+127.0.0.1:6379> SADD article:1:tags "redis"
+(integer) 0
+127.0.0.1:6379> SREM article:1:tags "caching"
+(integer) 1
+127.0.0.1:6379> SREM article:1:tags "nosql"
+(integer) 0
+```
+
+export const saddSremCode = `SADD article:1:tags "redis" "database" "caching"
+SADD article:1:tags "redis"
+SREM article:1:tags "caching"
+SREM article:1:tags "nosql"`;
+
+<TryRedis client:visible code={saddSremCode} />
+
+## SMEMBERS and SCARD — inspecting a Set
+
+`SMEMBERS key` returns all members (order is not guaranteed). `SCARD key` returns the cardinality (number of members) without fetching them all.
+
+```text
+127.0.0.1:6379> SADD user:42:interests "music" "hiking" "redis" "coffee"
+(integer) 4
+127.0.0.1:6379> SMEMBERS user:42:interests
+1) "coffee"
+2) "redis"
+3) "music"
+4) "hiking"
+127.0.0.1:6379> SCARD user:42:interests
+(integer) 4
+```
+
+export const smembersCode = `SADD user:42:interests "music" "hiking" "redis" "coffee"
+SMEMBERS user:42:interests
+SCARD user:42:interests`;
+
+<TryRedis client:visible code={smembersCode} />
+
+## SISMEMBER — membership check
+
+`SISMEMBER key member` returns `1` if the member exists, `0` if not. This is an O(1) lookup regardless of Set size.
+
+```text
+127.0.0.1:6379> SADD seen:urls "https://redis.io" "https://astro.build"
+(integer) 2
+127.0.0.1:6379> SISMEMBER seen:urls "https://redis.io"
+(integer) 1
+127.0.0.1:6379> SISMEMBER seen:urls "https://example.com"
+(integer) 0
+```
+
+export const sismemberCode = `SADD seen:urls "https://redis.io" "https://astro.build"
+SISMEMBER seen:urls "https://redis.io"
+SISMEMBER seen:urls "https://example.com"`;
+
+<TryRedis client:visible code={sismemberCode} />
+
+## SRANDMEMBER and SPOP — random access
+
+`SRANDMEMBER key [count]` returns random members **without** removing them.
+`SPOP key [count]` removes and returns random members. Both are useful for sampling, prizes, or random assignments.
+
+```text
+127.0.0.1:6379> SADD prize:pool "alpha" "beta" "gamma" "delta" "epsilon"
+(integer) 5
+127.0.0.1:6379> SRANDMEMBER prize:pool 2
+1) "delta"
+2) "gamma"
+127.0.0.1:6379> SCARD prize:pool
+(integer) 5
+127.0.0.1:6379> SPOP prize:pool 1
+1) "alpha"
+127.0.0.1:6379> SCARD prize:pool
+(integer) 4
+```
+
+export const srandSpopCode = `SADD prize:pool "alpha" "beta" "gamma" "delta" "epsilon"
+SRANDMEMBER prize:pool 2
+SCARD prize:pool
+SPOP prize:pool 1
+SCARD prize:pool`;
+
+<TryRedis client:visible code={srandSpopCode} />
+
+<Callout title="Sets guarantee uniqueness — great for tags and seen checks">
+
+When you `SADD` a value that already exists, Redis silently ignores it and returns 0. This means you can safely call `SADD` as an upsert with no prior existence check. Use this property for "seen" deduplication (visited URLs, processed event IDs) and tag management — adding the same tag twice is always safe.
+
+</Callout>
+
+export const quizSets = [
+  {
+    q: "What does SADD return when you add a member that already exists?",
+    options: ["1", "0", "An error", "The member itself"],
+    answer: 1,
+  },
+  {
+    q: "Which command checks membership in O(1) without fetching all members?",
+    options: ["SMEMBERS", "SCARD", "SISMEMBER", "SRANDMEMBER"],
+    answer: 2,
+  },
+  {
+    q: "What is the difference between SRANDMEMBER and SPOP?",
+    options: [
+      "SRANDMEMBER removes the member; SPOP does not",
+      "SPOP removes the member; SRANDMEMBER does not",
+      "Both remove the member",
+      "Neither returns a value",
+    ],
+    answer: 1,
+  },
+  {
+    q: "What does SCARD return?",
+    options: [
+      "A random member",
+      "All members of the set",
+      "The number of members in the set",
+      "Whether the set is empty",
+    ],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="sets-sorted-sets/sets" questions={quizSets} />
+
+<ProgressTracker client:visible id="sets-sorted-sets/sets" />

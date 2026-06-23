@@ -1,0 +1,117 @@
+---
+title: 'Lists & Hashes: ภาพรวม'
+description: 'Redis Lists คือ linked list ที่มีลำดับ รองรับการ push/pop ทั้งสองปลายด้วย O(1) ส่วน Redis Hashes คือ map แบบ field-value เหมาะสำหรับจำลองข้อมูลแบบ object'
+sidebar:
+  order: 1
+---
+
+import RunRedis from '../../../../components/RunRedis.astro';
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+<RunRedis />
+
+## สองประเภทที่ทรงพลังในโมดูลเดียว
+
+โมดูลนี้แนะนำโครงสร้างข้อมูลที่มีประโยชน์ที่สุดสองชนิดใน Redis ได้แก่ **Lists** และ **Hashes**
+
+**List** คือชุดข้อมูลแบบมีลำดับที่ใช้ doubly-linked list เป็นโครงสร้างภายใน คุณสามารถ push และ pop ข้อมูลจากปลายทั้งสองได้ในเวลา O(1) ไม่ว่าจะมีสมาชิกกี่รายการ จึงเหมาะอย่างยิ่งสำหรับคิวงาน สแต็ก ฟีดกิจกรรม และรายการไอเทมล่าสุด
+
+**Hash** คือ map แบบ field-value ที่เก็บอยู่ภายใต้ key เดียว ลองนึกภาพเหมือน `dict` ของ Python หรือ object ของ JavaScript คุณสามารถกำหนดและดึงค่าของแต่ละ field ได้แบบ atomic หมายความว่าสามารถอัปเดตอีเมลของผู้ใช้โดยไม่กระทบข้อมูล field อื่น ๆ เลย
+
+```text
+127.0.0.1:6379> RPUSH notifications "login" "purchase" "logout"
+(integer) 3
+127.0.0.1:6379> LRANGE notifications 0 -1
+1) "login"
+2) "purchase"
+3) "logout"
+127.0.0.1:6379> HSET user:1 name "Ada" email "ada@example.com" age "30"
+(integer) 3
+127.0.0.1:6379> HGETALL user:1
+1) "name"
+2) "Ada"
+3) "email"
+4) "ada@example.com"
+5) "age"
+6) "30"
+```
+
+## เลือกใช้ประเภทไหนดี?
+
+| ประเภท | ใช้เมื่อต้องการ… | ตัวอย่าง |
+|--------|-----------------|---------|
+| **List** | ข้อมูลมีลำดับ เข้าถึงหัวท้ายด้วย O(1) | คิวข้อความ, ฟีดกิจกรรม, คำค้นหาล่าสุด |
+| **Hash** | Field มีชื่อภายใต้ key เดียว อัปเดตบางส่วนได้ | โปรไฟล์ผู้ใช้, ข้อมูลสินค้า, ข้อมูล session |
+
+## เนื้อหาในโมดูลนี้
+
+| บทเรียน | หัวข้อ |
+|---------|--------|
+| Lists & Hashes: ภาพรวม | หน้านี้ — Lists, Hashes และวิธีเลือกใช้ |
+| Lists | LPUSH, RPUSH, LRANGE, LLEN, LINDEX, LSET, LREM, LTRIM |
+| Lists as Queues & Stacks | LPUSH+RPOP (FIFO), LPUSH+LPOP (stack), BLPOP/BRPOP |
+| Hashes | HSET, HGET, HMGET, HGETALL, HDEL, HEXISTS, HKEYS, HVALS, HLEN |
+| Hash Objects | การจำลอง object, HINCRBY, HINCRBYFLOAT, HSETNX |
+
+## ลองสัมผัสทั้งสองประเภท
+
+ลองเพิ่มข้อมูลลงใน list และเก็บ field ต่าง ๆ ใน hash:
+
+```text
+127.0.0.1:6379> RPUSH tasks "write tests" "deploy" "notify team"
+(integer) 3
+127.0.0.1:6379> LRANGE tasks 0 -1
+1) "write tests"
+2) "deploy"
+3) "notify team"
+127.0.0.1:6379> HSET product:99 name "Widget" price "9.99" stock "100"
+(integer) 3
+127.0.0.1:6379> HGET product:99 name
+"Widget"
+127.0.0.1:6379> HGET product:99 price
+"9.99"
+```
+
+export const tasteCode = `RPUSH tasks "write tests" "deploy" "notify team"
+LRANGE tasks 0 -1
+HSET product:99 name "Widget" price "9.99" stock "100"
+HGET product:99 name
+HGET product:99 price`;
+
+<TryRedis client:visible code={tasteCode} />
+
+<Callout title="ประเภทข้อมูล Redis ถูกออกแบบมาเพื่องานเฉพาะ">
+
+Redis ออกแบบประเภทข้อมูลมาเพื่องานเฉพาะ — List มอบการ push/pop แบบมีลำดับด้วย O(1) ส่วน Hash ช่วยให้คุณเก็บและอัปเดต field ของ object แบบ atomic โดยไม่ต้องดึงข้อมูลทั้งหมดมาก่อน
+
+</Callout>
+
+export const quizIndex = [
+  {
+    q: "LPUSH และ RPUSH บน Redis List มี time complexity เท่าใด?",
+    options: ["O(n)", "O(log n)", "O(1)", "O(n log n)"],
+    answer: 2,
+  },
+  {
+    q: "คำสั่งใดที่ดึงข้อมูลทุก field และ value จาก Redis Hash ออกมา?",
+    options: ["HKEYS", "HVALS", "HMGET", "HGETALL"],
+    answer: 3,
+  },
+  {
+    q: "คุณต้องการเก็บข้อมูลผู้ใช้ที่มี field เช่น name, email และ age ไว้ใน key เดียว ควรใช้ประเภทใด?",
+    options: ["String", "List", "Hash", "Set"],
+    answer: 2,
+  },
+  {
+    q: "โครงสร้างข้อมูลใดเหมาะสำหรับสร้างคิวข้อความแบบ FIFO ใน Redis?",
+    options: ["Hash", "List", "Sorted Set", "String"],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="lists-hashes/index" questions={quizIndex} />
+
+<ProgressTracker client:visible id="lists-hashes/index" />

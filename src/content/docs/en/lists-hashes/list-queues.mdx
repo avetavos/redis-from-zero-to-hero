@@ -1,0 +1,153 @@
+---
+title: 'Lists as Queues & Stacks'
+description: 'Use LPUSH+RPOP for FIFO queues, LPUSH+LPOP for stacks, and BLPOP/BRPOP for blocking workers.'
+sidebar:
+  order: 3
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## FIFO Queue — LPUSH + RPOP
+
+A queue processes items in first-in, first-out order. With a Redis list: producers call `LPUSH` (push to head), consumers call `RPOP` (pop from tail). Because `LPUSH` always inserts at the head, the oldest item is always at the tail — exactly where `RPOP` reads from.
+
+```text
+127.0.0.1:6379> LPUSH jobs "job:1"
+(integer) 1
+127.0.0.1:6379> LPUSH jobs "job:2"
+(integer) 2
+127.0.0.1:6379> LPUSH jobs "job:3"
+(integer) 3
+127.0.0.1:6379> RPOP jobs
+"job:1"
+127.0.0.1:6379> RPOP jobs
+"job:2"
+```
+
+`job:1` was pushed first, so it comes out first — FIFO.
+
+export const fifoCode = `LPUSH jobs "job:1"
+LPUSH jobs "job:2"
+LPUSH jobs "job:3"
+RPOP jobs
+RPOP jobs`;
+
+<TryRedis client:visible code={fifoCode} />
+
+## Stack — LPUSH + LPOP
+
+A stack processes items in last-in, first-out order. Both push and pop happen at the same end (the head of the list), so the most recently pushed item is always the next one out.
+
+```text
+127.0.0.1:6379> DEL stack
+(integer) 0
+127.0.0.1:6379> LPUSH stack "frame:1"
+(integer) 1
+127.0.0.1:6379> LPUSH stack "frame:2"
+(integer) 2
+127.0.0.1:6379> LPUSH stack "frame:3"
+(integer) 3
+127.0.0.1:6379> LPOP stack
+"frame:3"
+127.0.0.1:6379> LPOP stack
+"frame:2"
+```
+
+export const stackCode = `DEL stack
+LPUSH stack "frame:1"
+LPUSH stack "frame:2"
+LPUSH stack "frame:3"
+LPOP stack
+LPOP stack`;
+
+<TryRedis client:visible code={stackCode} />
+
+## RPOPLPUSH — atomically move between lists
+
+`RPOPLPUSH source destination` pops from the tail of `source` and pushes to the head of `destination` in a single atomic operation. This is the classic pattern for a **reliable queue**: a job moves from a `pending` list to a `processing` list in one step, so a crash between the two operations is impossible.
+
+```text
+127.0.0.1:6379> DEL pending processing
+(integer) 0
+127.0.0.1:6379> RPUSH pending "task:A" "task:B" "task:C"
+(integer) 3
+127.0.0.1:6379> RPOPLPUSH pending processing
+"task:A"
+127.0.0.1:6379> LRANGE pending 0 -1
+1) "task:B"
+2) "task:C"
+127.0.0.1:6379> LRANGE processing 0 -1
+1) "task:A"
+```
+
+`task:A` was at the tail of `pending` (it was pushed first with `RPUSH`). After `RPOPLPUSH`, it sits at the head of `processing` while `pending` only has the remaining items.
+
+export const rpoplpushCode = `DEL pending processing
+RPUSH pending "task:A" "task:B" "task:C"
+RPOPLPUSH pending processing
+LRANGE pending 0 -1
+LRANGE processing 0 -1`;
+
+<TryRedis client:visible code={rpoplpushCode} />
+
+## Blocking pop — BLPOP and BRPOP
+
+`BLPOP key [key ...] timeout` blocks the connection until an element is available, then pops from the first non-empty list. `BRPOP` does the same but pops from the tail. A timeout of `0` means wait indefinitely.
+
+```text
+127.0.0.1:6379> BLPOP jobs 5
+1) "jobs"
+2) "job:3"
+
+(if jobs is empty, the client blocks for up to 5 seconds)
+```
+
+> **Note:** BLPOP requires a live blocking connection — run this in your own redis-cli.
+
+In a worker process you run `BLPOP jobs 0` in a loop. When a producer calls `LPUSH jobs "new-job"`, the blocking call returns immediately with the new job — no polling required.
+
+<Callout title="BLPOP — a simple job queue">
+
+`BLPOP` blocks until an item arrives — no polling loop required. A worker process loops on `BLPOP jobs 0`, and a producer wakes it instantly with `LPUSH`. This is a production-grade pattern for lightweight background workers that don't need a full message broker.
+
+</Callout>
+
+export const listQueuesQuiz = [
+  {
+    q: "Which command pair implements a FIFO queue?",
+    options: ["LPUSH + LPOP", "RPUSH + RPOP", "LPUSH + RPOP", "RPUSH + LPOP"],
+    answer: 2,
+  },
+  {
+    q: "What does `BLPOP jobs 0` do when the list is empty?",
+    options: [
+      "Returns nil immediately",
+      "Throws an error",
+      "Blocks indefinitely until an item is pushed",
+      "Removes the key",
+    ],
+    answer: 2,
+  },
+  {
+    q: "What does RPOPLPUSH do?",
+    options: [
+      "Copies an element between two lists",
+      "Atomically pops from one list tail and pushes to another list head",
+      "Reverses a list",
+      "Merges two lists",
+    ],
+    answer: 1,
+  },
+  {
+    q: "Which command pair implements a stack (LIFO)?",
+    options: ["LPUSH + RPOP", "RPUSH + RPOP", "LPUSH + LPOP", "RPUSH + LPOP"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="lists-hashes/list-queues" questions={listQueuesQuiz} />
+
+<ProgressTracker client:visible id="lists-hashes/list-queues" />

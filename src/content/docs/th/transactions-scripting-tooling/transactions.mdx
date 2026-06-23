@@ -1,0 +1,163 @@
+---
+title: Transactions
+description: 'MULTI/EXEC/DISCARD คำสั่งที่ถูก queue ไว้ ไม่มี rollback และ optimistic locking ด้วย WATCH/UNWATCH'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Transaction ใน Redis คืออะไร?
+
+Transaction ใน Redis คือลำดับคำสั่งที่ถูก **จัดคิว** แล้วรันทั้งหมดเป็นบล็อกเดียวโดยไม่ถูกขัดจังหวะ ไม่มีคำสั่งของ client อื่นสามารถแทรกเข้าระหว่างคำสั่งที่จัดคิวไว้เมื่อ `EXEC` ถูกเรียก
+
+คุณเปิด transaction ด้วย `MULTI` จากนั้นออกคำสั่ง (คำสั่งถูกจัดคิว ยังไม่รันทันที) แล้วยิงทั้งหมดด้วย `EXEC` หากต้องการยกเลิก queue ให้ใช้ `DISCARD`
+
+```text
+127.0.0.1:6379> MULTI
+OK
+127.0.0.1:6379> SET balance 100
+QUEUED
+127.0.0.1:6379> DECRBY balance 30
+QUEUED
+127.0.0.1:6379> GET balance
+QUEUED
+127.0.0.1:6379> EXEC
+1) OK
+2) (integer) 70
+3) "70"
+```
+
+สังเกต: ขณะอยู่ใน `MULTI` ทุกคำสั่งจะตอบกลับว่า `QUEUED` แทนผลลัพธ์จริง ผลลัพธ์จริงจะมาเป็นรายการเมื่อ `EXEC` ทำงาน
+
+export const multiExecCode = `MULTI
+SET balance 100
+DECRBY balance 30
+GET balance
+EXEC`;
+
+<TryRedis client:visible code={multiExecCode} />
+
+## DISCARD — ยกเลิก transaction
+
+หากเปลี่ยนใจก่อนเรียก `EXEC` ให้ใช้ `DISCARD` เพื่อล้าง queue และออกจากบล็อก transaction
+
+```text
+127.0.0.1:6379> MULTI
+OK
+127.0.0.1:6379> SET temp "draft"
+QUEUED
+127.0.0.1:6379> DISCARD
+OK
+127.0.0.1:6379> EXISTS temp
+(integer) 0
+```
+
+export const discardCode = `MULTI
+SET temp "draft"
+DISCARD
+EXISTS temp`;
+
+<TryRedis client:visible code={discardCode} />
+
+## ไม่มี rollback — error ใน Redis transaction
+
+Redis transaction **ไม่ rollback** เมื่อเกิด command error มีสองประเภทของ error:
+
+- **Syntax/type error ตอน queue** (เช่น จำนวน argument ผิด) — จะยกเลิก transaction ทั้งหมด
+- **Runtime error ระหว่าง EXEC** (เช่น เรียก `INCR` กับค่าที่เป็น string) — Redis รันคำสั่งที่เหลือต่อไป เฉพาะคำสั่งนั้นที่ผิดพลาด
+
+```text
+127.0.0.1:6379> SET mystr "hello"
+OK
+127.0.0.1:6379> MULTI
+OK
+127.0.0.1:6379> SET k1 "a"
+QUEUED
+127.0.0.1:6379> INCR mystr
+QUEUED
+127.0.0.1:6379> SET k2 "b"
+QUEUED
+127.0.0.1:6379> EXEC
+1) OK
+2) (error) ERR value is not an integer or out of range
+3) OK
+```
+
+`k1` และ `k2` ถูก set สำเร็จแม้ว่า `INCR mystr` จะผิดพลาด Redis ไม่ rollback คำสั่งที่สำเร็จแล้ว
+
+## Optimistic locking ด้วย WATCH
+
+`WATCH` ให้คุณทำ **check-and-set (CAS)**: ดู key หนึ่งหรือหลาย key ก่อนเริ่ม transaction หาก key ที่ดูอยู่ถูก client อื่นแก้ไขก่อนที่ `EXEC` จะถูกเรียก transaction ทั้งหมดจะถูกยกเลิก และ `EXEC` จะคืน `(nil)` แทนรายการผลลัพธ์ โค้ดของคุณสามารถลองใหม่ได้
+
+```text
+127.0.0.1:6379> SET stock 5
+OK
+127.0.0.1:6379> WATCH stock
+OK
+127.0.0.1:6379> MULTI
+OK
+127.0.0.1:6379> DECRBY stock 1
+QUEUED
+127.0.0.1:6379> EXEC
+1) (integer) 4
+```
+
+หาก client อื่นเปลี่ยน `stock` ระหว่าง `WATCH` กับ `EXEC` การเรียก `EXEC` จะคืน `(nil)` และคุณต้องลองทั้งลำดับจาก `WATCH` ใหม่
+
+`UNWATCH` ยกเลิก watch ทั้งหมดโดยไม่ยกเลิก connection
+
+export const watchCode = `SET stock 5
+WATCH stock
+MULTI
+DECRBY stock 1
+EXEC
+GET stock`;
+
+<TryRedis client:visible code={watchCode} />
+
+<Callout title="Transaction จัดคิวและรัน atomic แต่ไม่มี rollback">
+
+Redis transaction รับประกันว่าคำสั่งที่จัดคิวไว้จะรันโดยไม่ถูกขัดจังหวะ แต่ **ไม่มี rollback** Runtime error ในคำสั่งหนึ่ง (เช่น ประเภทข้อมูลผิด) ไม่ยกเลิกคำสั่งที่สำเร็จไปแล้ว ใช้ `WATCH` สำหรับ optimistic check-and-set: หาก key ที่ดูอยู่เปลี่ยนก่อน `EXEC` transaction จะถูกยกเลิกและโค้ดของคุณลองใหม่ตั้งแต่ต้น
+
+</Callout>
+
+export const quizTransactions = [
+  {
+    q: "คำสั่ง Redis คืนค่าอะไรขณะอยู่ใน MULTI block?",
+    options: ["ผลลัพธ์ทันที", "QUEUED", "OK", "nil"],
+    answer: 1,
+  },
+  {
+    q: "เกิดอะไรขึ้นเมื่อเรียก EXEC และ client อื่นเปลี่ยน key ที่ดูอยู่?",
+    options: [
+      "EXEC รันต่อและไม่สนใจการเปลี่ยนแปลง",
+      "EXEC คืน (nil) และ transaction ถูกยกเลิก",
+      "Redis rollback คำสั่งก่อนหน้าทั้งหมด",
+      "เกิด error และ connection ปิด",
+    ],
+    answer: 1,
+  },
+  {
+    q: "Runtime error ในคำสั่งหนึ่งใน EXEC (เช่น INCR กับ string) ทำให้เกิดอะไร?",
+    options: [
+      "Transaction rollback ทั้งหมด",
+      "เฉพาะคำสั่งนั้นผิดพลาด คำสั่งอื่นยังรันต่อ",
+      "EXEC คืน nil",
+      "Redis crash",
+    ],
+    answer: 1,
+  },
+  {
+    q: "คำสั่งใดยกเลิก transaction ที่จัดคิวไว้โดยไม่รัน?",
+    options: ["ABORT", "ROLLBACK", "DISCARD", "UNWATCH"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="transactions-scripting-tooling/transactions" questions={quizTransactions} />
+
+<ProgressTracker client:visible id="transactions-scripting-tooling/transactions" />

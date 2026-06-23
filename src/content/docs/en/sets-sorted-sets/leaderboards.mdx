@@ -1,0 +1,177 @@
+---
+title: Leaderboards
+description: 'Build a real-time leaderboard with ZADD, ZREVRANGE, ZREVRANK, and ZINCRBY.'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The leaderboard pattern
+
+A game or app leaderboard needs three things: **store a score**, **rank players**, and **add points over time**. Redis Sorted Sets handle all three natively with O(log N) writes and O(log N + M) range reads.
+
+## Step 1 — Add initial scores with ZADD
+
+Start by inserting players and their scores. Scores are float64, so they can represent points, percentages, timestamps, or any numeric ranking value.
+
+```text
+127.0.0.1:6379> ZADD game:lb 3200 "alice" 4100 "bob" 1750 "carol" 5800 "dave" 2900 "eve"
+(integer) 5
+```
+
+export const lbInitCode = `ZADD game:lb 3200 "alice" 4100 "bob" 1750 "carol" 5800 "dave" 2900 "eve"`;
+
+<TryRedis client:visible code={lbInitCode} />
+
+## Step 2 — Fetch the top 10 with ZREVRANGE
+
+`ZREVRANGE key 0 9 WITHSCORES` returns the top 10 players in descending score order. The indices are rank offsets, so `0 9` always means positions 1 through 10.
+
+```text
+127.0.0.1:6379> ZREVRANGE game:lb 0 9 WITHSCORES
+1) "dave"
+2) "5800"
+3) "bob"
+4) "4100"
+5) "alice"
+6) "3200"
+7) "eve"
+8) "2900"
+9) "carol"
+10) "1750"
+```
+
+export const lbTop10Code = `ZREVRANGE game:lb 0 9 WITHSCORES`;
+
+<TryRedis client:visible code={lbTop10Code} />
+
+## Step 3 — Look up a player's rank with ZREVRANK
+
+`ZREVRANK key member` returns the 0-based rank in descending order — 0 is first place. Add 1 to get a human-friendly rank.
+
+```text
+127.0.0.1:6379> ZREVRANK game:lb "alice"
+(integer) 2
+127.0.0.1:6379> ZREVRANK game:lb "carol"
+(integer) 4
+127.0.0.1:6379> ZSCORE game:lb "alice"
+"3200"
+```
+
+export const lbRankCode = `ZREVRANK game:lb "alice"
+ZREVRANK game:lb "carol"
+ZSCORE game:lb "alice"`;
+
+<TryRedis client:visible code={lbRankCode} />
+
+## Step 4 — Award points with ZINCRBY
+
+When a player earns more points, use `ZINCRBY` to atomically add to their existing score. No read-modify-write cycle needed.
+
+```text
+127.0.0.1:6379> ZINCRBY game:lb 1500 "carol"
+"3250"
+127.0.0.1:6379> ZINCRBY game:lb 800 "alice"
+"4000"
+127.0.0.1:6379> ZREVRANGE game:lb 0 4 WITHSCORES
+1) "dave"
+2) "5800"
+3) "bob"
+4) "4100"
+5) "alice"
+6) "4000"
+7) "carol"
+8) "3250"
+9) "eve"
+10) "2900"
+```
+
+export const lbIncrCode = `ZINCRBY game:lb 1500 "carol"
+ZINCRBY game:lb 800 "alice"
+ZREVRANGE game:lb 0 4 WITHSCORES`;
+
+<TryRedis client:visible code={lbIncrCode} />
+
+## Full leaderboard workflow in one paste
+
+```text
+127.0.0.1:6379> ZADD lb 3200 "alice" 4100 "bob" 1750 "carol" 5800 "dave" 2900 "eve"
+(integer) 5
+127.0.0.1:6379> ZREVRANGE lb 0 9 WITHSCORES
+1) "dave"
+2) "5800"
+3) "bob"
+4) "4100"
+5) "alice"
+6) "3200"
+7) "eve"
+8) "2900"
+9) "carol"
+10) "1750"
+127.0.0.1:6379> ZREVRANK lb "carol"
+(integer) 4
+127.0.0.1:6379> ZINCRBY lb 2500 "carol"
+"4250"
+127.0.0.1:6379> ZREVRANK lb "carol"
+(integer) 1
+```
+
+export const lbFullCode = `ZADD lb 3200 "alice" 4100 "bob" 1750 "carol" 5800 "dave" 2900 "eve"
+ZREVRANGE lb 0 9 WITHSCORES
+ZREVRANK lb "carol"
+ZINCRBY lb 2500 "carol"
+ZREVRANK lb "carol"`;
+
+<TryRedis client:visible code={lbFullCode} />
+
+<Callout title="Sorted Sets are the canonical leaderboard structure">
+
+Every operation you need for a leaderboard is a single Redis command: insert or update a score (`ZADD`), award points (`ZINCRBY`), fetch the top N (`ZREVRANGE 0 N-1 WITHSCORES`), and find a player's rank (`ZREVRANK`). All run in O(log N) or O(log N + M). No JOIN, no ORDER BY, no secondary index needed — the data structure maintains sorted order for you at all times.
+
+</Callout>
+
+export const quizLeaderboards = [
+  {
+    q: "Which command fetches the top 10 players in descending score order?",
+    options: [
+      "ZRANGE lb 0 9 WITHSCORES",
+      "ZREVRANGE lb 0 9 WITHSCORES",
+      "ZSCORE lb 0 9",
+      "ZREVRANK lb 0 9",
+    ],
+    answer: 1,
+  },
+  {
+    q: "ZREVRANK returns 0 for which player?",
+    options: [
+      "The player with the lowest score",
+      "The player with the highest score",
+      "The player added first",
+      "The player with the median score",
+    ],
+    answer: 1,
+  },
+  {
+    q: "Why is ZINCRBY preferred over ZADD when awarding points?",
+    options: [
+      "ZINCRBY is faster than ZADD",
+      "ZINCRBY atomically adds to the current score without a read-modify-write",
+      "ZADD cannot update existing members",
+      "ZINCRBY works on Sets not Sorted Sets",
+    ],
+    answer: 1,
+  },
+  {
+    q: "If carol's current score is 1750 and you run ZINCRBY lb 2500 carol, what is her new score?",
+    options: ["2500", "1750", "4250", "750"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="sets-sorted-sets/leaderboards" questions={quizLeaderboards} />
+
+<ProgressTracker client:visible id="sets-sorted-sets/leaderboards" />

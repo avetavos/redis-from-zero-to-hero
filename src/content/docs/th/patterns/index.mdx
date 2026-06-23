@@ -1,0 +1,77 @@
+---
+title: ภาพรวมของ Patterns
+description: 'ทำไม Redis จึงโดดเด่นสำหรับ patterns ทั่วไป: ความเร็ว, atomicity, และ TTL'
+sidebar:
+  order: 1
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+Redis ไม่ใช่แค่แคช — มันคือเซิร์ฟเวอร์โครงสร้างข้อมูลที่หลากหลาย ซึ่งแก้ปัญหาบางประเภทที่ยากจะจัดการได้ดีด้วยฐานข้อมูลเชิงสัมพันธ์เพียงอย่างเดียว โมดูลนี้จะพาคุณสำรวจสี่ patterns ที่ผ่านการพิสูจน์มาแล้ว พร้อมอธิบายว่าทำไม Redis จึงเป็นเครื่องมือที่เหมาะสมสำหรับแต่ละ pattern
+
+## ทำไม Redis จึงเร็ว
+
+Redis เก็บข้อมูลทั้งหมดไว้ในหน่วยความจำ คำสั่งทั่วไปทำงานเสร็จภายในเวลาไม่ถึงหนึ่งมิลลิวินาที ซึ่งเร็วกว่าฐานข้อมูลที่อ่านจากดิสก์หลายเท่า เนื่องจาก Redis เป็น **single-threaded** ทุกคำสั่งจึงทำงานตามลำดับโดยไม่มีค่าใช้จ่ายจากการล็อก คุณจะไม่มีทางเห็นสองคำสั่งอ่านและเขียนสลับกัน ซึ่งทำให้การดำเนินการ **atomic โดยค่าเริ่มต้น** โดยไม่ต้องเขียนโค้ดเพิ่มเติม
+
+Redis ยังรองรับ **TTL (Time To Live)**: ทุก key สามารถกำหนดเวลาหมดอายุได้ เมื่อเวลาหมด Redis จะลบ key นั้นออกโดยอัตโนมัติ การหมดอายุในตัวนี้เองที่ทำให้การแคชและการจัดการ session เป็นเรื่องง่าย — คุณไม่จำเป็นต้องมี background job มาคอยลบข้อมูลเก่า
+
+## Patterns ในโมดูลนี้
+
+### 1. Caching (cache-aside)
+
+แอปพลิเคชันของคุณตรวจสอบ Redis ก่อนที่จะไปยังฐานข้อมูล หากไม่พบข้อมูล จะอ่านจาก DB แล้วเก็บผลลัพธ์ไว้ใน Redis พร้อม TTL จากนั้นส่งคืนข้อมูลนั้น การอ่านครั้งต่อไปจะได้รับข้อมูลโดยตรงจากหน่วยความจำ pattern นี้สามารถลดภาระของฐานข้อมูลได้อย่างมากสำหรับ workloads ที่เน้นการอ่าน
+
+### 2. Rate Limiting (fixed-window counter)
+
+ทุกคำขอที่เข้ามาจะเพิ่มค่า counter key ที่ผูกกับผู้เรียกและกรอบเวลาปัจจุบัน หากค่า counter เกินขีดจำกัดที่อนุญาต คำขอนั้นจะถูกปฏิเสธ เนื่องจากการเพิ่มค่าใน Redis เป็น atomic จึงไม่มี race condition แม้ในสภาวะที่มีการเรียกพร้อมกันอย่างหนัก
+
+### 3. Session Store (hash per session + TTL)
+
+เซสชันของผู้ใช้ถูกเก็บเป็น Redis hashes — หนึ่ง key ต่อหนึ่ง session โดยมีฟิลด์แยกสำหรับแต่ละข้อมูลใน session การกำหนด TTL บน session key หมายความว่า session ที่ไม่ได้ใช้งานจะหมดอายุโดยอัตโนมัติ การอ่านและเขียนเป็น O(1) และเร็วกว่าการค้นหาแถวในฐานข้อมูลมาก
+
+### 4. Distributed Lock (SET NX PX + Lua release)
+
+คำสั่ง `SET key value NX PX milliseconds` จะตั้งค่า key **เฉพาะเมื่อยังไม่มี key นั้นอยู่** และกำหนดเวลาหมดอายุให้ นี่คือรากฐานของ distributed lock: มีเพียงผู้เรียกรายเดียวที่ชนะการแข่งขัน และ lock จะถูกปล่อยแน่นอนแม้ว่าผู้ถือ lock จะ crash
+
+<Callout title="หนึ่งเซิร์ฟเวอร์ สี่ patterns">
+ทั้งสี่ patterns ทำงานบน Redis instance เดียวโดยไม่ต้องใช้ปลั๊กอินหรือส่วนขยายใด ๆ primitives ที่ใช้ ได้แก่ strings, hashes, atomic commands, และ TTL — มีอยู่ใน Redis ทุกเวอร์ชัน
+</Callout>
+
+export const quizIndex = [
+  {
+    q: "อะไรทำให้คำสั่ง Redis เป็น atomic โดยค่าเริ่มต้น?",
+    options: [
+      "Redis ใช้ database lock",
+      "Redis เป็น single-threaded และทำงานคำสั่งตามลำดับ",
+      "Redis ใช้ optimistic locking",
+      "Redis ห่อทุกคำสั่งด้วย transaction"
+    ],
+    answer: 1
+  },
+  {
+    q: "ฟีเจอร์ใดของ Redis ที่ทำให้ key หายไปโดยอัตโนมัติหลังจากหมดเวลา?",
+    options: [
+      "EXPIRE / TTL",
+      "DEL",
+      "PERSIST",
+      "OBJECT FREQ"
+    ],
+    answer: 0
+  },
+  {
+    q: "Pattern ใดที่ใช้ `SET key val NX PX` เพื่อป้องกันการทำงานพร้อมกัน?",
+    options: [
+      "Cache-aside",
+      "Rate limiting",
+      "Session store",
+      "Distributed lock"
+    ],
+    answer: 3
+  }
+];
+
+<Quiz client:visible id="patterns/index" questions={quizIndex} />
+
+<ProgressTracker client:visible id="patterns/index" />

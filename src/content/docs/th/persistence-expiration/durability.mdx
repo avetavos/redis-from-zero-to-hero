@@ -1,0 +1,98 @@
+---
+title: การแลกเปลี่ยนด้าน Durability
+description: 'โหมด appendfsync (always, everysec, no), ข้อมูลที่อาจสูญหายเมื่อ crash และการรวม persistence กับ replication'
+sidebar:
+  order: 3
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## การตั้งค่า appendfsync
+
+ความทนทานของ AOF ขึ้นอยู่กับความถี่ที่ Redis flush AOF buffer ลงดิสก์ directive `appendfsync` ควบคุมสิ่งนี้ด้วยสามโหมด:
+
+- `always`: fsync หลังทุกคำสั่ง — ไม่สูญหายข้อมูล, throughput ต่ำที่สุด
+- `everysec`: fsync ทุกวินาที — สูญเสียข้อมูลได้มากที่สุด 1 วินาที, สมดุลที่ดี (แนะนำ)
+- `no`: OS ตัดสินใจเองว่าจะ flush เมื่อใด — throughput สูงที่สุด, การสูญหายของข้อมูลไม่แน่นอน
+
+```ini
+# ความทนทานสูงสุด — ทุก write ถูก fsync
+appendfsync always
+
+# สมดุล — สูญเสียข้อมูลได้มากที่สุด 1 วินาที (แนะนำ)
+appendfsync everysec
+
+# เร็วที่สุด — OS ควบคุมการ flush, สูญหายไม่แน่นอน
+appendfsync no
+```
+
+## สิ่งที่อาจสูญหายเมื่อเกิด crash
+
+| โหมด | ข้อมูลสูญหายสูงสุด | Throughput |
+|------|--------------|------------|
+| `always` | 0 คำสั่ง | ต่ำที่สุด |
+| `everysec` | ~1 วินาที | ดี |
+| `no` | ตั้งแต่ OS flush ล่าสุด | สูงที่สุด |
+| RDB only | ตั้งแต่ snapshot ล่าสุด | สูงที่สุด |
+
+## การรวม persistence กับ replication
+
+การรัน replica ไม่ได้แทนที่ความจำเป็นของ persistence การรัน replica ที่ crash และ restart จะโหลดจากไฟล์ persistence ของตัวเอง (หรือ sync จาก primary) แนวทางที่ดีที่สุด: เปิดใช้ persistence บน replica อย่างอิสระ ไม่ใช่แค่บน primary เท่านั้น
+
+```text
+127.0.0.1:6379> CONFIG GET appendfsync
+1) "appendfsync"
+2) "everysec"
+127.0.0.1:6379> CONFIG SET appendfsync always
+OK
+127.0.0.1:6379> CONFIG GET appendfsync
+1) "appendfsync"
+2) "always"
+```
+
+export const durabilityCode = `CONFIG GET appendfsync
+CONFIG SET appendfsync always
+CONFIG GET appendfsync`;
+
+<TryRedis client:visible code={durabilityCode} />
+
+<Callout title="appendfsync everysec — สมดุลที่นิยมใช้">
+
+การ deploy ใน production ส่วนใหญ่ใช้ `appendfsync everysec` คุณจะได้ความทนทานของ AOF โดยสูญเสียข้อมูลได้มากที่สุด 1 วินาทีเมื่อ crash และ throughput ยังคงสูง ใช้ `always` เฉพาะเมื่อการไม่สูญหายข้อมูลเลยเป็นข้อกำหนดที่เข้มงวด
+
+</Callout>
+
+export const quizDurability = [
+  {
+    q: "โหมด `appendfsync` ใดที่รับประกันว่าจะไม่มีการสูญหายของข้อมูลเมื่อเกิด crash?",
+    options: ["no", "everysec", "always", "rdb"],
+    answer: 2,
+  },
+  {
+    q: "โหมด `appendfsync` ใดที่แนะนำสำหรับการ deploy ใน production ส่วนใหญ่?",
+    options: ["always", "everysec", "no", "rdbsync"],
+    answer: 1,
+  },
+  {
+    q: "การสูญหายของข้อมูลสูงสุดเมื่อใช้ `appendfsync everysec` คือเท่าใด?",
+    options: ["0 คำสั่ง", "~1 วินาทีของการเขียน", "ตั้งแต่ snapshot ล่าสุด", "ตั้งแต่ OS flush ล่าสุด"],
+    answer: 1,
+  },
+  {
+    q: "การรัน Redis replica แทนที่ความจำเป็นของ persistence บนแต่ละ node หรือไม่?",
+    options: [
+      "ใช่ replica มี copy ครบเสมอ",
+      "ไม่ ควรเปิดใช้ persistence บน replica อย่างอิสระ",
+      "เฉพาะเมื่อ replica อยู่ใน datacenter เดียวกัน",
+      "ใช่ ตราบใดที่มี replica อย่างน้อยสอง node",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="persistence-expiration/durability" questions={quizDurability} />
+
+<ProgressTracker client:visible id="persistence-expiration/durability" />

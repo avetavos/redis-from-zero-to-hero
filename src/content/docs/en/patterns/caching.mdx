@@ -1,0 +1,121 @@
+---
+title: Caching (Cache-aside)
+description: 'Use Redis as a read-through cache: check Redis first, fall back to the DB on a miss, and write back with a TTL.'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+The **cache-aside** pattern (also called *lazy loading*) keeps your application in control of what goes into the cache and when. Redis sits in front of your database: if the data is there, great — skip the DB entirely. If not, fetch it from the DB and populate the cache for next time.
+
+## How Cache-aside Works
+
+```text
+1. GET cache:user:42
+2. if nil → query DB → SET cache:user:42 <result> EX 300
+3. else → return cached value
+```
+
+The application owns both reads and writes to the cache. Nothing is preloaded; entries are created on demand and expire automatically via the TTL.
+
+## Reading and Writing a Cache Entry
+
+```text
+127.0.0.1:6379> GET cache:user:42
+(nil)
+127.0.0.1:6379> SET cache:user:42 "{\"name\":\"Ada\",\"email\":\"ada@example.com\"}" EX 300
+OK
+127.0.0.1:6379> TTL cache:user:42
+(integer) 299
+127.0.0.1:6379> GET cache:user:42
+"{\"name\":\"Ada\",\"email\":\"ada@example.com\"}"
+```
+
+`EX 300` sets a 300-second (5-minute) TTL. After that time the key vanishes and the next request will be a cache miss, triggering a fresh DB read.
+
+export const cacheLookupCode = `GET cache:user:42
+SET cache:user:42 "{\\"name\\":\\"Ada\\",\\"email\\":\\"ada@example.com\\"}" EX 300
+TTL cache:user:42
+GET cache:user:42`;
+
+<TryRedis client:visible code={cacheLookupCode} />
+
+## Cache Invalidation
+
+When the underlying data changes — a user updates their profile, for example — the cached entry is now stale. The simplest and most reliable fix is to delete the key immediately so the next read fetches fresh data from the DB.
+
+```text
+127.0.0.1:6379> SET cache:user:42 "{\"name\":\"Ada updated\"}" EX 300
+OK
+127.0.0.1:6379> DEL cache:user:42
+(integer) 1
+127.0.0.1:6379> GET cache:user:42
+(nil)
+```
+
+export const cacheInvalidateCode = `SET cache:user:42 "{\\"name\\":\\"Ada updated\\"}" EX 300
+DEL cache:user:42
+GET cache:user:42`;
+
+<TryRedis client:visible code={cacheInvalidateCode} />
+
+## Cache Stampede
+
+A **cache stampede** happens when a popular key expires and dozens (or thousands) of concurrent requests all get a cache miss at the same moment. They all race to the database simultaneously, producing a sudden spike in DB load — the very thing caching was meant to prevent.
+
+Two common mitigations: use `SET ... NX` so only the first writer populates the key and the rest wait, or use **probabilistic early expiration** — a technique that randomly refreshes a key slightly before it expires based on the remaining TTL and an estimated recomputation cost. Both strategies reduce the thundering-herd effect without requiring an external lock service.
+
+<Callout title="Cache-aside + a TTL is the most common Redis use">
+Use a short TTL (seconds to minutes) so stale data does not accumulate. Always invalidate (DEL) when the source-of-truth changes.
+</Callout>
+
+export const quizCaching = [
+  {
+    q: "In cache-aside, when does the app write to Redis?",
+    options: [
+      "On every read",
+      "Only on a cache miss, after reading the DB",
+      "Only when the TTL expires",
+      "On every DB write"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which command removes a stale cache entry?",
+    options: [
+      "EXPIRE",
+      "TTL",
+      "DEL",
+      "UNLINK"
+    ],
+    answer: 2
+  },
+  {
+    q: "What is a cache stampede?",
+    options: [
+      "A key that never expires",
+      "Many requests simultaneously missing a popular expired key and hitting the DB",
+      "A Redis out-of-memory error",
+      "A network timeout"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which SET option sets a TTL in seconds?",
+    options: [
+      "PX",
+      "NX",
+      "EX",
+      "XX"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="patterns/caching" questions={quizCaching} />
+
+<ProgressTracker client:visible id="patterns/caching" />

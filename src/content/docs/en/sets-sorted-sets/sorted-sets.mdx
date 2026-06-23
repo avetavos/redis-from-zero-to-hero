@@ -1,0 +1,181 @@
+---
+title: Sorted Sets
+description: 'ZADD, ZSCORE, ZRANGE, ZREVRANGE, ZRANK, ZRANGEBYSCORE, ZINCRBY, ZCARD, ZREM — unique members kept sorted by score.'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is a Redis Sorted Set?
+
+A Sorted Set is like a Set but each member carries a **floating-point score**. Redis keeps the members sorted by score at all times, with O(log N) insertions and range queries. If two members share the same score, they are sorted lexicographically.
+
+## ZADD — adding members with scores
+
+`ZADD key score member [score member ...]` adds members. If a member already exists its score is **updated**. Returns the number of **new** members added.
+
+```text
+127.0.0.1:6379> ZADD game:scores 4200 "alice" 3800 "bob" 5100 "carol"
+(integer) 3
+127.0.0.1:6379> ZADD game:scores 4700 "alice"
+(integer) 0
+127.0.0.1:6379> ZSCORE game:scores "alice"
+"4700"
+```
+
+export const zaddCode = `ZADD game:scores 4200 "alice" 3800 "bob" 5100 "carol"
+ZADD game:scores 4700 "alice"
+ZSCORE game:scores "alice"`;
+
+<TryRedis client:visible code={zaddCode} />
+
+## ZRANGE and ZREVRANGE — range by rank
+
+`ZRANGE key start stop [WITHSCORES]` returns members in ascending score order (lowest first). `ZREVRANGE` returns them in descending order (highest first). Indices are 0-based; `-1` means the last member.
+
+```text
+127.0.0.1:6379> ZADD leaderboard 900 "carol" 1500 "alice" 2100 "bob" 750 "dave"
+(integer) 4
+127.0.0.1:6379> ZRANGE leaderboard 0 -1 WITHSCORES
+1) "dave"
+2) "750"
+3) "carol"
+4) "900"
+5) "alice"
+6) "1500"
+7) "bob"
+8) "2100"
+127.0.0.1:6379> ZREVRANGE leaderboard 0 2 WITHSCORES
+1) "bob"
+2) "2100"
+3) "alice"
+4) "1500"
+5) "carol"
+6) "900"
+```
+
+export const zrangeCode = `ZADD leaderboard 900 "carol" 1500 "alice" 2100 "bob" 750 "dave"
+ZRANGE leaderboard 0 -1 WITHSCORES
+ZREVRANGE leaderboard 0 2 WITHSCORES`;
+
+<TryRedis client:visible code={zrangeCode} />
+
+## ZRANK and ZSCORE — finding a member
+
+`ZRANK key member` returns the 0-based rank of a member in ascending order. `ZREVRANK` gives rank in descending order. `ZSCORE` returns the score as a bulk string.
+
+```text
+127.0.0.1:6379> ZADD players 300 "x" 600 "y" 900 "z"
+(integer) 3
+127.0.0.1:6379> ZRANK players "y"
+(integer) 1
+127.0.0.1:6379> ZREVRANK players "y"
+(integer) 1
+127.0.0.1:6379> ZSCORE players "z"
+"900"
+```
+
+export const zrankCode = `ZADD players 300 "x" 600 "y" 900 "z"
+ZRANK players "y"
+ZREVRANK players "y"
+ZSCORE players "z"`;
+
+<TryRedis client:visible code={zrankCode} />
+
+## ZRANGEBYSCORE — range by score value
+
+`ZRANGEBYSCORE key min max [WITHSCORES]` fetches all members whose score falls between `min` and `max` (inclusive). Use `-inf` and `+inf` for open bounds.
+
+```text
+127.0.0.1:6379> ZADD temps 18.5 "london" 32.1 "bangkok" 24.0 "berlin" 28.7 "tokyo"
+(integer) 4
+127.0.0.1:6379> ZRANGEBYSCORE temps 20 30 WITHSCORES
+1) "berlin"
+2) "24"
+3) "tokyo"
+4) "28.7"
+```
+
+export const zrangeByScoreCode = `ZADD temps 18.5 "london" 32.1 "bangkok" 24.0 "berlin" 28.7 "tokyo"
+ZRANGEBYSCORE temps 20 30 WITHSCORES`;
+
+<TryRedis client:visible code={zrangeByScoreCode} />
+
+## ZINCRBY, ZCARD, and ZREM
+
+`ZINCRBY key increment member` atomically adds `increment` to a member's score.
+`ZCARD key` returns the total number of members.
+`ZREM key member [member ...]` removes one or more members.
+
+```text
+127.0.0.1:6379> ZADD votes 10 "post:1" 5 "post:2" 8 "post:3"
+(integer) 3
+127.0.0.1:6379> ZINCRBY votes 3 "post:2"
+"8"
+127.0.0.1:6379> ZCARD votes
+(integer) 3
+127.0.0.1:6379> ZREM votes "post:3"
+(integer) 1
+127.0.0.1:6379> ZCARD votes
+(integer) 2
+```
+
+export const zincrbyCoardRemCode = `ZADD votes 10 "post:1" 5 "post:2" 8 "post:3"
+ZINCRBY votes 3 "post:2"
+ZCARD votes
+ZREM votes "post:3"
+ZCARD votes`;
+
+<TryRedis client:visible code={zincrbyCoardRemCode} />
+
+<Callout title="Members are unique — adding an existing member updates its score">
+
+A Sorted Set will never contain the same member twice. When you `ZADD` a member that is already present, Redis updates its score and returns 0 (no new members added). This makes `ZADD` a safe upsert for counters, ratings, and timestamps — no need to check whether the member exists first.
+
+</Callout>
+
+export const quizSortedSets = [
+  {
+    q: "What does ZREVRANGE return compared to ZRANGE?",
+    options: [
+      "Members in insertion order",
+      "Members in descending score order",
+      "Members in ascending score order",
+      "Only the top member",
+    ],
+    answer: 1,
+  },
+  {
+    q: "What does ZRANK return for a member?",
+    options: [
+      "Its score",
+      "Its 0-based position in ascending score order",
+      "The total number of members",
+      "Its 1-based position",
+    ],
+    answer: 1,
+  },
+  {
+    q: "What happens when you ZADD a score for a member that already exists?",
+    options: [
+      "An error is returned",
+      "A duplicate is created",
+      "The score is updated and 0 is returned",
+      "The old score is kept",
+    ],
+    answer: 2,
+  },
+  {
+    q: "Which command atomically adds a value to an existing member's score?",
+    options: ["ZADD", "ZSCORE", "ZINCRBY", "ZRANGEBYSCORE"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="sets-sorted-sets/sorted-sets" questions={quizSortedSets} />
+
+<ProgressTracker client:visible id="sets-sorted-sets/sorted-sets" />

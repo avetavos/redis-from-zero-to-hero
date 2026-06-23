@@ -1,0 +1,139 @@
+---
+title: Lua Scripting
+description: 'EVAL, redis.call, script atomicity, SCRIPT LOAD and EVALSHA for cached server-side logic.'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Why Lua scripting?
+
+Transactions handle grouped writes, but they cannot express conditional logic. If you need to read a value, inspect it, and write back only under certain conditions — all atomically — you need a Lua script.
+
+Redis has a built-in Lua 5.1 interpreter. A script runs entirely on the server: no network round-trips between steps, and no other command can execute while the script is running.
+
+## EVAL — running a Lua script
+
+The `EVAL` command takes a Lua script string, the number of keys it will access, any key names, and any additional arguments:
+
+```text
+EVAL script numkeys [key [key ...]] [arg [arg ...]]
+```
+
+Inside the script, keys are accessed via `KEYS[1]`, `KEYS[2]`, ... and arguments via `ARGV[1]`, `ARGV[2]`, ...
+
+```text
+127.0.0.1:6379> EVAL "return redis.call('SET', KEYS[1], ARGV[1])" 1 mykey "hello"
+OK
+127.0.0.1:6379> GET mykey
+"hello"
+```
+
+`redis.call(command, ...)` executes a Redis command from within Lua. If the command raises an error, `redis.call` propagates it as a Lua error (which becomes a Redis error to the client). Use `redis.pcall` if you want to catch the error in Lua instead.
+
+## A practical INCR example
+
+The simplest atomic read-modify-write: increment a counter.
+
+```text
+127.0.0.1:6379> EVAL "return redis.call('INCR', KEYS[1])" 1 counter
+(integer) 1
+127.0.0.1:6379> EVAL "return redis.call('INCR', KEYS[1])" 1 counter
+(integer) 2
+127.0.0.1:6379> GET counter
+"2"
+```
+
+export const evalIncrCode = `EVAL "return redis.call('INCR', KEYS[1])" 1 counter
+EVAL "return redis.call('INCR', KEYS[1])" 1 counter
+GET counter`;
+
+<TryRedis client:visible code={evalIncrCode} />
+
+## Conditional logic in Lua
+
+Here is a pattern that sets a key only if the current value is below a threshold — something impossible to do atomically with plain `MULTI`/`EXEC`:
+
+```lua
+-- rate-limiter: increment counter; return 1 if under limit, 0 if over
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+if current <= tonumber(ARGV[2]) then
+  return 1
+else
+  return 0
+end
+```
+
+```text
+127.0.0.1:6379> EVAL "local c=redis.call('INCR',KEYS[1]) if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end if c<=tonumber(ARGV[2]) then return 1 else return 0 end" 1 ratelimit:user1 60 5
+(integer) 1
+```
+
+## SCRIPT LOAD and EVALSHA
+
+Re-sending the full script text every request wastes bandwidth. `SCRIPT LOAD` uploads the script once and returns a SHA1 hash. You then invoke it with `EVALSHA`:
+
+```text
+127.0.0.1:6379> SCRIPT LOAD "return redis.call('INCR', KEYS[1])"
+"2068d9c36e28e0f50d70bedb00173c36e5f4f39d"
+127.0.0.1:6379> EVALSHA 2068d9c36e28e0f50d70bedb00173c36e5f4f39d 1 counter
+(integer) 3
+```
+
+The script is cached in Redis memory for the lifetime of the server (or until `SCRIPT FLUSH`). If the script is not found — e.g., after a server restart — `EVALSHA` returns a `NOSCRIPT` error and your client should fall back to `EVAL` to re-upload it.
+
+export const evalShaCode = `SCRIPT LOAD "return redis.call('INCR', KEYS[1])"
+EVALSHA 2068d9c36e28e0f50d70bedb00173c36e5f4f39d 1 counter
+GET counter`;
+
+<TryRedis client:visible code={evalShaCode} />
+
+<Callout title="A Lua script runs atomically on the server">
+
+When you run `EVAL` or `EVALSHA`, the entire script executes on the Redis server in one uninterrupted step. No other client command can run between any two lines of your Lua code. This makes Lua ideal for read-modify-write patterns (rate limiters, distributed locks, conditional updates) that cannot be expressed with `MULTI`/`EXEC` because they require branching logic.
+
+</Callout>
+
+export const quizLua = [
+  {
+    q: "Inside a Lua script, how do you access the first key passed to EVAL?",
+    options: ["KEYS(1)", "KEYS[1]", "ARGV[0]", "keys.first"],
+    answer: 1,
+  },
+  {
+    q: "What does SCRIPT LOAD return?",
+    options: [
+      "The script text back",
+      "A SHA1 hash of the script",
+      "An integer script ID",
+      "OK",
+    ],
+    answer: 1,
+  },
+  {
+    q: "What error does EVALSHA return when the script is not cached?",
+    options: ["NOTFOUND", "NOSCRIPT", "MISSING", "CACHEFAIL"],
+    answer: 1,
+  },
+  {
+    q: "A Lua script run via EVAL is atomic because:",
+    options: [
+      "It uses MULTI/EXEC internally",
+      "No other command runs on the server while the script executes",
+      "It locks the key for its duration",
+      "It runs in a separate process",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="transactions-scripting-tooling/lua-scripting" questions={quizLua} />
+
+<ProgressTracker client:visible id="transactions-scripting-tooling/lua-scripting" />

@@ -1,0 +1,117 @@
+---
+title: 'Lists & Hashes: Overview'
+description: 'Redis Lists are ordered linked lists with O(1) push/pop at both ends. Redis Hashes are field-value maps perfect for modeling objects.'
+sidebar:
+  order: 1
+---
+
+import RunRedis from '../../../../components/RunRedis.astro';
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+<RunRedis />
+
+## Two powerful types in one module
+
+This module introduces two of Redis's most useful data structures: **Lists** and **Hashes**.
+
+A **List** is an ordered collection of strings backed by a doubly-linked list. You can push and pop elements from either end in O(1) time — no matter how many items are in the list. That makes lists ideal for queues, stacks, activity feeds, and recent-item trackers.
+
+A **Hash** is a field-value map stored under a single key — think of it as a Python `dict` or a JavaScript object. You can set and get individual fields atomically, which means you can update a user's email without touching any of their other attributes.
+
+```text
+127.0.0.1:6379> RPUSH notifications "login" "purchase" "logout"
+(integer) 3
+127.0.0.1:6379> LRANGE notifications 0 -1
+1) "login"
+2) "purchase"
+3) "logout"
+127.0.0.1:6379> HSET user:1 name "Ada" email "ada@example.com" age "30"
+(integer) 3
+127.0.0.1:6379> HGETALL user:1
+1) "name"
+2) "Ada"
+3) "email"
+4) "ada@example.com"
+5) "age"
+6) "30"
+```
+
+## When to use each type
+
+| Type | Use when you need… | Examples |
+|------|--------------------|---------|
+| **List** | Ordered elements, O(1) head/tail access | Message queues, activity feeds, recent searches |
+| **Hash** | Named fields on one key, partial updates | User profiles, product records, session data |
+
+## What this module covers
+
+| Lesson | Topic |
+|--------|-------|
+| Lists & Hashes: Overview | This page — Lists, Hashes, when to use each |
+| Lists | LPUSH, RPUSH, LRANGE, LLEN, LINDEX, LSET, LREM, LTRIM |
+| Lists as Queues & Stacks | LPUSH+RPOP (FIFO), LPUSH+LPOP (stack), BLPOP/BRPOP |
+| Hashes | HSET, HGET, HMGET, HGETALL, HDEL, HEXISTS, HKEYS, HVALS, HLEN |
+| Hash Objects | Modeling objects, HINCRBY, HINCRBYFLOAT, HSETNX |
+
+## A quick taste of both types
+
+Try pushing items onto a list and storing fields in a hash:
+
+```text
+127.0.0.1:6379> RPUSH tasks "write tests" "deploy" "notify team"
+(integer) 3
+127.0.0.1:6379> LRANGE tasks 0 -1
+1) "write tests"
+2) "deploy"
+3) "notify team"
+127.0.0.1:6379> HSET product:99 name "Widget" price "9.99" stock "100"
+(integer) 3
+127.0.0.1:6379> HGET product:99 name
+"Widget"
+127.0.0.1:6379> HGET product:99 price
+"9.99"
+```
+
+export const tasteCode = `RPUSH tasks "write tests" "deploy" "notify team"
+LRANGE tasks 0 -1
+HSET product:99 name "Widget" price "9.99" stock "100"
+HGET product:99 name
+HGET product:99 price`;
+
+<TryRedis client:visible code={tasteCode} />
+
+<Callout title="Redis types are purpose-built">
+
+Redis types are purpose-built — lists give you ordered push/pop in O(1); hashes let you store and update object fields atomically without fetching the whole value.
+
+</Callout>
+
+export const quizIndex = [
+  {
+    q: "What is the time complexity of LPUSH and RPUSH on a Redis List?",
+    options: ["O(n)", "O(log n)", "O(1)", "O(n log n)"],
+    answer: 2,
+  },
+  {
+    q: "Which command retrieves all fields and values from a Redis Hash?",
+    options: ["HKEYS", "HVALS", "HMGET", "HGETALL"],
+    answer: 3,
+  },
+  {
+    q: "You need to store a user record with fields like name, email, and age under one key. Which Redis type fits best?",
+    options: ["String", "List", "Hash", "Set"],
+    answer: 2,
+  },
+  {
+    q: "Which data structure would you choose to implement a FIFO message queue in Redis?",
+    options: ["Hash", "List", "Sorted Set", "String"],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="lists-hashes/index" questions={quizIndex} />
+
+<ProgressTracker client:visible id="lists-hashes/index" />

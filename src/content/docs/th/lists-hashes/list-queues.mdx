@@ -1,0 +1,153 @@
+---
+title: 'Lists เป็น Queue และ Stack'
+description: 'ใช้ LPUSH+RPOP สำหรับ FIFO queue, LPUSH+LPOP สำหรับ stack และ BLPOP/BRPOP สำหรับ blocking worker'
+sidebar:
+  order: 3
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## FIFO Queue — LPUSH + RPOP
+
+Queue จะประมวลผลข้อมูลตามลำดับ first-in, first-out คือสิ่งที่เข้ามาก่อนจะออกไปก่อน ด้วย Redis List: ฝั่ง producer ใช้ `LPUSH` (เพิ่มที่หัวลิสต์) และฝั่ง consumer ใช้ `RPOP` (ดึงจากท้ายลิสต์) เนื่องจาก `LPUSH` เพิ่มข้อมูลที่หัวเสมอ รายการที่เก่าที่สุดจึงอยู่ที่ท้ายเสมอ ซึ่งตรงกับตำแหน่งที่ `RPOP` อ่านออกมาพอดี
+
+```text
+127.0.0.1:6379> LPUSH jobs "job:1"
+(integer) 1
+127.0.0.1:6379> LPUSH jobs "job:2"
+(integer) 2
+127.0.0.1:6379> LPUSH jobs "job:3"
+(integer) 3
+127.0.0.1:6379> RPOP jobs
+"job:1"
+127.0.0.1:6379> RPOP jobs
+"job:2"
+```
+
+`job:1` ถูก push เข้ามาก่อน จึงออกไปก่อน — นี่คือ FIFO
+
+export const fifoCode = `LPUSH jobs "job:1"
+LPUSH jobs "job:2"
+LPUSH jobs "job:3"
+RPOP jobs
+RPOP jobs`;
+
+<TryRedis client:visible code={fifoCode} />
+
+## Stack — LPUSH + LPOP
+
+Stack จะประมวลผลข้อมูลตามลำดับ last-in, first-out คือสิ่งที่เข้ามาหลังสุดจะออกไปก่อน ทั้ง push และ pop เกิดขึ้นที่ปลายเดียวกัน (หัวของลิสต์) ดังนั้นรายการที่ push ล่าสุดจึงเป็นรายการถัดไปที่จะถูกดึงออกเสมอ
+
+```text
+127.0.0.1:6379> DEL stack
+(integer) 0
+127.0.0.1:6379> LPUSH stack "frame:1"
+(integer) 1
+127.0.0.1:6379> LPUSH stack "frame:2"
+(integer) 2
+127.0.0.1:6379> LPUSH stack "frame:3"
+(integer) 3
+127.0.0.1:6379> LPOP stack
+"frame:3"
+127.0.0.1:6379> LPOP stack
+"frame:2"
+```
+
+export const stackCode = `DEL stack
+LPUSH stack "frame:1"
+LPUSH stack "frame:2"
+LPUSH stack "frame:3"
+LPOP stack
+LPOP stack`;
+
+<TryRedis client:visible code={stackCode} />
+
+## RPOPLPUSH — ย้ายข้อมูลระหว่างลิสต์แบบ atomic
+
+`RPOPLPUSH source destination` จะดึงข้อมูลจากท้ายของ `source` และเพิ่มไปที่หัวของ `destination` ในการดำเนินการ atomic ครั้งเดียว นี่คือ pattern คลาสสิกสำหรับ **reliable queue**: งานจะถูกย้ายจากลิสต์ `pending` ไปยัง `processing` ในขั้นตอนเดียว จึงไม่มีทางเกิดปัญหาหากเกิด crash ขึ้นระหว่างกลาง
+
+```text
+127.0.0.1:6379> DEL pending processing
+(integer) 0
+127.0.0.1:6379> RPUSH pending "task:A" "task:B" "task:C"
+(integer) 3
+127.0.0.1:6379> RPOPLPUSH pending processing
+"task:A"
+127.0.0.1:6379> LRANGE pending 0 -1
+1) "task:B"
+2) "task:C"
+127.0.0.1:6379> LRANGE processing 0 -1
+1) "task:A"
+```
+
+`task:A` อยู่ที่ท้ายของ `pending` (ถูก push เข้ามาก่อนด้วย `RPUSH`) หลังจาก `RPOPLPUSH` มันจะอยู่ที่หัวของ `processing` ในขณะที่ `pending` เหลือเพียงรายการที่เหลืออยู่
+
+export const rpoplpushCode = `DEL pending processing
+RPUSH pending "task:A" "task:B" "task:C"
+RPOPLPUSH pending processing
+LRANGE pending 0 -1
+LRANGE processing 0 -1`;
+
+<TryRedis client:visible code={rpoplpushCode} />
+
+## Blocking pop — BLPOP และ BRPOP
+
+`BLPOP key [key ...] timeout` จะบล็อก connection ไว้จนกว่าจะมีข้อมูล แล้วจึงดึงจากลิสต์แรกที่ไม่ว่างเปล่า `BRPOP` ทำงานเหมือนกันแต่ดึงจากท้ายลิสต์ timeout ที่เป็น `0` หมายความว่ารอไปเรื่อยๆ ไม่มีกำหนด
+
+```text
+127.0.0.1:6379> BLPOP jobs 5
+1) "jobs"
+2) "job:3"
+
+(if jobs is empty, the client blocks for up to 5 seconds)
+```
+
+> **หมายเหตุ:** BLPOP ต้องใช้กับ connection แบบ blocking สด — ทดสอบใน redis-cli ของคุณเอง
+
+ในกระบวนการ worker คุณจะรัน `BLPOP jobs 0` วนซ้ำในลูป เมื่อ producer เรียก `LPUSH jobs "new-job"` การเรียกแบบ blocking จะ return ทันทีพร้อมกับงานใหม่ — ไม่ต้อง polling แต่อย่างใด
+
+<Callout title="BLPOP — job queue แบบง่าย">
+
+`BLPOP` จะบล็อกจนกว่าจะมีข้อมูลเข้ามา — ไม่ต้องเขียน polling loop เอง กระบวนการ worker วนซ้ำด้วย `BLPOP jobs 0` และ producer จะปลุก worker ทันทีด้วย `LPUSH` นี่คือ pattern ระดับ production สำหรับ background worker ขนาดเบาที่ไม่จำเป็นต้องใช้ message broker เต็มรูปแบบ
+
+</Callout>
+
+export const listQueuesQuiz = [
+  {
+    q: "คำสั่งคู่ใดที่ใช้สร้าง FIFO queue?",
+    options: ["LPUSH + LPOP", "RPUSH + RPOP", "LPUSH + RPOP", "RPUSH + LPOP"],
+    answer: 2,
+  },
+  {
+    q: "`BLPOP jobs 0` จะทำอะไรเมื่อลิสต์ว่างเปล่า?",
+    options: [
+      "คืนค่า nil ทันที",
+      "เกิด error ขึ้น",
+      "บล็อกรอไปเรื่อยๆ จนกว่าจะมีข้อมูลถูก push เข้ามา",
+      "ลบ key ทิ้ง",
+    ],
+    answer: 2,
+  },
+  {
+    q: "RPOPLPUSH ทำงานอย่างไร?",
+    options: [
+      "คัดลอก element ระหว่างสองลิสต์",
+      "ดึง element จากท้ายลิสต์หนึ่งและเพิ่มไปที่หัวของอีกลิสต์หนึ่งแบบ atomic",
+      "กลับลำดับลิสต์",
+      "รวมสองลิสต์เข้าด้วยกัน",
+    ],
+    answer: 1,
+  },
+  {
+    q: "คำสั่งคู่ใดที่ใช้สร้าง stack (LIFO)?",
+    options: ["LPUSH + RPOP", "RPUSH + RPOP", "LPUSH + LPOP", "RPUSH + LPOP"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="lists-hashes/list-queues" questions={listQueuesQuiz} />
+
+<ProgressTracker client:visible id="lists-hashes/list-queues" />

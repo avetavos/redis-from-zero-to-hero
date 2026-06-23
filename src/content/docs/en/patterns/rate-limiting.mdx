@@ -1,0 +1,102 @@
+---
+title: Rate Limiting
+description: 'Fixed-window rate limiter using INCR + EXPIRE'
+sidebar:
+  order: 3
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is a rate limiter?
+
+A rate limiter caps how many requests a client can make in a given time window. Redis makes this easy with two atomic commands: `INCR` to count requests and `EXPIRE` to bound the window.
+
+## How INCR + EXPIRE works
+
+For each incoming request, increment a counter keyed by user and time window. On the very first hit — when the counter equals 1 — set an expiry on that key. If the counter exceeds the limit, reject the request.
+
+```text
+1. count = INCR rate:${userId}:window
+2. if count == 1 → EXPIRE rate:${userId}:window 60
+3. if count > 100 → reject (HTTP 429)
+4. else → allow
+```
+
+The key encodes the window so each new window gets a fresh counter automatically.
+
+## Redis CLI demo
+
+```text
+127.0.0.1:6379> INCR rate:user:42:window1
+(integer) 1
+127.0.0.1:6379> EXPIRE rate:user:42:window1 60
+(integer) 1
+127.0.0.1:6379> INCR rate:user:42:window1
+(integer) 2
+127.0.0.1:6379> TTL rate:user:42:window1
+(integer) 58
+```
+
+The first `INCR` returns `1`, so we set the expiry immediately. Subsequent increments count against the same window, and `TTL` confirms the key will expire after the window closes.
+
+export const rateLimitingCode = `INCR rate:user:42:window1
+EXPIRE rate:user:42:window1 60
+INCR rate:user:42:window1
+TTL rate:user:42:window1`;
+
+<TryRedis client:visible code={rateLimitingCode} />
+
+<Callout title="INCR + EXPIRE gives a simple atomic per-window rate limiter">
+Because INCR is atomic, two simultaneous requests on the same key cannot both read 0 and both think they are the first. The counter increments correctly even under load.
+</Callout>
+
+## Fixed window vs. sliding window
+
+INCR + EXPIRE gives a **fixed window**: all requests in the same 60-second bucket share one counter. A burst at the very end of one window and the very start of the next can effectively double the allowed rate at the boundary.
+
+For a true **sliding window** you would use a sorted set: store each request timestamp with `ZADD`, trim old entries with `ZREMRANGEBYSCORE`, then count live entries with `ZCARD`. This is more precise but slightly more expensive per request.
+
+export const quizRateLimiting = [
+  {
+    q: "Why do we call EXPIRE only when count == 1?",
+    options: [
+      "To avoid resetting the window on every request",
+      "Because INCR does not work after EXPIRE",
+      "To save CPU",
+      "EXPIRE only works once per key"
+    ],
+    answer: 0
+  },
+  {
+    q: "What HTTP status code should a rate-limited response return?",
+    options: ["400", "401", "403", "429"],
+    answer: 3
+  },
+  {
+    q: "INCR is atomic. What does this mean for concurrent requests?",
+    options: [
+      "Only one request runs at a time globally",
+      "Two simultaneous INCRs on the same key cannot produce the same value",
+      "INCR locks the entire database",
+      "INCR uses optimistic locking internally"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which data structure enables a true sliding-window rate limiter?",
+    options: [
+      "String with INCR",
+      "List with LPUSH",
+      "Sorted set with ZADD",
+      "Hash with HINCRBY"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="patterns/rate-limiting" questions={quizRateLimiting} />
+
+<ProgressTracker client:visible id="patterns/rate-limiting" />

@@ -1,0 +1,124 @@
+---
+title: 'รัน Redis ด้วย Docker'
+description: 'เริ่มต้น Redis 7 container เชื่อมต่อด้วย redis-cli และจัดการวงจรชีวิตของ container'
+sidebar:
+  order: 3
+---
+
+import RunRedis from '../../../../components/RunRedis.astro';
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Docker คือวิธีที่เร็วที่สุดในการเริ่มใช้ Redis บนเครื่องของคุณ
+
+คุณไม่จำเป็นต้องติดตั้ง Redis บนเครื่องของคุณ เพียงคำสั่ง `docker run` เดียว ก็สามารถดึง official image และเริ่มเซิร์ฟเวอร์ที่พร้อมใช้งานได้ภายในไม่กี่วินาที
+
+<RunRedis />
+
+## อธิบายคำสั่งพื้นฐาน
+
+```bash
+docker run -d --name redis -p 6379:6379 redis:7-alpine
+```
+
+| Flag | ความหมาย |
+|------|----------|
+| `-d` | รันในโหมด detached (background) เพื่อให้ terminal ของคุณยังคงใช้งานได้ |
+| `--name redis` | ตั้งชื่อให้ container เพื่อให้อ้างอิงได้ในคำสั่งต่อ ๆ ไป |
+| `-p 6379:6379` | เผยแพร่ port 6379 จาก container ไปยัง host บน port เดียวกัน |
+| `redis:7-alpine` | ใช้ official Redis 7 image ที่สร้างบน Alpine Linux — เล็กและเร็ว |
+
+## เชื่อมต่อด้วย redis-cli
+
+เมื่อ container กำลังทำงาน ให้เปิด interactive CLI session ภายใน container:
+
+```bash
+docker exec -it redis redis-cli
+```
+
+`docker exec` รันคำสั่งภายใน container ที่กำลังทำงานอยู่ `-it` จัดสรร interactive TTY เพื่อให้คุณได้รับ prompt `127.0.0.1:6379>` ที่คุ้นเคย จากนั้นคุณสามารถรันคำสั่ง Redis ใด ๆ ก็ได้
+
+<Callout title="ตั้งชื่อ container และเปิด port 6379">
+
+`--name redis` ทำให้ทุกคำสั่งที่ตามมาสามารถอ้างอิง container ด้วยชื่อแทนที่จะเป็น hash (เช่น `docker stop redis` แทน `docker stop a3f9…`) `-p 6379:6379` เปิดเผย port เพื่อให้ Redis client ใด ๆ บน host ของคุณ ไม่ว่าจะเป็น redis-cli, แอปพลิเคชัน, หรือเครื่องมือ GUI สามารถเชื่อมต่อกับ `127.0.0.1:6379` ได้โดยไม่ต้องตั้งค่าเพิ่มเติม
+
+</Callout>
+
+## เพิ่ม persistence ด้วย named volume
+
+โดยค่าเริ่มต้น container จะเก็บข้อมูลในเลเยอร์ชั่วคราวที่จะหายไปเมื่อคุณลบ container แนบ named volume เพื่อเก็บข้อมูลข้ามการรีสตาร์ท:
+
+```bash
+docker run -d --name redis -p 6379:6379 -v redisdata:/data redis:7-alpine
+```
+
+Docker สร้าง volume `redisdata` โดยอัตโนมัติ path `/data` คือที่ที่ official Redis image เขียนไฟล์ snapshot `dump.rdb`
+
+## วงจรชีวิตของ Container
+
+```bash
+# หยุด container ที่กำลังทำงาน (Redis จะ shutdown อย่างสะอาด)
+docker stop redis
+
+# เริ่มใหม่อีกครั้ง — ข้อมูลใน named volume ยังคงอยู่
+docker start redis
+
+# ลบ container ทั้งหมด (volume ยังคงอยู่เว้นแต่คุณจะลบด้วย)
+docker rm redis
+```
+
+## ดู logs
+
+```bash
+# แสดง log ทั้งหมดที่มีจนถึงตอนนี้
+docker logs redis
+
+# ติดตาม log แบบ real-time (กด Ctrl-C เพื่อหยุด)
+docker logs -f redis
+```
+
+logs จะแสดง Redis startup banner, port ที่กำลัง listen อยู่, และคำเตือนต่าง ๆ — มีประโยชน์มากในการวินิจฉัยปัญหาการตั้งค่า
+
+export const dockerCode = `docker run -d --name redis -p 6379:6379 redis:7-alpine
+docker exec -it redis redis-cli`;
+
+<TryRedis client:visible code={dockerCode} />
+
+export const quizDocker = [
+  {
+    q: "Flag ใดที่ใช้รัน Docker container ในโหมด detached (background)?",
+    options: [
+      "-i",
+      "-d",
+      "-p",
+      "-v",
+    ],
+    answer: 1,
+  },
+  {
+    q: "`-p 6379:6379` ทำหน้าที่อะไร?",
+    options: [
+      "ตั้งชื่อให้ container",
+      "Mount volume",
+      "เผยแพร่ port 6379 จาก container ไปยัง host",
+      "ตั้งค่า environment variable",
+    ],
+    answer: 2,
+  },
+  {
+    q: "คุณดู log ของ Redis container ได้อย่างไร?",
+    options: [
+      "docker inspect redis",
+      "docker logs redis",
+      "docker status redis",
+      "docker exec redis logs",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="intro-setup/run-with-docker" questions={quizDocker} />
+
+<ProgressTracker client:visible id="intro-setup/run-with-docker" />

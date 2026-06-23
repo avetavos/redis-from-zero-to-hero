@@ -1,0 +1,91 @@
+---
+title: 'Transactions, Lua & Tooling: Overview'
+description: 'Group commands atomically, run server-side Lua scripts, and operate Redis with confidence using built-in tooling.'
+sidebar:
+  order: 1
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What this module covers
+
+Redis goes well beyond simple key-value operations. Once your application grows, you need a way to run multiple commands together without interference, move logic closer to the data, and diagnose your server when things slow down.
+
+This module covers three complementary areas:
+
+| Lesson | Topic |
+|--------|-------|
+| Transactions, Lua & Tooling: Overview | This page — why grouping, scripting, and observability matter |
+| Transactions | `MULTI`/`EXEC`/`DISCARD`, optimistic locking with `WATCH` |
+| Pipelines | Batching round-trips for throughput, `redis-cli --pipe` |
+| Lua Scripting | `EVAL`, `redis.call`, `EVALSHA`, atomic server-side logic |
+| Tooling & Monitoring | `MONITOR`, `INFO`, `SLOWLOG`, `--bigkeys`, `CLIENT LIST` |
+
+## Why grouping commands matters
+
+Redis processes every command in a single thread. That means two independent clients can interleave their reads and writes, leading to race conditions. There are three ways to address this:
+
+- **Transactions** (`MULTI`/`EXEC`) queue a batch of commands and run them in one uninterrupted block.
+- **Pipelines** send many commands in one network round-trip for throughput — not atomicity.
+- **Lua scripts** run entirely on the server, atomically, with the full Redis API available.
+
+Each tool solves a different problem. Choosing the right one depends on whether you need atomicity, speed, or complex conditional logic.
+
+## Why server-side scripting?
+
+A common pattern in application code looks like this: read a value, compute something, write back. Every round-trip adds latency, and between the read and the write another client can change the key. A Lua script eliminates both problems — the entire read-modify-write runs on the server without any network round-trips between steps, and no other command can interrupt it.
+
+## Why tooling matters
+
+Even a perfectly written application can suffer from slow queries, unexpectedly large keys, or connection leaks. Redis ships with built-in diagnostics:
+
+- `INFO` — server statistics in one command
+- `SLOWLOG` — the N slowest recent commands
+- `--bigkeys` — scan for memory-hungry keys
+- `MONITOR` — real-time command stream (use sparingly)
+
+export const overviewCode = `PING
+INFO server`;
+
+<TryRedis client:visible code={overviewCode} />
+
+<Callout title="Three tools, three problems">
+
+Use **transactions** when you need a group of commands to run without interruption. Use **pipelines** when you want to cut network round-trips without needing atomicity. Use **Lua scripts** when you need conditional read-modify-write logic that must be atomic. Do not conflate them — they are complementary, not interchangeable.
+
+</Callout>
+
+export const quizOverview = [
+  {
+    q: "Which Redis feature provides atomicity for a group of commands?",
+    options: ["Pipelines", "MULTI/EXEC transactions", "CLIENT LIST", "INFO"],
+    answer: 1,
+  },
+  {
+    q: "What is the primary goal of pipelining?",
+    options: [
+      "Guarantee atomicity across commands",
+      "Reduce network round-trips for throughput",
+      "Run Lua on the server",
+      "Prevent key expiration",
+    ],
+    answer: 1,
+  },
+  {
+    q: "A Lua script run via EVAL is:",
+    options: [
+      "Non-atomic — other clients can interleave",
+      "Atomic — no other command runs while the script executes",
+      "Only atomic if WATCH is used first",
+      "Slower than a pipeline",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="transactions-scripting-tooling/index" questions={quizOverview} />
+
+<ProgressTracker client:visible id="transactions-scripting-tooling/index" />

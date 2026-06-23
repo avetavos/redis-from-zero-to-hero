@@ -1,0 +1,100 @@
+---
+title: 'Persistence & Expiration: Overview'
+description: 'Redis is in-memory but can survive restarts. Overview of RDB, AOF, TTL expiration, and eviction.'
+sidebar:
+  order: 1
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is Persistence in Redis?
+
+Redis stores all data in RAM, which makes it extremely fast. But RAM is volatile — power off the machine and the data is gone. To survive restarts, Redis offers two complementary persistence mechanisms that write data to disk.
+
+You can use one, both, or neither depending on your use case. A pure cache may need no persistence at all; a session store or primary database benefits from both.
+
+## Four Core Concepts in This Module
+
+### RDB — Periodic Snapshots
+
+RDB (Redis Database) takes a point-in-time snapshot of your entire dataset and saves it to a binary file called `dump.rdb`. Snapshots are triggered automatically based on configurable thresholds (e.g., "at least 100 keys changed in the last 5 minutes") or manually with `BGSAVE`. RDB is compact and fast to load on restart, but you can lose writes made since the last snapshot.
+
+### AOF — Append-Only File
+
+AOF (Append-Only File) logs every write command received by the server into a file called `appendonly.aof`. On restart, Redis replays the log to reconstruct the dataset. AOF provides much finer durability — with `appendfsync everysec` you lose at most one second of writes. The trade-off is a larger file and slightly slower restart.
+
+### Key Expiration / TTL
+
+Redis lets you attach a time-to-live to any key with `EXPIRE` (seconds) or `PEXPIRE` (milliseconds). Once the TTL elapses, the key is automatically deleted. Use `TTL` to check remaining time, and `PERSIST` to remove the expiration and make a key permanent again.
+
+### Eviction Policies
+
+When Redis runs out of memory it must decide what to do. Eviction policies control this: `noeviction` returns errors, `allkeys-lru` removes the least-recently-used key across all keys, `volatile-lru` removes the LRU key only among keys that have a TTL set, and so on. The right policy depends on whether Redis is acting as a cache or as a primary store.
+
+## Module Lessons
+
+| # | Lesson | Topics Covered |
+|---|--------|----------------|
+| 1 | Persistence & Expiration: Overview *(this page)* | RDB, AOF, TTL, eviction — big picture |
+| 2 | RDB Snapshots and AOF | `BGSAVE`, `BGREWRITEAOF`, config directives, hybrid mode |
+| 3 | Key Expiration and TTL | `EXPIRE`, `PEXPIRE`, `TTL`, `PERSIST`, lazy vs active expiry |
+| 4 | Eviction Policies | `maxmemory`, LRU/LFU policies, `noeviction`, cache tuning |
+| 5 | Persistence in Practice | Choosing the right strategy, monitoring, backup scripts |
+
+## Try It — TTL Basics
+
+The snippet below sets a key with a 30-second expiration, checks the remaining TTL, then removes the expiration to make the key permanent.
+
+export const overviewCode = `SET session:demo "hello" EX 30
+TTL session:demo
+PERSIST session:demo
+TTL session:demo`;
+
+```text
+127.0.0.1:6379> SET session:demo "hello" EX 30
+OK
+127.0.0.1:6379> TTL session:demo
+(integer) 30
+127.0.0.1:6379> PERSIST session:demo
+(integer) 1
+127.0.0.1:6379> TTL session:demo
+(integer) -1
+```
+
+`TTL` returns `-1` when a key exists but has no expiration, and `-2` when the key does not exist at all.
+
+<TryRedis client:visible code={overviewCode} />
+
+<Callout title="Redis in-memory vs persistence">
+Redis keeps all data in RAM for speed but writes to disk for durability. Persistence is optional — disable it entirely for a pure cache, or enable both RDB and AOF for maximum safety. Hybrid mode (introduced in Redis 4, refined in Redis 7) combines the fast load of RDB with the durability of AOF in a single file.
+</Callout>
+
+export const quizOverview = [
+  {
+    q: "What file does Redis write RDB snapshots to by default?",
+    options: ["appendonly.aof", "dump.rdb", "redis.log", "snapshot.bin"],
+    answer: 1,
+  },
+  {
+    q: "What does a TTL of -2 mean when returned by the TTL command?",
+    options: [
+      "The key exists and has no expiration",
+      "The key has expired but has not been deleted yet",
+      "The key does not exist",
+      "The key is persistent and cannot be expired",
+    ],
+    answer: 2,
+  },
+  {
+    q: "Which command removes the expiration from a key, making it permanent?",
+    options: ["EXPIRE", "TTL", "PERSIST", "DELETE"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="persistence-expiration/index" questions={quizOverview} />
+
+<ProgressTracker client:visible id="persistence-expiration/index" />

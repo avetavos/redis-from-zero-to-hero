@@ -1,0 +1,98 @@
+---
+title: Durability Tradeoffs
+description: 'appendfsync modes (always, everysec, no), what you can lose on crash, and combining persistence with replication.'
+sidebar:
+  order: 3
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The appendfsync setting
+
+AOF durability depends on how often Redis flushes the AOF buffer to disk. The `appendfsync` directive controls this with three modes:
+
+- `always`: fsync after every command — zero data loss, lowest throughput
+- `everysec`: fsync once per second — at most 1 second of data loss, good balance (recommended)
+- `no`: OS decides when to flush — highest throughput, unpredictable data loss
+
+```ini
+# Maximum durability — every write fsynced
+appendfsync always
+
+# Balance — at most 1 second of data loss (recommended)
+appendfsync everysec
+
+# Fastest — OS controls flushing, unpredictable loss
+appendfsync no
+```
+
+## What you can lose on a crash
+
+| Mode | Max data loss | Throughput |
+|------|--------------|------------|
+| `always` | 0 commands | Lowest |
+| `everysec` | ~1 second | Good |
+| `no` | Since last OS flush | Highest |
+| RDB only | Since last snapshot | Highest |
+
+## Combining persistence with replication
+
+Running replicas does NOT replace persistence. A replica that crashes and restarts will reload from its own persistence files (or sync from primary). Best practice: enable persistence on replicas independently, not just on the primary.
+
+```text
+127.0.0.1:6379> CONFIG GET appendfsync
+1) "appendfsync"
+2) "everysec"
+127.0.0.1:6379> CONFIG SET appendfsync always
+OK
+127.0.0.1:6379> CONFIG GET appendfsync
+1) "appendfsync"
+2) "always"
+```
+
+export const durabilityCode = `CONFIG GET appendfsync
+CONFIG SET appendfsync always
+CONFIG GET appendfsync`;
+
+<TryRedis client:visible code={durabilityCode} />
+
+<Callout title="appendfsync everysec — the common balance">
+
+Most production deployments use `appendfsync everysec`. You get AOF durability with at most 1 second of data loss on crash, and throughput stays high. Use `always` only when zero data loss is a hard requirement.
+
+</Callout>
+
+export const quizDurability = [
+  {
+    q: "Which `appendfsync` mode guarantees zero data loss on crash?",
+    options: ["no", "everysec", "always", "rdb"],
+    answer: 2,
+  },
+  {
+    q: "Which `appendfsync` mode is recommended for most production deployments?",
+    options: ["always", "everysec", "no", "rdbsync"],
+    answer: 1,
+  },
+  {
+    q: "What is the maximum data loss when using `appendfsync everysec`?",
+    options: ["0 commands", "~1 second of writes", "Since last snapshot", "Since last OS flush"],
+    answer: 1,
+  },
+  {
+    q: "Does running Redis replicas replace the need for persistence on each node?",
+    options: [
+      "Yes, replicas always have a full copy",
+      "No, persistence should be enabled on replicas independently",
+      "Only if the replica is in the same datacenter",
+      "Yes, as long as there are at least two replicas",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="persistence-expiration/durability" questions={quizDurability} />
+
+<ProgressTracker client:visible id="persistence-expiration/durability" />

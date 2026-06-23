@@ -1,0 +1,133 @@
+---
+title: 'Hashes'
+description: 'HSET, HGET, HMGET, HGETALL, HDEL, HEXISTS, HKEYS, HVALS, และ HLEN — เก็บคู่ field-value หลายรายการไว้ภายใต้คีย์เดียว'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Hashes — dictionary แบบ flat ภายใต้คีย์เดียว
+
+Redis Hashes เก็บคู่ field-value หลายรายการไว้ภายใต้คีย์เดียว ลองนึกถึงมันเหมือน dictionary แบบ flat หรือแถวข้อมูลในฐานข้อมูล — หนึ่งคีย์เก็บได้หลาย field ที่มีชื่อแยกกัน
+
+## HSET และ HGET
+
+`HSET key field value [field value ...]` ตั้งค่าหนึ่ง field หรือหลาย field พร้อมกัน Redis 7+ รองรับการระบุคู่ field-value หลายชุดในคำสั่งเดียว `HGET key field` ดึงค่าของ field หนึ่งตามชื่อ หาก field ไม่มีอยู่ Redis จะคืนค่า `(nil)`
+
+```text
+127.0.0.1:6379> HSET product:1 name "Redis Mug" price "12.99" stock "200"
+(integer) 3
+127.0.0.1:6379> HGET product:1 name
+"Redis Mug"
+127.0.0.1:6379> HGET product:1 price
+"12.99"
+127.0.0.1:6379> HGET product:1 missing-field
+(nil)
+```
+
+export const hsetGetCode = `HSET product:1 name "Redis Mug" price "12.99" stock "200"
+HGET product:1 name
+HGET product:1 price
+HGET product:1 missing-field`;
+
+<TryRedis client:visible code={hsetGetCode} />
+
+## HMGET และ HGETALL
+
+`HMGET key field [field ...]` ดึงหลาย field ในครั้งเดียว และคืนค่า `(nil)` สำหรับ field ที่ไม่มีอยู่ `HGETALL key` คืนค่าคู่ field-value ทั้งหมดในรูปแบบรายการสลับกันระหว่างชื่อ field และค่า
+
+```text
+127.0.0.1:6379> HMGET product:1 name stock
+1) "Redis Mug"
+2) "200"
+127.0.0.1:6379> HGETALL product:1
+1) "name"
+2) "Redis Mug"
+3) "price"
+4) "12.99"
+5) "stock"
+6) "200"
+```
+
+export const hmgetCode = `HMGET product:1 name stock
+HGETALL product:1`;
+
+<TryRedis client:visible code={hmgetCode} />
+
+## HDEL และ HEXISTS
+
+`HDEL key field [field ...]` ลบหนึ่ง field หรือหลาย field และคืนค่าจำนวน field ที่ถูกลบจริง `HEXISTS key field` คืนค่า `1` หาก field นั้นมีอยู่ หรือ `0` หากไม่มี — เหมาะสำหรับตรวจสอบเงื่อนไขโดยไม่ต้องดึงค่า
+
+```text
+127.0.0.1:6379> HEXISTS product:1 price
+(integer) 1
+127.0.0.1:6379> HEXISTS product:1 color
+(integer) 0
+127.0.0.1:6379> HDEL product:1 price
+(integer) 1
+127.0.0.1:6379> HEXISTS product:1 price
+(integer) 0
+```
+
+export const hdelCode = `HSET product:1 name "Redis Mug" price "12.99" stock "200"
+HEXISTS product:1 price
+HEXISTS product:1 color
+HDEL product:1 price
+HEXISTS product:1 price
+HKEYS product:1
+HVALS product:1
+HLEN product:1`;
+
+<TryRedis client:visible code={hdelCode} />
+
+## HKEYS, HVALS, และ HLEN
+
+`HKEYS key` คืนชื่อ field ทั้งหมด `HVALS key` คืนค่าของ field ทั้งหมด `HLEN key` คืนจำนวน field ทั้งหมดใน hash หลังจากลบ `price` ออกแล้ว hash นี้เหลืออยู่ 2 field คือ `name` และ `stock`
+
+```text
+127.0.0.1:6379> HKEYS product:1
+1) "name"
+2) "stock"
+127.0.0.1:6379> HVALS product:1
+1) "Redis Mug"
+2) "200"
+127.0.0.1:6379> HLEN product:1
+(integer) 2
+```
+
+<Callout title="A hash stores an object's fields under one key — memory-efficient">
+
+Redis ใช้การเข้ารหัสแบบกระชับ (listpack) สำหรับ hash ขนาดเล็กโดยอัตโนมัติ แทนที่จะเก็บ `product:1:name`, `product:1:price`, และ `product:1:stock` เป็นสาม string key แยกกัน การใช้ `HSET product:1 ...` เพียงครั้งเดียวจะเก็บทั้งหมดไว้ภายใต้คีย์เดียว — ประหยัดหน่วยความจำ ลด round-trip และจัดกลุ่มข้อมูลได้อย่างมีตรรกะ
+
+</Callout>
+
+export const quizHashes = [
+  {
+    q: "คำสั่งใดที่คืนค่าคู่ field-value ทั้งหมดของ hash?",
+    options: ["HGET", "HMGET", "HGETALL", "HKEYS"],
+    answer: 2,
+  },
+  {
+    q: "`HGET key missing-field` จะคืนค่าอะไร?",
+    options: ["สตริงว่าง", "(nil)", "ข้อผิดพลาด", "0"],
+    answer: 1,
+  },
+  {
+    q: "`HSET user:1 name 'Ana' age '30'` สร้าง field กี่ field?",
+    options: ["1", "2", "4", "ขึ้นอยู่กับว่า field มีอยู่แล้วหรือไม่"],
+    answer: 1,
+  },
+  {
+    q: "คำสั่งใดนับจำนวน field ใน hash?",
+    options: ["HCOUNT", "HLEN", "HSIZE", "HHOW"],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="lists-hashes/hashes" questions={quizHashes} />
+
+<ProgressTracker client:visible id="lists-hashes/hashes" />

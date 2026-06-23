@@ -1,0 +1,190 @@
+---
+title: Tooling & Monitoring
+description: 'redis-cli power tools: MONITOR, INFO, --scan, --bigkeys, --latency, SLOWLOG, CLIENT LIST, and a brief look at RedisInsight.'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## redis-cli is more than a REPL
+
+`redis-cli` ships with a rich set of diagnostic flags that go well beyond typing commands. Knowing these tools means you can identify slow queries, memory hogs, and connection problems without any extra software.
+
+## INFO — server statistics at a glance
+
+`INFO` returns a large block of key-value statistics grouped by section. Call a specific section to reduce noise:
+
+```text
+127.0.0.1:6379> INFO server
+# Server
+redis_version:7.2.4
+redis_mode:standalone
+os:Linux 5.15.0 x86_64
+...
+
+127.0.0.1:6379> INFO memory
+# Memory
+used_memory_human:1.02M
+used_memory_peak_human:1.03M
+...
+
+127.0.0.1:6379> INFO stats
+# Stats
+total_commands_processed:1024
+instantaneous_ops_per_sec:12
+...
+```
+
+export const infoCode = `INFO server
+INFO memory
+INFO keyspace`;
+
+<TryRedis client:visible code={infoCode} />
+
+## SLOWLOG — find slow commands
+
+Redis records commands that exceed a configurable threshold (default 10 ms). `SLOWLOG GET N` returns the N most recent slow entries with timestamp, duration, and full command:
+
+```text
+127.0.0.1:6379> SLOWLOG GET 5
+1) 1) (integer) 3
+   2) (integer) 1700000000
+   3) (integer) 15420
+   4) 1) "KEYS"
+      2) "*"
+   5) "127.0.0.1:54321"
+   6) ""
+```
+
+Reset the log with `SLOWLOG RESET`. Adjust the threshold with:
+
+```text
+127.0.0.1:6379> CONFIG SET slowlog-log-slower-than 5000
+OK
+```
+
+export const slowlogCode = `SLOWLOG GET 5
+SLOWLOG LEN
+SLOWLOG RESET`;
+
+<TryRedis client:visible code={slowlogCode} />
+
+## --bigkeys — find memory-hungry keys
+
+Run from your shell (not the REPL) to scan the entire keyspace and report the largest key per type:
+
+```bash
+redis-cli --bigkeys
+```
+
+Sample output:
+
+```text
+-------- summary -------
+Biggest string found 'session:heavy' has 512000 bytes
+Biggest list   found 'log:events' has 1048576 items
+Biggest hash   found 'user:profile:1' has 312 fields
+```
+
+This uses `SCAN` internally so it does not block the server.
+
+## --scan and --pattern — iterate the keyspace
+
+```bash
+# List all keys matching a pattern (uses SCAN internally, non-blocking)
+redis-cli --scan --pattern "session:*"
+
+# Count matching keys
+redis-cli --scan --pattern "cache:*" | wc -l
+```
+
+## --latency — measure round-trip time
+
+```bash
+redis-cli --latency
+redis-cli --latency-history   # sample every 15 seconds
+redis-cli --latency-dist      # ASCII histogram
+```
+
+These ping Redis in a loop and display min/max/avg latency. Use them to detect network jitter or a suddenly slow server.
+
+## MONITOR — real-time command stream
+
+`MONITOR` streams every command processed by the server in real time:
+
+```text
+127.0.0.1:6379> MONITOR
+OK
+1700000001.123456 [0 127.0.0.1:54322] "SET" "foo" "bar"
+1700000001.124000 [0 127.0.0.1:54322] "GET" "foo"
+```
+
+It is invaluable for debugging what an application is actually sending. Press `Ctrl+C` to stop.
+
+## CLIENT LIST — inspect connections
+
+`CLIENT LIST` shows every connected client with its id, address, database, command, and memory usage:
+
+```text
+127.0.0.1:6379> CLIENT LIST
+id=5 addr=127.0.0.1:54321 laddr=127.0.0.1:6379 fd=8 name= age=0 idle=0 flags=N db=0 cmd=client|list ...
+```
+
+Kill a stale connection with `CLIENT KILL id 5`.
+
+export const clientCode = `CLIENT LIST
+CLIENT GETNAME
+CLIENT INFO`;
+
+<TryRedis client:visible code={clientCode} />
+
+## RedisInsight — GUI for Redis
+
+RedisInsight is the official free GUI from Redis Ltd. It provides a visual keyspace browser, slow-log viewer, memory profiler, and a built-in CLI. Download it from [redis.io/insight](https://redis.io/insight) and point it at any Redis instance — local or remote.
+
+<Callout title="Use --bigkeys, SLOWLOG, and INFO to diagnose; avoid MONITOR in production">
+
+`MONITOR` is extremely useful for debugging but has a real cost: it roughly doubles the server's write load because Redis must send a copy of every command to each monitoring client. Use it briefly on a staging server or a low-traffic replica, then disconnect. For production diagnostics, prefer `SLOWLOG`, `INFO stats`, and `--bigkeys` — they are designed to be safe under load.
+
+</Callout>
+
+export const quizTooling = [
+  {
+    q: "Which command shows the N slowest recent Redis commands with their duration?",
+    options: ["INFO stats", "SLOWLOG GET N", "MONITOR", "CLIENT LIST"],
+    answer: 1,
+  },
+  {
+    q: "Why should you avoid leaving MONITOR running in production?",
+    options: [
+      "It deletes keys",
+      "It roughly doubles server write load for each monitoring client",
+      "It blocks all other clients",
+      "It only works on Redis 6 and below",
+    ],
+    answer: 1,
+  },
+  {
+    q: "Which redis-cli flag scans the entire keyspace and reports the largest key per type?",
+    options: ["--scan", "--latency", "--bigkeys", "--pipe"],
+    answer: 2,
+  },
+  {
+    q: "To count all keys matching 'cache:*' without blocking the server, you would use:",
+    options: [
+      "KEYS cache:*",
+      "redis-cli --scan --pattern 'cache:*' | wc -l",
+      "INFO keyspace",
+      "SLOWLOG GET cache",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="transactions-scripting-tooling/tooling-monitoring" questions={quizTooling} />
+
+<ProgressTracker client:visible id="transactions-scripting-tooling/tooling-monitoring" />

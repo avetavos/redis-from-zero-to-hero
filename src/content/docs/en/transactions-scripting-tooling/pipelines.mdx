@@ -1,0 +1,126 @@
+---
+title: Pipelines
+description: 'Cut round-trips by sending many commands at once, using redis-cli --pipe, and understanding when pipelines differ from transactions.'
+sidebar:
+  order: 3
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is pipelining?
+
+Every Redis command involves a round-trip: the client sends the command, waits for the reply, then sends the next command. Over a network with even modest latency, this adds up quickly.
+
+**Pipelining** lets the client send a batch of commands in one write, without waiting for each individual reply. The server processes them in order and returns all replies together. The result is a single round-trip instead of N round-trips.
+
+```text
+# Without pipelining: 3 round-trips
+127.0.0.1:6379> SET a 1
+OK
+127.0.0.1:6379> SET b 2
+OK
+127.0.0.1:6379> SET c 3
+OK
+
+# With pipelining: 1 round-trip, same results
+```
+
+Most Redis client libraries expose pipelining directly. In Node.js (ioredis), for example:
+
+```bash
+const pipeline = redis.pipeline();
+pipeline.set('a', 1);
+pipeline.set('b', 2);
+pipeline.set('c', 3);
+const results = await pipeline.exec();
+```
+
+## redis-cli --pipe mode
+
+The `redis-cli` tool ships with a `--pipe` flag that accepts Redis protocol (RESP) on stdin and sends it as a pipeline:
+
+```bash
+# Generate RESP inline and pipe it to Redis
+printf "*3\r\n\$3\r\nSET\r\n\$2\r\nk1\r\n\$5\r\nhello\r\n*3\r\n\$3\r\nSET\r\n\$2\r\nk2\r\n\$5\r\nworld\r\n" \
+  | redis-cli --pipe
+```
+
+This is useful for bulk imports: tools like `redis-cli --pipe` can load millions of keys in seconds by sending large batches over a single connection.
+
+You can also generate a text file of commands and pipe them:
+
+```bash
+# commands.txt contains one redis-cli command per line
+cat commands.txt | redis-cli --pipe
+```
+
+## Pipelines vs transactions
+
+Pipelines and transactions are often confused. The table below clarifies the difference:
+
+| Feature | Pipeline | Transaction (`MULTI`/`EXEC`) |
+|---------|----------|------------------------------|
+| Round-trips | One (or few) | One per command + EXEC |
+| Atomicity | No — other clients can interleave | Yes — no interruption |
+| Rollback | No | No |
+| Use case | Throughput / bulk load | Safe grouped write |
+
+A pipeline is a **network optimization**. A transaction is an **atomicity guarantee**. You can combine them: many client libraries let you send a `MULTI`/`EXEC` block inside a pipeline to get both benefits.
+
+export const pipelineCode = `SET a 1
+SET b 2
+SET c 3
+MGET a b c`;
+
+<TryRedis client:visible code={pipelineCode} />
+
+<Callout title="Pipelining batches commands to reduce RTT — it does NOT make them atomic">
+
+A pipeline cuts the number of network round-trips, which can dramatically increase throughput for bulk writes or reads. However, between each command in the pipeline, other clients can still execute their own commands. If you need the batch to be uninterruptible, wrap it in `MULTI`/`EXEC` — not just a pipeline.
+
+</Callout>
+
+export const quizPipelines = [
+  {
+    q: "What is the primary benefit of pipelining in Redis?",
+    options: [
+      "Guarantees atomicity across commands",
+      "Reduces network round-trips to improve throughput",
+      "Prevents other clients from writing",
+      "Enables Lua scripting",
+    ],
+    answer: 1,
+  },
+  {
+    q: "When using a pipeline, can other clients' commands interleave with the pipelined commands?",
+    options: [
+      "No — pipelines are atomic",
+      "Yes — pipelines only batch network I/O, not execution",
+      "Only if WATCH is set",
+      "Only with more than 10 commands",
+    ],
+    answer: 1,
+  },
+  {
+    q: "Which redis-cli flag enables pipe mode for bulk imports?",
+    options: ["--batch", "--multi", "--pipe", "--bulk"],
+    answer: 2,
+  },
+  {
+    q: "To get both reduced round-trips AND atomicity, you should:",
+    options: [
+      "Use a pipeline alone",
+      "Use MULTI/EXEC inside a pipeline",
+      "Use WATCH alone",
+      "Use EVAL",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="transactions-scripting-tooling/pipelines" questions={quizPipelines} />
+
+<ProgressTracker client:visible id="transactions-scripting-tooling/pipelines" />

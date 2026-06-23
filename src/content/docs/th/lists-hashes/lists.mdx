@@ -1,0 +1,166 @@
+---
+title: 'Lists'
+description: 'LPUSH, RPUSH, LRANGE, LINDEX, LLEN, LSET, LREM, และ LTRIM — Redis lists คือ linked list แบบเรียงลำดับที่มี O(1) สำหรับ push และ pop'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Redis List คืออะไร?
+
+Redis List คือคอลเลกชันสตริงที่เรียงลำดับ โดยนำไปใช้งานในรูปแบบ **doubly linked list** ทำให้สามารถ push และ pop ที่ปลายทั้งสองด้านได้ด้วยความซับซ้อน O(1) เหมาะสำหรับ queue, stack และ activity feed ข้อที่ต้องระวังคือการเข้าถึงองค์ประกอบตรงกลางมีความซับซ้อน O(N) ดังนั้น List จึงเหมาะที่สุดเมื่อทำงานกับปลายด้านหัวหรือท้ายเป็นหลัก
+
+## LPUSH และ RPUSH
+
+`LPUSH key val [val ...]` เพิ่มค่าหนึ่งค่าหรือหลายค่าไปที่ด้านหัวของ list เมื่อ push หลายค่าพร้อมกัน อาร์กิวเมนต์ตัวสุดท้ายจะอยู่ที่หัว เพราะแต่ละค่าถูก push ทีละตัวจากซ้ายไปขวา
+
+`RPUSH key val [val ...]` เพิ่มค่าหนึ่งค่าหรือหลายค่าไปที่ด้านท้ายของ list
+
+```text
+127.0.0.1:6379> RPUSH tasks "buy milk"
+(integer) 1
+127.0.0.1:6379> RPUSH tasks "write code" "review PR"
+(integer) 3
+127.0.0.1:6379> LPUSH tasks "urgent: fix bug"
+(integer) 4
+```
+
+export const listBasicsCode = `RPUSH tasks "buy milk"
+RPUSH tasks "write code" "review PR"
+LPUSH tasks "urgent: fix bug"
+LRANGE tasks 0 -1
+LLEN tasks
+LINDEX tasks 0
+LINDEX tasks -1`;
+
+<TryRedis client:visible code={listBasicsCode} />
+
+## LRANGE, LLEN, และ LINDEX
+
+เมื่อมี list แล้ว คำสั่งสามตัวนี้ครอบคลุมรูปแบบการอ่านข้อมูลส่วนใหญ่:
+
+- `LRANGE key start stop` — คืนค่าองค์ประกอบตั้งแต่ index `start` ถึง `stop` (รวมปลายทั้งสอง นับจาก 0) ใช้ `-1` สำหรับองค์ประกอบสุดท้าย `-2` สำหรับตัวที่สองจากท้าย
+- `LLEN key` — คืนจำนวนองค์ประกอบใน list
+- `LINDEX key index` — คืนค่าองค์ประกอบเดียวที่ index ที่กำหนด index ลบนับจากท้าย
+
+```text
+127.0.0.1:6379> LRANGE tasks 0 -1
+1) "urgent: fix bug"
+2) "buy milk"
+3) "write code"
+4) "review PR"
+127.0.0.1:6379> LLEN tasks
+(integer) 4
+127.0.0.1:6379> LINDEX tasks 0
+"urgent: fix bug"
+127.0.0.1:6379> LINDEX tasks -1
+"review PR"
+```
+
+`LRANGE tasks 0 -1` คือวิธี idiomatic สำหรับดึงข้อมูลทุกองค์ประกอบใน list ส่วน `LINDEX` มีความซับซ้อน O(N) เพราะต้องเดินผ่าน list จากปลายที่ใกล้ที่สุด ควรใช้เฉพาะกับตำแหน่งแรกหรือท้ายไม่กี่ตำแหน่งเท่านั้น
+
+## LSET และ LREM
+
+`LSET key index value` เขียนทับองค์ประกอบที่ index ที่กำหนด list ต้องมีองค์ประกอบอยู่ที่ตำแหน่งนั้นแล้ว มิฉะนั้น Redis จะคืน error
+
+`LREM key count value` ลบ `value` ที่พบใน list:
+- `count > 0` — ลบได้ไม่เกิน `count` ครั้ง โดยสแกนจากหัวไปท้าย
+- `count < 0` — ลบได้ไม่เกิน `|count|` ครั้ง โดยสแกนจากท้ายไปหัว
+- `count = 0` — ลบ **ทุก** การปรากฏ
+
+```text
+127.0.0.1:6379> LSET tasks 1 "buy oat milk"
+OK
+127.0.0.1:6379> LRANGE tasks 0 -1
+1) "urgent: fix bug"
+2) "buy oat milk"
+3) "write code"
+4) "review PR"
+127.0.0.1:6379> RPUSH tasks "write code"
+(integer) 5
+127.0.0.1:6379> LREM tasks 0 "write code"
+(integer) 2
+```
+
+export const listEditCode = `RPUSH tasks "buy milk"
+RPUSH tasks "write code" "review PR"
+LPUSH tasks "urgent: fix bug"
+LSET tasks 1 "buy oat milk"
+LRANGE tasks 0 -1
+RPUSH tasks "write code"
+LREM tasks 0 "write code"
+LRANGE tasks 0 -1`;
+
+<TryRedis client:visible code={listEditCode} />
+
+## LTRIM — เก็บเฉพาะช่วงที่ต้องการ
+
+`LTRIM key start stop` แก้ไข list **ในที่** โดยเก็บเฉพาะองค์ประกอบใน `[start, stop]` และทิ้งทุกอย่างที่อยู่นอกช่วงนั้น คืนค่า `OK` ทันที ทำให้เรียกได้อย่างปลอดภัยหลังการเขียนทุกครั้ง
+
+```text
+127.0.0.1:6379> DEL recent
+(integer) 1
+127.0.0.1:6379> RPUSH recent "page-A" "page-B" "page-C" "page-D" "page-E"
+(integer) 5
+127.0.0.1:6379> LTRIM recent 0 2
+OK
+127.0.0.1:6379> LRANGE recent 0 -1
+1) "page-A"
+2) "page-B"
+3) "page-C"
+```
+
+export const ltrimCode = `DEL recent
+RPUSH recent "page-A" "page-B" "page-C" "page-D" "page-E"
+LRANGE recent 0 -1
+LTRIM recent 0 2
+LRANGE recent 0 -1`;
+
+<TryRedis client:visible code={ltrimCode} />
+
+<Callout title="Recent-items feed ด้วย LPUSH + LTRIM">
+
+การรวม `LPUSH` และ `LTRIM` เข้าด้วยกันช่วยรักษา list "N รายการล่าสุด" แบบขนาดคงที่ด้วยเวลา O(1) แบบ amortized หลังจากเหตุการณ์ใหม่แต่ละครั้ง: `LPUSH activity:user:42 "viewed:item:99"` แล้วตามด้วย `LTRIM activity:user:42 0 49` จะเก็บ 50 รายการล่าสุดให้โดยอัตโนมัติ
+
+</Callout>
+
+export const quizLists = [
+  {
+    q: "`LRANGE tasks 0 -1` คืนค่าอะไร?",
+    options: [
+      "เฉพาะองค์ประกอบแรก",
+      "เฉพาะองค์ประกอบสุดท้าย",
+      "ทุกองค์ประกอบตั้งแต่ตัวแรกถึงตัวสุดท้าย",
+      "เกิด error เพราะ index ลบไม่ถูกต้อง",
+    ],
+    answer: 2,
+  },
+  {
+    q: "คำสั่ง push ใดที่เพิ่มองค์ประกอบไปที่ HEAD ของ list?",
+    options: ["RPUSH", "LPUSH", "APUSH", "HEADPUSH"],
+    answer: 1,
+  },
+  {
+    q: "`LREM key 0 val` ทำอะไร?",
+    options: [
+      "ลบองค์ประกอบที่ index 0",
+      "ลบทุกการปรากฏของ val",
+      "ลบ val ตัวแรกที่พบจากหัว",
+      "ล้าง list ทั้งหมด",
+    ],
+    answer: 1,
+  },
+  {
+    q: "หลังจาก `LTRIM mylist 0 2` จะเหลือองค์ประกอบกี่ตัว?",
+    options: ["0", "1", "2", "3"],
+    answer: 3,
+  },
+];
+
+<Quiz client:visible id="lists-hashes/lists" questions={quizLists} />
+
+<ProgressTracker client:visible id="lists-hashes/lists" />

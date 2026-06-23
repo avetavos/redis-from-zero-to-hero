@@ -1,0 +1,177 @@
+---
+title: Leaderboards
+description: 'สร้าง leaderboard real-time ด้วย ZADD, ZREVRANGE, ZREVRANK, และ ZINCRBY'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## รูปแบบ leaderboard
+
+Leaderboard ของเกมหรือแอปต้องการสามสิ่ง: **เก็บคะแนน**, **จัดอันดับผู้เล่น**, และ **เพิ่มคะแนนเมื่อเวลาผ่านไป** Redis Sorted Sets จัดการทั้งสามแบบ native ด้วย O(log N) สำหรับการเขียนและ O(log N + M) สำหรับ range read
+
+## ขั้นตอนที่ 1 — เพิ่มคะแนนเริ่มต้นด้วย ZADD
+
+เริ่มด้วยการ insert ผู้เล่นและคะแนน คะแนนเป็น float64 จึงแทนได้ทั้งแต้ม, เปอร์เซ็นต์, timestamp, หรือค่าตัวเลขใดก็ได้
+
+```text
+127.0.0.1:6379> ZADD game:lb 3200 "alice" 4100 "bob" 1750 "carol" 5800 "dave" 2900 "eve"
+(integer) 5
+```
+
+export const lbInitCode = `ZADD game:lb 3200 "alice" 4100 "bob" 1750 "carol" 5800 "dave" 2900 "eve"`;
+
+<TryRedis client:visible code={lbInitCode} />
+
+## ขั้นตอนที่ 2 — ดึง top 10 ด้วย ZREVRANGE
+
+`ZREVRANGE key 0 9 WITHSCORES` คืนผู้เล่น 10 อันดับแรกตามลำดับคะแนนจากมากไปน้อย Index เป็น rank offset ดังนั้น `0 9` หมายถึงตำแหน่ง 1 ถึง 10 เสมอ
+
+```text
+127.0.0.1:6379> ZREVRANGE game:lb 0 9 WITHSCORES
+1) "dave"
+2) "5800"
+3) "bob"
+4) "4100"
+5) "alice"
+6) "3200"
+7) "eve"
+8) "2900"
+9) "carol"
+10) "1750"
+```
+
+export const lbTop10Code = `ZREVRANGE game:lb 0 9 WITHSCORES`;
+
+<TryRedis client:visible code={lbTop10Code} />
+
+## ขั้นตอนที่ 3 — ดูอันดับผู้เล่นด้วย ZREVRANK
+
+`ZREVRANK key member` คืน rank แบบ 0-based ตามลำดับจากมากไปน้อย — 0 คืออันดับหนึ่ง บวก 1 เพื่อให้อ่านง่ายขึ้นสำหรับมนุษย์
+
+```text
+127.0.0.1:6379> ZREVRANK game:lb "alice"
+(integer) 2
+127.0.0.1:6379> ZREVRANK game:lb "carol"
+(integer) 4
+127.0.0.1:6379> ZSCORE game:lb "alice"
+"3200"
+```
+
+export const lbRankCode = `ZREVRANK game:lb "alice"
+ZREVRANK game:lb "carol"
+ZSCORE game:lb "alice"`;
+
+<TryRedis client:visible code={lbRankCode} />
+
+## ขั้นตอนที่ 4 — มอบแต้มด้วย ZINCRBY
+
+เมื่อผู้เล่นได้แต้มเพิ่ม ใช้ `ZINCRBY` เพื่อบวกเข้ากับคะแนนที่มีอยู่แบบ atomic ไม่ต้องทำ read-modify-write cycle
+
+```text
+127.0.0.1:6379> ZINCRBY game:lb 1500 "carol"
+"3250"
+127.0.0.1:6379> ZINCRBY game:lb 800 "alice"
+"4000"
+127.0.0.1:6379> ZREVRANGE game:lb 0 4 WITHSCORES
+1) "dave"
+2) "5800"
+3) "bob"
+4) "4100"
+5) "alice"
+6) "4000"
+7) "carol"
+8) "3250"
+9) "eve"
+10) "2900"
+```
+
+export const lbIncrCode = `ZINCRBY game:lb 1500 "carol"
+ZINCRBY game:lb 800 "alice"
+ZREVRANGE game:lb 0 4 WITHSCORES`;
+
+<TryRedis client:visible code={lbIncrCode} />
+
+## workflow leaderboard ครบวงจรในการ paste เดียว
+
+```text
+127.0.0.1:6379> ZADD lb 3200 "alice" 4100 "bob" 1750 "carol" 5800 "dave" 2900 "eve"
+(integer) 5
+127.0.0.1:6379> ZREVRANGE lb 0 9 WITHSCORES
+1) "dave"
+2) "5800"
+3) "bob"
+4) "4100"
+5) "alice"
+6) "3200"
+7) "eve"
+8) "2900"
+9) "carol"
+10) "1750"
+127.0.0.1:6379> ZREVRANK lb "carol"
+(integer) 4
+127.0.0.1:6379> ZINCRBY lb 2500 "carol"
+"4250"
+127.0.0.1:6379> ZREVRANK lb "carol"
+(integer) 1
+```
+
+export const lbFullCode = `ZADD lb 3200 "alice" 4100 "bob" 1750 "carol" 5800 "dave" 2900 "eve"
+ZREVRANGE lb 0 9 WITHSCORES
+ZREVRANK lb "carol"
+ZINCRBY lb 2500 "carol"
+ZREVRANK lb "carol"`;
+
+<TryRedis client:visible code={lbFullCode} />
+
+<Callout title="Sorted Sets คือโครงสร้าง leaderboard มาตรฐาน">
+
+ทุก operation ที่ต้องการสำหรับ leaderboard คือคำสั่ง Redis เดียว: insert หรืออัปเดตคะแนน (`ZADD`), มอบแต้ม (`ZINCRBY`), ดึง top N (`ZREVRANGE 0 N-1 WITHSCORES`), และหาอันดับผู้เล่น (`ZREVRANK`) ทั้งหมดรันใน O(log N) หรือ O(log N + M) ไม่ต้อง JOIN, ORDER BY, หรือ secondary index — โครงสร้างข้อมูลรักษาลำดับให้คุณตลอดเวลา
+
+</Callout>
+
+export const quizLeaderboards = [
+  {
+    q: "คำสั่งใดดึงผู้เล่น 10 อันดับแรกตามลำดับคะแนนจากมากไปน้อย?",
+    options: [
+      "ZRANGE lb 0 9 WITHSCORES",
+      "ZREVRANGE lb 0 9 WITHSCORES",
+      "ZSCORE lb 0 9",
+      "ZREVRANK lb 0 9",
+    ],
+    answer: 1,
+  },
+  {
+    q: "ZREVRANK คืนค่า 0 สำหรับผู้เล่นใด?",
+    options: [
+      "ผู้เล่นที่มีคะแนนต่ำสุด",
+      "ผู้เล่นที่มีคะแนนสูงสุด",
+      "ผู้เล่นที่เพิ่มเข้ามาก่อน",
+      "ผู้เล่นที่มีคะแนนกลาง",
+    ],
+    answer: 1,
+  },
+  {
+    q: "เหตุใดจึงใช้ ZINCRBY แทน ZADD เมื่อมอบแต้ม?",
+    options: [
+      "ZINCRBY เร็วกว่า ZADD",
+      "ZINCRBY บวกคะแนนปัจจุบันแบบ atomic โดยไม่ต้องทำ read-modify-write",
+      "ZADD ไม่สามารถอัปเดตสมาชิกที่มีอยู่แล้ว",
+      "ZINCRBY ทำงานบน Set ไม่ใช่ Sorted Set",
+    ],
+    answer: 1,
+  },
+  {
+    q: "ถ้า carol มีคะแนน 1750 และรัน ZINCRBY lb 2500 carol คะแนนใหม่คือเท่าไร?",
+    options: ["2500", "1750", "4250", "750"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="sets-sorted-sets/leaderboards" questions={quizLeaderboards} />
+
+<ProgressTracker client:visible id="sets-sorted-sets/leaderboards" />

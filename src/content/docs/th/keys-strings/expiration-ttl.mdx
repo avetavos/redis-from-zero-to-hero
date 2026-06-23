@@ -1,0 +1,158 @@
+---
+title: Expiration & TTL
+description: 'ตั้งให้ key ลบตัวเองอัตโนมัติด้วย EXPIRE, ตรวจเวลาที่เหลือด้วย TTL และทำความเข้าใจวิธีที่ Redis ลบ key ที่หมดอายุ'
+sidebar:
+  order: 3
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ทำไม expiration ถึงสำคัญ
+
+Redis มักถูกใช้เป็น cache หรือที่เก็บ session ในทั้งสองกรณีคุณอยากให้ key หายไปเองหลังผ่านไประยะหนึ่ง — คุณไม่ควรต้องเขียน cleanup job เอง Redis จัดการเรื่องนี้ให้แบบ native ผ่าน **key expiration**
+
+## การตั้งค่า expiration
+
+คุณสามารถแนบ TTL (time-to-live) ตอนสร้าง key หรือเพิ่มเข้าไปกับ key ที่มีอยู่แล้วก็ได้:
+
+| Command | คำอธิบาย |
+|---------|-------------|
+| `SET key val EX secs` | สร้าง + หมดอายุเป็นวินาที |
+| `SET key val PX ms` | สร้าง + หมดอายุเป็นมิลลิวินาที |
+| `EXPIRE key secs` | ตั้ง/อัปเดต expiry เป็นวินาทีกับ key ที่มีอยู่ |
+| `PEXPIRE key ms` | ตั้ง/อัปเดต expiry เป็นมิลลิวินาที |
+| `EXPIREAT key unix-secs` | หมดอายุที่ Unix timestamp แบบสัมบูรณ์ (วินาที) |
+| `PEXPIREAT key unix-ms` | หมดอายุที่ Unix timestamp แบบสัมบูรณ์ (มิลลิวินาที) |
+
+```text
+127.0.0.1:6379> SET session:abc "user:42" EX 300
+OK
+127.0.0.1:6379> TTL session:abc
+(integer) 299
+127.0.0.1:6379> SET cache:home "<html>...</html>"
+OK
+127.0.0.1:6379> EXPIRE cache:home 60
+(integer) 1
+127.0.0.1:6379> TTL cache:home
+(integer) 59
+```
+
+export const expireCode = `SET session:abc "user:42" EX 300
+TTL session:abc
+SET cache:home "<html>...</html>"
+EXPIRE cache:home 60
+TTL cache:home`;
+
+<TryRedis client:visible code={expireCode} />
+
+## TTL และ PTTL — ตรวจเวลาที่เหลือ
+
+`TTL` คืนค่าเป็นวินาที ส่วน `PTTL` คืนค่าเป็นมิลลิวินาที ทั้งคู่มีค่าคืนพิเศษอยู่สองค่า:
+
+- `-1` — key มีอยู่แต่ **ไม่มี expiry** (มันเป็น persistent)
+- `-2` — key **ไม่มีอยู่** (หรือหมดอายุไปแล้ว)
+
+```text
+127.0.0.1:6379> SET persistent "I live forever"
+OK
+127.0.0.1:6379> TTL persistent
+(integer) -1
+127.0.0.1:6379> TTL nonexistent:key
+(integer) -2
+127.0.0.1:6379> SET brief "gone soon" PX 5000
+OK
+127.0.0.1:6379> PTTL brief
+(integer) 4987
+```
+
+export const ttlCode = `SET persistent "I live forever"
+TTL persistent
+TTL nonexistent:key
+SET brief "gone soon" PX 5000
+PTTL brief`;
+
+<TryRedis client:visible code={ttlCode} />
+
+## PERSIST — ลบ expiration ออก
+
+ถ้าคุณอยากยกเลิก expiry ของ key แล้วทำให้มันกลับมา persistent อีกครั้ง ให้ใช้ `PERSIST`:
+
+```text
+127.0.0.1:6379> SET promo "SALE10" EX 3600
+OK
+127.0.0.1:6379> TTL promo
+(integer) 3599
+127.0.0.1:6379> PERSIST promo
+(integer) 1
+127.0.0.1:6379> TTL promo
+(integer) -1
+```
+
+export const persistCode = `SET promo "SALE10" EX 3600
+TTL promo
+PERSIST promo
+TTL promo`;
+
+<TryRedis client:visible code={persistCode} />
+
+## จริง ๆ แล้ว Redis ลบ key ที่หมดอายุอย่างไร
+
+Redis ใช้สองกลยุทธ์ที่เสริมกัน — คุณไม่ต้องทำอะไรเลย แต่การเข้าใจมันช่วยให้คุณคิดเรื่อง memory ได้ดีขึ้น:
+
+**Lazy expiry** — เมื่อคุณเข้าถึง key (GET, EXISTS ฯลฯ) Redis จะตรวจ expiry ของมันก่อน ถ้ามันหมดอายุแล้ว Redis จะลบทิ้งทันทีตรงนั้น และคืน `(nil)` ราวกับว่ามันไม่เคยมีอยู่
+
+**Active expiry** — Redis รัน background cycle (ค่าเริ่มต้นประมาณ 10 ครั้งต่อวินาที) ที่สุ่มตัวอย่าง key ที่มี TTL และลบ key ที่หมดอายุออกไป วิธีนี้ป้องกันไม่ให้ keyspace เต็มไปด้วย key ที่ไม่เคยถูกเข้าถึง
+
+สองกลยุทธ์นี้รวมกันช่วยให้การใช้ memory ถูกจำกัดอยู่ในขอบเขตโดยไม่ block แอปพลิเคชันของคุณ
+
+<Callout title="TTL คืน -1 หรือ -2 — รู้ความต่างเอาไว้">
+
+`TTL key` มีผลลัพธ์ที่เป็นไปได้สามแบบ:
+
+- จำนวนเต็มบวก — วินาทีที่เหลือก่อนหมดอายุ
+- `-1` — key มีอยู่และเป็น **persistent** (ไม่ได้ตั้ง expiry)
+- `-2` — key **ไม่มีอยู่** เลย
+
+bug ที่พบบ่อยคือการเช็ก `TTL key == 0` เพื่อตรวจหา key ที่หายไป ค่ามันไม่มีทางเป็น 0 เลย เพราะเมื่อนาฬิกาแตะศูนย์ key ก็หายไปแล้วและคุณจะได้ `-2` ดังนั้นให้แยกเงื่อนไขที่ `-2` สำหรับ key ที่หายไป และ `-1` สำหรับ persistent เสมอ
+
+</Callout>
+
+export const quizTTL = [
+  {
+    q: "TTL คืนค่าอะไรสำหรับ key ที่มีอยู่แต่ไม่ได้ตั้ง expiration ไว้?",
+    options: ["0", "-1", "-2", "nil"],
+    answer: 1,
+  },
+  {
+    q: "คำสั่งใดยกเลิก expiration และทำให้ key เป็น persistent?",
+    options: ["UNPERSIST", "PERSIST", "EXPIRE key -1", "SETPERSIST"],
+    answer: 1,
+  },
+  {
+    q: "PEXPIRE ตั้งค่าต่างจาก EXPIRE อย่างไร?",
+    options: [
+      "ตั้ง expiry เป็นนาทีแทนวินาที",
+      "ตั้ง expiry เป็นมิลลิวินาทีแทนวินาที",
+      "ตั้ง expiry ที่ timestamp แบบสัมบูรณ์",
+      "ตั้ง expiry สัมพัทธ์กับเวลาที่เข้าถึงล่าสุด",
+    ],
+    answer: 1,
+  },
+  {
+    q: "lazy expiry ใน Redis หมายความว่าอย่างไร?",
+    options: [
+      "Redis ไม่เคยลบ key ที่หมดอายุจริง ๆ เลย",
+      "Redis ตรวจ expiry เฉพาะตอนที่ key ถูกเข้าถึง",
+      "Redis ตรวจ expiry เฉพาะตอน write ไม่ใช่ตอน read",
+      "Redis ลบ key ที่หมดอายุเป็น batch ทุก ๆ หนึ่งนาที",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="keys-strings/expiration-ttl" questions={quizTTL} />
+
+<ProgressTracker client:visible id="keys-strings/expiration-ttl" />

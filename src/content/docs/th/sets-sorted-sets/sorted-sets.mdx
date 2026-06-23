@@ -1,0 +1,181 @@
+---
+title: Sorted Sets
+description: 'ZADD, ZSCORE, ZRANGE, ZREVRANGE, ZRANK, ZRANGEBYSCORE, ZINCRBY, ZCARD, ZREM — สมาชิกไม่ซ้ำที่เรียงตามคะแนนตลอดเวลา'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Redis Sorted Set คืออะไร?
+
+Sorted Set เหมือน Set แต่สมาชิกแต่ละตัวมี **floating-point score** Redis รักษาการเรียงลำดับตามคะแนนตลอดเวลาด้วย O(log N) สำหรับการ insert และ range query ถ้าสมาชิกสองตัวมีคะแนนเท่ากัน จะเรียงตาม lexicographic order
+
+## ZADD — เพิ่มสมาชิกพร้อมคะแนน
+
+`ZADD key score member [score member ...]` เพิ่มสมาชิก ถ้าสมาชิกมีอยู่แล้วคะแนนจะ **ถูกอัปเดต** คืนจำนวน **สมาชิกใหม่** ที่เพิ่ม
+
+```text
+127.0.0.1:6379> ZADD game:scores 4200 "alice" 3800 "bob" 5100 "carol"
+(integer) 3
+127.0.0.1:6379> ZADD game:scores 4700 "alice"
+(integer) 0
+127.0.0.1:6379> ZSCORE game:scores "alice"
+"4700"
+```
+
+export const zaddCode = `ZADD game:scores 4200 "alice" 3800 "bob" 5100 "carol"
+ZADD game:scores 4700 "alice"
+ZSCORE game:scores "alice"`;
+
+<TryRedis client:visible code={zaddCode} />
+
+## ZRANGE และ ZREVRANGE — range ตาม rank
+
+`ZRANGE key start stop [WITHSCORES]` คืนสมาชิกตามลำดับคะแนนจากน้อยไปมาก `ZREVRANGE` คืนตามลำดับจากมากไปน้อย Index เป็น 0-based; `-1` หมายถึงสมาชิกสุดท้าย
+
+```text
+127.0.0.1:6379> ZADD leaderboard 900 "carol" 1500 "alice" 2100 "bob" 750 "dave"
+(integer) 4
+127.0.0.1:6379> ZRANGE leaderboard 0 -1 WITHSCORES
+1) "dave"
+2) "750"
+3) "carol"
+4) "900"
+5) "alice"
+6) "1500"
+7) "bob"
+8) "2100"
+127.0.0.1:6379> ZREVRANGE leaderboard 0 2 WITHSCORES
+1) "bob"
+2) "2100"
+3) "alice"
+4) "1500"
+5) "carol"
+6) "900"
+```
+
+export const zrangeCode = `ZADD leaderboard 900 "carol" 1500 "alice" 2100 "bob" 750 "dave"
+ZRANGE leaderboard 0 -1 WITHSCORES
+ZREVRANGE leaderboard 0 2 WITHSCORES`;
+
+<TryRedis client:visible code={zrangeCode} />
+
+## ZRANK และ ZSCORE — ค้นหาสมาชิก
+
+`ZRANK key member` คืน rank แบบ 0-based ตามลำดับจากน้อยไปมาก `ZREVRANK` ให้ rank ตามลำดับจากมากไปน้อย `ZSCORE` คืนคะแนนเป็น bulk string
+
+```text
+127.0.0.1:6379> ZADD players 300 "x" 600 "y" 900 "z"
+(integer) 3
+127.0.0.1:6379> ZRANK players "y"
+(integer) 1
+127.0.0.1:6379> ZREVRANK players "y"
+(integer) 1
+127.0.0.1:6379> ZSCORE players "z"
+"900"
+```
+
+export const zrankCode = `ZADD players 300 "x" 600 "y" 900 "z"
+ZRANK players "y"
+ZREVRANK players "y"
+ZSCORE players "z"`;
+
+<TryRedis client:visible code={zrankCode} />
+
+## ZRANGEBYSCORE — range ตามค่าคะแนน
+
+`ZRANGEBYSCORE key min max [WITHSCORES]` ดึงสมาชิกทั้งหมดที่มีคะแนนระหว่าง `min` และ `max` (inclusive) ใช้ `-inf` และ `+inf` สำหรับขอบเขตเปิด
+
+```text
+127.0.0.1:6379> ZADD temps 18.5 "london" 32.1 "bangkok" 24.0 "berlin" 28.7 "tokyo"
+(integer) 4
+127.0.0.1:6379> ZRANGEBYSCORE temps 20 30 WITHSCORES
+1) "berlin"
+2) "24"
+3) "tokyo"
+4) "28.7"
+```
+
+export const zrangeByScoreCode = `ZADD temps 18.5 "london" 32.1 "bangkok" 24.0 "berlin" 28.7 "tokyo"
+ZRANGEBYSCORE temps 20 30 WITHSCORES`;
+
+<TryRedis client:visible code={zrangeByScoreCode} />
+
+## ZINCRBY, ZCARD, และ ZREM
+
+`ZINCRBY key increment member` บวก `increment` เข้ากับคะแนนของสมาชิกแบบ atomic
+`ZCARD key` คืนจำนวนสมาชิกทั้งหมด
+`ZREM key member [member ...]` ลบสมาชิกหนึ่งตัวหรือมากกว่า
+
+```text
+127.0.0.1:6379> ZADD votes 10 "post:1" 5 "post:2" 8 "post:3"
+(integer) 3
+127.0.0.1:6379> ZINCRBY votes 3 "post:2"
+"8"
+127.0.0.1:6379> ZCARD votes
+(integer) 3
+127.0.0.1:6379> ZREM votes "post:3"
+(integer) 1
+127.0.0.1:6379> ZCARD votes
+(integer) 2
+```
+
+export const zincrbyCoardRemCode = `ZADD votes 10 "post:1" 5 "post:2" 8 "post:3"
+ZINCRBY votes 3 "post:2"
+ZCARD votes
+ZREM votes "post:3"
+ZCARD votes`;
+
+<TryRedis client:visible code={zincrbyCoardRemCode} />
+
+<Callout title="สมาชิกไม่ซ้ำกัน — การเพิ่มสมาชิกที่มีอยู่แล้วจะอัปเดตคะแนน">
+
+Sorted Set จะไม่มีสมาชิกเดียวกันสองตัวเลย เมื่อคุณ `ZADD` สมาชิกที่มีอยู่แล้ว Redis จะอัปเดตคะแนนและคืนค่า 0 (ไม่มีสมาชิกใหม่) ทำให้ `ZADD` เป็น safe upsert สำหรับ counter, rating, และ timestamp — ไม่ต้องตรวจสอบก่อนว่าสมาชิกมีอยู่หรือไม่
+
+</Callout>
+
+export const quizSortedSets = [
+  {
+    q: "ZREVRANGE คืนอะไรเมื่อเทียบกับ ZRANGE?",
+    options: [
+      "สมาชิกตามลำดับการ insert",
+      "สมาชิกตามลำดับคะแนนจากมากไปน้อย",
+      "สมาชิกตามลำดับคะแนนจากน้อยไปมาก",
+      "เฉพาะสมาชิกอันดับสูงสุด",
+    ],
+    answer: 1,
+  },
+  {
+    q: "ZRANK คืนอะไรสำหรับสมาชิก?",
+    options: [
+      "คะแนน",
+      "ตำแหน่ง 0-based ตามลำดับคะแนนจากน้อยไปมาก",
+      "จำนวนสมาชิกทั้งหมด",
+      "ตำแหน่ง 1-based",
+    ],
+    answer: 1,
+  },
+  {
+    q: "จะเกิดอะไรขึ้นเมื่อ ZADD คะแนนให้สมาชิกที่มีอยู่แล้ว?",
+    options: [
+      "คืนค่า error",
+      "สร้าง duplicate",
+      "คะแนนถูกอัปเดตและคืนค่า 0",
+      "คะแนนเดิมถูกเก็บไว้",
+    ],
+    answer: 2,
+  },
+  {
+    q: "คำสั่งใดบวกค่าเข้ากับคะแนนของสมาชิกแบบ atomic?",
+    options: ["ZADD", "ZSCORE", "ZINCRBY", "ZRANGEBYSCORE"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="sets-sorted-sets/sorted-sets" questions={quizSortedSets} />
+
+<ProgressTracker client:visible id="sets-sorted-sets/sorted-sets" />

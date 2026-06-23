@@ -1,0 +1,120 @@
+---
+title: 'Sets & Sorted Sets: Overview'
+description: 'Unordered unique Sets vs score-ordered Sorted Sets — when to use each and a runnable taste.'
+sidebar:
+  order: 1
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Two types, one concept: uniqueness
+
+Redis gives you two collection types that guarantee **every member appears at most once**:
+
+| Type | Order | Extra data | Best for |
+|------|-------|-----------|---------|
+| **Set** | None (hash-table) | None | Tags, membership checks, set algebra |
+| **Sorted Set** | By score (float64) | Score per member | Leaderboards, ranked feeds, range queries |
+
+Both types store **unique strings**. The difference is that a Sorted Set attaches a floating-point **score** to each member, and keeps them sorted by that score at all times.
+
+## Sets at a glance
+
+A Set is an unordered collection of unique strings. Adding the same value twice has no effect.
+
+```text
+127.0.0.1:6379> SADD lang:tags "python" "go" "rust" "go"
+(integer) 3
+127.0.0.1:6379> SMEMBERS lang:tags
+1) "rust"
+2) "go"
+3) "python"
+127.0.0.1:6379> SCARD lang:tags
+(integer) 3
+```
+
+export const overviewSetsCode = `SADD lang:tags "python" "go" "rust" "go"
+SMEMBERS lang:tags
+SCARD lang:tags`;
+
+<TryRedis client:visible code={overviewSetsCode} />
+
+## Sorted Sets at a glance
+
+A Sorted Set pairs each member with a score. Members are always retrieved in score order.
+
+```text
+127.0.0.1:6379> ZADD scores 1500 "alice" 2200 "bob" 980 "carol"
+(integer) 3
+127.0.0.1:6379> ZRANGE scores 0 -1 WITHSCORES
+1) "carol"
+2) "980"
+3) "alice"
+4) "1500"
+5) "bob"
+6) "2200"
+127.0.0.1:6379> ZRANK scores "alice"
+(integer) 1
+```
+
+export const overviewZsetsCode = `ZADD scores 1500 "alice" 2200 "bob" 980 "carol"
+ZRANGE scores 0 -1 WITHSCORES
+ZRANK scores "alice"`;
+
+<TryRedis client:visible code={overviewZsetsCode} />
+
+## When to use each
+
+- **Set** — you need to answer "is X a member?" or "what do A and B have in common?" quickly.
+- **Sorted Set** — you need ordering, ranking, or range queries (e.g., "players with scores between 1000 and 2000").
+
+<Callout title="Uniqueness is guaranteed at write time">
+
+Both Sets and Sorted Sets enforce uniqueness automatically. You never need to check before inserting — the data structure does it for you. For Sorted Sets, adding a member that already exists simply **updates its score**.
+
+</Callout>
+
+## What this module covers
+
+| Lesson | Topic |
+|--------|-------|
+| Sets & Sorted Sets: Overview | This page — types and a quick taste |
+| Sets | SADD, SREM, SMEMBERS, SISMEMBER, SCARD, SRANDMEMBER, SPOP |
+| Set Operations | SINTER, SUNION, SDIFF and their STORE variants |
+| Sorted Sets | ZADD, ZSCORE, ZRANGE, ZREVRANGE, ZRANK, ZRANGEBYSCORE, ZINCRBY, ZCARD, ZREM |
+| Leaderboards | Building a real leaderboard with Sorted Sets |
+
+export const quizSsSsIndex = [
+  {
+    q: "What guarantee do both Sets and Sorted Sets share?",
+    options: [
+      "All members have a score",
+      "Members are stored in insertion order",
+      "Every member is unique",
+      "Members expire automatically",
+    ],
+    answer: 2,
+  },
+  {
+    q: "What extra piece of data does a Sorted Set store per member?",
+    options: ["A rank integer", "A float64 score", "A TTL", "A binary payload"],
+    answer: 1,
+  },
+  {
+    q: "What happens when you ZADD a member that already exists in a Sorted Set?",
+    options: [
+      "An error is returned",
+      "A duplicate is created",
+      "Its score is updated",
+      "The command is ignored",
+    ],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="sets-sorted-sets/index" questions={quizSsSsIndex} />
+
+<ProgressTracker client:visible id="sets-sorted-sets/index" />

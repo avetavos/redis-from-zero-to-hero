@@ -1,0 +1,108 @@
+---
+title: 'Pub/Sub และ Streams: ภาพรวม'
+description: 'การส่งข้อความใน Redis: Pub/Sub แบบ fire-and-forget เทียบกับ Streams แบบ durable log — เมื่อไรควรใช้แบบไหน'
+sidebar:
+  order: 1
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## สองโมเดลการส่งข้อความใน Redis
+
+Redis มีโมเดลสองแบบที่แตกต่างกันสำหรับส่งข้อความระหว่าง client ทั้งสองตอบโจทย์การใช้งานที่ต่างกัน และไม่สามารถใช้แทนกันได้
+
+| | Pub/Sub | Streams |
+|---|---|---|
+| **ความคงอยู่ของข้อมูล** | ไม่มี — ข้อมูลหายไปหลังส่ง | Durable append-only log |
+| **ผู้รับที่ออฟไลน์** | พลาดข้อความทั้งหมดระหว่างที่ตัดการเชื่อมต่อ | สามารถอ่านย้อนหลังจากตำแหน่งใดก็ได้ |
+| **การรับประกันการส่ง** | Fire-and-forget | At-least-once ด้วย consumer groups |
+| **ประวัติข้อความ** | ไม่มีประวัติ | เก็บประวัติทั้งหมดโดย default |
+| **Consumer groups** | ไม่รองรับ | รองรับ (การประมวลผลแบบขนาน) |
+| **Latency ทั่วไป** | Sub-millisecond | Sub-millisecond |
+
+Pub/Sub ส่งข้อความไปยัง subscriber ที่เชื่อมต่ออยู่ทุกคนของ channel แล้วทิ้งข้อความนั้นไป Streams เพิ่มทุกข้อความต่อท้าย log ที่คงอยู่โดยไม่ขึ้นกับ subscriber ใด
+
+## เมื่อไรควรใช้ Pub/Sub
+
+Pub/Sub เหมาะสมเมื่อ:
+
+- **การแจ้งเตือนแบบ real-time** — action ของผู้ใช้ต้องถูก broadcast ไปยัง dashboard หรือ browser tab ทันที และการพลาดการอัปเดตครั้งหนึ่งเป็นสิ่งที่ยอมรับได้
+- **Live chat** — ข้อความไหลผ่านขณะที่ทั้งสองฝ่ายเชื่อมต่ออยู่ โดยประวัติการสนทนาถูกเก็บไว้ที่อื่น
+- **Fanout cache invalidation** — app server ทุกตัวต้องลบค่าที่ cache ไว้ในเวลาเดียวกัน การพลาดข้อความหมายถึงแค่ cache ที่ล้าสมัยเล็กน้อยซึ่งไม่เป็นปัญหา
+- **Event broadcasting** — metrics, สัญญาณ presence หรือการอัปเดต state แบบชั่วคราวที่ค่าเก่าไม่มีความหมายเมื่อ subscriber เชื่อมต่อกลับมา
+
+สิ่งที่เหมือนกัน: คุณค่าของข้อความผูกติดกับช่วงเวลาที่ส่ง เมื่อช่วงเวลานั้นผ่านไป ข้อความก็ไม่มีประโยชน์อีก
+
+## เมื่อไรควรใช้ Streams
+
+Streams เหมาะสมเมื่อ:
+
+- **Event sourcing** — ทุกการเปลี่ยนแปลง state ต้องถูกบันทึกและเล่นซ้ำได้จากจุดใดก็ได้ในเวลา
+- **Task queues** — worker ประมวลผลงานและต้องไม่สูญเสีย task หาก worker หยุดทำงานกะทันหัน
+- **Audit logs** — บันทึกที่สมบูรณ์และเป็นลำดับว่าใครทำอะไร สามารถ query ได้ภายหลัง
+- **ผู้รับที่ออฟไลน์** — consumer ที่หยุดทำงานและกลับมาต้องสามารถอ่านทุกอย่างที่พลาดไปได้
+- **การประมวลผลแบบขนาน** — consumer groups ให้ worker หลายตัวแชร์ stream โดยไม่ duplicate ข้อความ
+
+สิ่งที่เหมือนกัน: ข้อความยังมีความสำคัญแม้จะถูกส่งไปแล้ว คุณต้องการ log
+
+## บทเรียนในโมดูลนี้
+
+| บทเรียน | หัวข้อ |
+|---|---|
+| ภาพรวม (หน้านี้) | Pub/Sub vs Streams — การเลือกโมเดลที่เหมาะสม |
+| Pub/Sub | SUBSCRIBE, PUBLISH, UNSUBSCRIBE — การสาธิตสองเทอร์มินัล |
+| Pub/Sub Patterns | PSUBSCRIBE, PUNSUBSCRIBE — การจับคู่ channel ด้วย glob-pattern |
+| Streams | XADD, XREAD, XRANGE, XLEN — การเขียนและอ่าน stream |
+| Consumer Groups | XGROUP, XREADGROUP, XACK — การประมวลผลแบบขนานพร้อม acknowledgement |
+
+```text
+127.0.0.1:6379> PUBLISH chat "hello"
+(integer) 0
+```
+
+การตอบกลับ `(integer) 0` หมายความว่ามี subscriber ศูนย์คนที่เชื่อมต่ออยู่ในขณะที่ publish เปิด session `redis-cli` ที่สอง รัน `SUBSCRIBE chat` แล้ว publish อีกครั้งเพื่อดูการส่งข้อความแบบ live
+
+export const overviewCode = `PUBLISH chat "hello"`;
+
+<TryRedis client:visible code={overviewCode} />
+
+<Callout title="เลือกเครื่องมือให้เหมาะสม">
+
+Streams เก็บข้อมูลไว้; Pub/Sub ไม่เก็บ หาก subscriber ตัดการเชื่อมต่อแม้เพียงหนึ่งวินาที ข้อความ Pub/Sub ทุกข้อความที่ส่งในช่วงนั้นจะหายไปตลอดกาล หากกรณีการใช้งานของคุณรับไม่ได้กับการสูญหายของข้อความ ให้ใช้ Stream แทน
+
+</Callout>
+
+export const quizOverview = [
+  {
+    q: "subscriber ตัดการเชื่อมต่อ 5 วินาที โมเดลใดรับประกันว่ามันสามารถอ่านข้อความที่พลาดไปได้?",
+    options: ["Pub/Sub", "Streams", "ทั้งคู่", "ไม่มีทั้งคู่"],
+    answer: 1,
+  },
+  {
+    q: "Redis ทำอะไรกับข้อความ Pub/Sub หลังจากส่งให้ subscriber ที่เชื่อมต่ออยู่แล้ว?",
+    options: [
+      "เก็บไว้ใน list เป็นเวลา 24 ชั่วโมง",
+      "ย้ายไปยัง dead-letter queue",
+      "ทิ้งทันที",
+      "เพิ่มต่อท้าย internal log",
+    ],
+    answer: 2,
+  },
+  {
+    q: "ฟีเจอร์ใดที่มีใน Streams แต่ไม่มีใน Pub/Sub?",
+    options: [
+      "Subscriber หลายคนต่อ channel",
+      "Consumer groups สำหรับการประมวลผลแบบขนาน",
+      "การส่งข้อมูลแบบ sub-millisecond",
+      "Named channels",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="pubsub-streams/index" questions={quizOverview} />
+
+<ProgressTracker client:visible id="pubsub-streams/index" />

@@ -1,0 +1,120 @@
+---
+title: 'Sets & Sorted Sets: ภาพรวม'
+description: 'Set ที่ไม่มีลำดับ vs Sorted Set ที่เรียงตามคะแนน — เลือกใช้แบบไหนและลองรันดูเลย'
+sidebar:
+  order: 1
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## สองประเภท หนึ่งแนวคิด: ความไม่ซ้ำกัน
+
+Redis มี collection สองประเภทที่รับประกันว่า **สมาชิกแต่ละตัวจะปรากฏได้มากที่สุดหนึ่งครั้ง**:
+
+| ประเภท | ลำดับ | ข้อมูลเพิ่มเติม | เหมาะสำหรับ |
+|--------|-------|----------------|-------------|
+| **Set** | ไม่มี (hash-table) | ไม่มี | Tags, ตรวจสอบสมาชิก, set algebra |
+| **Sorted Set** | ตามคะแนน (float64) | คะแนนต่อสมาชิก | Leaderboard, ฟีดที่มีอันดับ, range query |
+
+ทั้งสองประเภทเก็บ **unique strings** เหมือนกัน ข้อแตกต่างคือ Sorted Set แนบ **score** เป็น floating-point ให้กับสมาชิกแต่ละตัว และรักษาลำดับตามค่านั้นตลอดเวลา
+
+## ลองใช้ Set
+
+Set คือ collection ของ string ที่ไม่มีลำดับและไม่ซ้ำกัน การเพิ่มค่าเดิมสองครั้งไม่มีผล
+
+```text
+127.0.0.1:6379> SADD lang:tags "python" "go" "rust" "go"
+(integer) 3
+127.0.0.1:6379> SMEMBERS lang:tags
+1) "rust"
+2) "go"
+3) "python"
+127.0.0.1:6379> SCARD lang:tags
+(integer) 3
+```
+
+export const overviewSetsCode = `SADD lang:tags "python" "go" "rust" "go"
+SMEMBERS lang:tags
+SCARD lang:tags`;
+
+<TryRedis client:visible code={overviewSetsCode} />
+
+## ลองใช้ Sorted Set
+
+Sorted Set จับคู่สมาชิกแต่ละตัวกับคะแนน สมาชิกจะถูกดึงออกมาตามลำดับคะแนนเสมอ
+
+```text
+127.0.0.1:6379> ZADD scores 1500 "alice" 2200 "bob" 980 "carol"
+(integer) 3
+127.0.0.1:6379> ZRANGE scores 0 -1 WITHSCORES
+1) "carol"
+2) "980"
+3) "alice"
+4) "1500"
+5) "bob"
+6) "2200"
+127.0.0.1:6379> ZRANK scores "alice"
+(integer) 1
+```
+
+export const overviewZsetsCode = `ZADD scores 1500 "alice" 2200 "bob" 980 "carol"
+ZRANGE scores 0 -1 WITHSCORES
+ZRANK scores "alice"`;
+
+<TryRedis client:visible code={overviewZsetsCode} />
+
+## เลือกใช้แบบไหน
+
+- **Set** — ต้องการตอบคำถาม "X เป็นสมาชิกหรือเปล่า?" หรือ "A กับ B มีอะไรเหมือนกัน?" อย่างรวดเร็ว
+- **Sorted Set** — ต้องการการเรียงลำดับ, การจัดอันดับ, หรือ range query (เช่น "ผู้เล่นที่มีคะแนนระหว่าง 1000 ถึง 2000")
+
+<Callout title="ความไม่ซ้ำกันถูกรับประกันตั้งแต่ตอนเขียน">
+
+ทั้ง Set และ Sorted Set บังคับความไม่ซ้ำกันโดยอัตโนมัติ คุณไม่ต้องตรวจสอบก่อน insert — โครงสร้างข้อมูลทำเองให้ สำหรับ Sorted Set การเพิ่มสมาชิกที่มีอยู่แล้วจะเป็นการ **อัปเดตคะแนน** เท่านั้น
+
+</Callout>
+
+## สิ่งที่โมดูลนี้ครอบคลุม
+
+| บทเรียน | หัวข้อ |
+|---------|--------|
+| Sets & Sorted Sets: ภาพรวม | หน้านี้ — ประเภทและการลองใช้เบื้องต้น |
+| Sets | SADD, SREM, SMEMBERS, SISMEMBER, SCARD, SRANDMEMBER, SPOP |
+| Set Operations | SINTER, SUNION, SDIFF และ STORE variants |
+| Sorted Sets | ZADD, ZSCORE, ZRANGE, ZREVRANGE, ZRANK, ZRANGEBYSCORE, ZINCRBY, ZCARD, ZREM |
+| Leaderboards | สร้าง leaderboard จริงด้วย Sorted Sets |
+
+export const quizSsSsIndex = [
+  {
+    q: "อะไรคือสิ่งที่ทั้ง Set และ Sorted Set รับประกันเหมือนกัน?",
+    options: [
+      "สมาชิกทุกตัวมีคะแนน",
+      "สมาชิกเก็บตามลำดับการ insert",
+      "สมาชิกทุกตัวไม่ซ้ำกัน",
+      "สมาชิกหมดอายุอัตโนมัติ",
+    ],
+    answer: 2,
+  },
+  {
+    q: "Sorted Set เก็บข้อมูลเพิ่มเติมอะไรต่อสมาชิกแต่ละตัว?",
+    options: ["rank integer", "float64 score", "TTL", "binary payload"],
+    answer: 1,
+  },
+  {
+    q: "จะเกิดอะไรขึ้นเมื่อ ZADD สมาชิกที่มีอยู่แล้วใน Sorted Set?",
+    options: [
+      "คืนค่า error",
+      "สร้าง duplicate",
+      "คะแนนถูกอัปเดต",
+      "คำสั่งถูกเพิกเฉย",
+    ],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="sets-sorted-sets/index" questions={quizSsSsIndex} />
+
+<ProgressTracker client:visible id="sets-sorted-sets/index" />

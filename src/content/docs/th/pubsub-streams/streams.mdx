@@ -1,0 +1,162 @@
+---
+title: Redis Streams
+description: 'XADD, XLEN, XRANGE, XREVRANGE และ XREAD — บันทึก append-only ที่เก็บข้อมูลไว้'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Streams — บันทึกแบบ append-only
+
+Redis Stream คือโครงสร้างข้อมูลที่ทำงานเหมือน log ที่มีลำดับและถาวร ต่างจาก Pub/Sub ที่ข้อความจะหายไปทันทีที่ส่งถึงผู้รับ — stream จะ **เก็บทุก entry** ไว้และให้คุณอ่านซ้ำได้ทุกเมื่อ จากตำแหน่งใดก็ได้
+
+แต่ละ entry มีสองส่วน:
+
+- **ID** — identifier เฉพาะที่อิงตาม timestamp ในรูปแบบ `<milliseconds>-<sequence>` คุณสามารถให้ Redis สร้างให้อัตโนมัติโดยส่ง `*` หรือจะกำหนดเองก็ได้
+- **Fields** — คู่ key-value หนึ่งคู่หรือมากกว่า ที่เป็น payload ของ entry คล้ายกับ hash
+
+Streams เหมาะสำหรับ event log, activity feed, metrics pipeline และงานใด ๆ ที่ต้องการทั้งการส่งแบบ real-time และการ replay ประวัติย้อนหลัง
+
+## XADD — การเพิ่ม Entry
+
+`XADD key id field value [field value ...]` เพิ่ม entry ใหม่เข้าไปใน stream การใช้ `*` เป็น ID จะให้ Redis กำหนด ID แบบ timestamp ที่เพิ่มขึ้นเรื่อย ๆ ให้อัตโนมัติ
+
+```text
+127.0.0.1:6379> XADD events * action "login" user "ada"
+"1526919030474-0"
+127.0.0.1:6379> XADD events * action "purchase" user "ada" item "book"
+"1526919030474-1"
+127.0.0.1:6379> XLEN events
+(integer) 2
+```
+
+`XLEN` คืนจำนวน entry ที่มีอยู่ใน stream ขณะนั้น — เหมือนกับ `LLEN` สำหรับ list ทุกประการ
+
+## XRANGE และ XREVRANGE — อ่านช่วงข้อมูล
+
+`XRANGE key start end [COUNT n]` คืน entry จากเก่าสุดไปใหม่สุด โดยมี ID พิเศษสองตัวที่ช่วยให้ query ง่ายขึ้น:
+
+- `-` — entry แรกสุดใน stream
+- `+` — entry ล่าสุดใน stream
+
+`XREVRANGE key end start` กลับทิศทาง คืน entry จากใหม่สุดไปเก่าสุด
+
+```text
+127.0.0.1:6379> XRANGE events - +
+1) 1) "1526919030474-0"
+   2) 1) "action"
+      2) "login"
+      3) "user"
+      4) "ada"
+2) 1) "1526919030474-1"
+   2) 1) "action"
+      2) "purchase"
+      3) "user"
+      4) "ada"
+      5) "item"
+      6) "book"
+127.0.0.1:6379> XRANGE events - + COUNT 1
+1) 1) "1526919030474-0"
+   2) 1) "action"
+      2) "login"
+      3) "user"
+      4) "ada"
+127.0.0.1:6379> XREVRANGE events + - COUNT 1
+1) 1) "1526919030474-1"
+   2) 1) "action"
+      2) "purchase"
+      3) "user"
+      4) "ada"
+      5) "item"
+      6) "book"
+```
+
+## XREAD — อ่าน Entry ใหม่
+
+`XREAD COUNT n STREAMS key id` อ่าน entry สูงสุด `n` รายการจาก stream โดยเริ่ม **หลังจาก** ID ที่กำหนด การส่ง `0` เป็น ID จะอ่านตั้งแต่ต้น
+
+```text
+127.0.0.1:6379> XREAD COUNT 10 STREAMS events 0
+1) 1) "events"
+   2) 1) 1) "1526919030474-0"
+         2) 1) "action"
+            2) "login"
+            3) "user"
+            4) "ada"
+      2) 1) "1526919030474-1"
+         2) 1) "action"
+            2) "purchase"
+            3) "user"
+            4) "ada"
+            5) "item"
+            6) "book"
+```
+
+หากต้องการรอ entry ที่ยังไม่มีอยู่ ให้เพิ่ม option `BLOCK` พร้อมค่า timeout เป็นมิลลิวินาที (ค่า `0` หมายถึงรอไปเรื่อย ๆ) และใช้ `$` เป็น ID — `$` หมายถึง "เฉพาะ entry ที่ใหม่กว่า entry ล่าสุด ณ เวลาที่ออกคำสั่งนี้":
+
+```text
+127.0.0.1:6379> XREAD BLOCK 0 STREAMS events $
+(Blocks until a new entry arrives...)
+```
+
+วิธีนี้เปลี่ยน `XREAD` ให้กลายเป็น long-poll listener เมื่อ client อื่นรัน `XADD events * ...` client ที่ block อยู่จะได้รับ entry ใหม่ทันที
+
+export const streamsCode = `XADD events * action "login" user "ada"
+XADD events * action "purchase" user "ada" item "book"
+XLEN events
+XRANGE events - +
+XREAD COUNT 10 STREAMS events 0`;
+
+<TryRedis client:visible code={streamsCode} label="Append and read stream entries" />
+
+<Callout title="Streams เก็บข้อมูลไว้ ต่างจาก Pub/Sub ที่อ่านซ้ำได้">
+
+Pub/Sub คือ fire-and-forget: ข้อความที่ publish ในขณะที่ subscriber ออฟไลน์จะหายไปตลอดกาล Stream จะเก็บทุก entry ไว้บนดิสก์ (โดยอาจมีการตัดด้วย `MAXLEN` แบบ optional) ทำให้ consumer ที่มาช้า, worker ที่ crash และเครื่องมือ audit ทุกตัวสามารถอ่านประวัติทั้งหมดได้ นี่ทำให้ stream เป็นตัวเลือกที่เหมาะสมทุกครั้งที่การรับประกันการส่งหรือการเข้าถึงประวัติมีความสำคัญ
+
+</Callout>
+
+export const quizStreams = [
+  {
+    q: "การส่ง `*` เป็น ID ให้กับ XADD ทำอะไร?",
+    options: [
+      "เพิ่มเข้าไปใน stream ทั้งหมด",
+      "ให้ Redis สร้าง ID แบบ timestamp ให้อัตโนมัติ",
+      "เขียนทับ entry ล่าสุด",
+      "สร้าง entry แบบ wildcard",
+    ],
+    answer: 1,
+  },
+  {
+    q: "argument ใดของ XRANGE ที่หมายถึง 'entry แรกสุดใน stream'?",
+    options: ["0", "$", "-", "^"],
+    answer: 2,
+  },
+  {
+    q: "sequence number ใน entry ID เช่น `1526919030474-3` หมายถึงอะไร?",
+    options: [
+      "index ของ database",
+      "ตัวนับที่ใช้แยกความแตกต่างระหว่าง entry ที่มี timestamp เป็นมิลลิวินาทีเดียวกัน",
+      "จำนวน field ใน entry",
+      "partition ของ stream",
+    ],
+    answer: 1,
+  },
+  {
+    q: "ความแตกต่างหลักระหว่าง Redis Streams และ Redis Pub/Sub คืออะไร?",
+    options: [
+      "Streams รองรับ pattern matching ส่วน Pub/Sub ไม่รองรับ",
+      "Pub/Sub เก็บข้อความไว้ถาวร ส่วน Streams ไม่เก็บ",
+      "Streams เก็บ entry ที่อ่านซ้ำได้ ส่วน Pub/Sub จะสูญเสียข้อความหากไม่มี subscriber รับอยู่",
+      "Streams ต้องใช้ consumer group ส่วน Pub/Sub ไม่ต้องการ",
+    ],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="pubsub-streams/streams" questions={quizStreams} />
+
+<ProgressTracker client:visible id="pubsub-streams/streams" />

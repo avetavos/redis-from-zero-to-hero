@@ -1,0 +1,130 @@
+---
+title: Keyspace Notifications
+description: 'สมัครรับ Redis events — key หมดอายุ, เขียน, ลบ — ผ่าน notify-keyspace-events และ Pub/Sub'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Keyspace Notifications คืออะไร?
+
+Redis สามารถ publish ข้อความ Pub/Sub ได้ทุกครั้งที่เกิด event บางอย่าง — เช่น key หมดอายุ, มีการรัน `SET`, มีการรัน `DEL` และอื่น ๆ แอปพลิเคชันของคุณ subscribe ช่องทางเหล่านี้เพื่อตอบสนองโดยไม่ต้อง polling: ตัวอย่างเช่น ล้าง local cache เมื่อ key หมดอายุ หรือเรียก background job เมื่อมีการเขียน key เฉพาะ
+
+Redis เปิดเผยช่องทาง 2 ประเภท:
+
+- **Keyevent channels** — หนึ่งช่องทางต่อประเภท event; payload ของข้อความคือชื่อ key รูปแบบ: `__keyevent@<db>__:<event>` (ตัวอย่าง: `__keyevent@0__:expired`)
+- **Keyspace channels** — หนึ่งช่องทางต่อ key; payload ของข้อความคือประเภท event รูปแบบ: `__keyspace@<db>__:<keyname>`
+
+## การเปิดใช้งาน Keyspace Notifications
+
+Keyspace notifications **ถูกปิดใช้งานโดยค่าเริ่มต้น** เนื่องจากการ publish ทุก event จะเพิ่มภาระ CPU เปิดใช้งานด้วย `CONFIG SET` ขณะรันไทม์ หรือผ่าน `redis.conf` เมื่อเริ่มต้น
+
+ค่าที่กำหนดคือสตริงของอักขระ flag ที่เลือกว่าจะ publish event class ใดบ้าง:
+
+| Flag | Events ที่เปิดใช้งาน |
+|------|---------------------|
+| `K` | Keyspace events (ช่องทาง `__keyspace@...`) |
+| `E` | Keyevent events (ช่องทาง `__keyevent@...`) |
+| `x` | Expired events (TTL ของ key ถึงศูนย์) |
+| `g` | คำสั่งทั่วไป: `DEL`, `EXPIRE`, `RENAME`, ... |
+| `s` | คำสั่ง Set (`SADD`, `SREM`, ...) |
+| `l` | คำสั่ง List (`LPUSH`, `RPOP`, ...) |
+
+สำหรับ expiry notifications ใน production การตั้งค่าที่นิยมใช้คือ `Ex` — keyevent channel (`E`) สำหรับ expired events เท่านั้น (`x`):
+
+```ini
+notify-keyspace-events "Ex"
+```
+
+หรือขณะรันไทม์:
+
+```text
+127.0.0.1:6379> CONFIG SET notify-keyspace-events Ex
+OK
+```
+
+## การ Subscribe รับ expiry events
+
+Keyspace notifications ใช้การทำงานแบบสอง terminal เปิด **Terminal 1** และ subscribe ก่อนที่ key จะหมดอายุ:
+
+```text
+127.0.0.1:6379> PSUBSCRIBE __keyevent@0__:expired
+Reading messages... (press Ctrl-C to quit)
+```
+
+ใน **Terminal 2** กำหนด key ที่มี TTL สั้น ๆ เพื่อ trigger event:
+
+```text
+127.0.0.1:6379> SET demo:token "abc" EX 3
+OK
+```
+
+หลังจาก 3 วินาที Terminal 1 จะได้รับการแจ้งเตือน:
+
+```text
+1) "pmessage"
+2) "__keyevent@0__:expired"
+3) "__keyevent@0__:expired"
+4) "demo:token"
+```
+
+บรรทัดที่สี่คือชื่อ key — ตอนนี้ subscriber ของคุณรู้แน่ชัดว่า key ไหนหมดอายุ
+
+## คำสั่งที่รันได้
+
+คำสั่งด้านล่างเปิดใช้งาน notifications และกำหนด key ที่มี TTL เพื่อให้คุณสังเกตการกำหนดค่าในการทำงาน หากต้องการดู expired event ให้เปิด `redis-cli` ตัวที่สอง รัน `PSUBSCRIBE __keyevent@0__:expired` จากนั้นใน terminal แรกรัน `SET demo:token "hello" EX 5` แล้วรอ 5 วินาที
+
+export const notificationsCode = `CONFIG SET notify-keyspace-events Ex
+SET demo:token "hello" EX 5
+TTL demo:token`;
+
+<TryRedis client:visible code={notificationsCode} />
+
+เนื่องจาก Pub/Sub ต้องการสอง connections พร้อมกัน ให้ทำ workflow สอง terminal ในสภาพแวดล้อม `redis-cli` ของคุณเองเพื่อดู expired event ในแบบ real time
+
+<Callout title="Keyspace Notifications — react to expirations via Pub/Sub">
+
+Keyspace notifications ช่วยให้ subscriber ใด ๆ ตอบสนองต่อ key lifecycle events ได้โดยไม่ต้อง polling Subscribe ที่ `__keyevent@0__:expired` เพื่อ trigger การล้าง cache, การจัดตาราง job หรือการล้าง session เมื่อ key หมดอายุ เปิดใช้งานเฉพาะ event class ที่จำเป็น — flag กว้าง ๆ เช่น `KEA` (ทุก event) จะเพิ่มภาระที่วัดได้บน workload ที่เขียนหนัก
+
+</Callout>
+
+export const quizKeyspaceNotificationsTh = [
+  {
+    q: "CONFIG flag ใดที่เปิดใช้งาน keyevent channels (`__keyevent@...`)?",
+    options: ["K", "E", "x", "g"],
+    answer: 1,
+  },
+  {
+    q: "รูปแบบช่องทางใดที่ส่ง expiry events บน database 0?",
+    options: [
+      "__expire@0__:keyevent",
+      "__keyevent@0__:expired",
+      "__event@0__:expired",
+      "__keyspace@0__:expire",
+    ],
+    answer: 1,
+  },
+  {
+    q: "Keyspace notifications ถูกเปิดใช้งานโดยค่าเริ่มต้นใน Redis หรือไม่?",
+    options: ["ใช่", "ไม่ใช่", "เฉพาะสำหรับ expiry events", "เฉพาะใน Redis 7+"],
+    answer: 1,
+  },
+  {
+    q: "รูปแบบ PSUBSCRIBE ใดที่ match กับ keyevent channels ทั้งหมดบน database 0?",
+    options: [
+      "keyevent:0:*",
+      "__keyevent@0__:*",
+      "SUBSCRIBE keyevent",
+      "CONFIG GET notify",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="persistence-expiration/keyspace-notifications" questions={quizKeyspaceNotificationsTh} />
+
+<ProgressTracker client:visible id="persistence-expiration/keyspace-notifications" />

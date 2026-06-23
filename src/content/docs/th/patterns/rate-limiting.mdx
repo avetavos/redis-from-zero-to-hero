@@ -1,0 +1,102 @@
+---
+title: การจำกัดอัตราคำขอ
+description: 'Fixed-window rate limiter โดยใช้ INCR + EXPIRE'
+sidebar:
+  order: 3
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## rate limiter คืออะไร?
+
+rate limiter คือกลไกที่จำกัดจำนวนคำขอที่ไคลเอนต์สามารถส่งได้ภายในช่วงเวลาที่กำหนด Redis ทำให้สิ่งนี้ทำได้ง่ายด้วยคำสั่ง atomic สองตัว ได้แก่ `INCR` สำหรับนับคำขอ และ `EXPIRE` สำหรับกำหนดขอบเขตของช่วงเวลา
+
+## INCR + EXPIRE ทำงานอย่างไร
+
+สำหรับคำขอที่เข้ามาแต่ละครั้ง ให้เพิ่มค่า counter ที่มี key ระบุตามผู้ใช้และช่วงเวลา เมื่อมีการเรียกครั้งแรก ซึ่งก็คือเมื่อ counter มีค่าเท่ากับ 1 ให้ตั้งค่า expiry บน key นั้น หาก counter เกินขีดจำกัด ให้ปฏิเสธคำขอนั้น
+
+```text
+1. count = INCR rate:${userId}:window
+2. if count == 1 → EXPIRE rate:${userId}:window 60
+3. if count > 100 → reject (HTTP 429)
+4. else → allow
+```
+
+key ที่เข้ารหัสช่วงเวลาไว้ ทำให้แต่ละช่วงเวลาใหม่ได้รับ counter ใหม่โดยอัตโนมัติ
+
+## ตัวอย่างใน Redis CLI
+
+```text
+127.0.0.1:6379> INCR rate:user:42:window1
+(integer) 1
+127.0.0.1:6379> EXPIRE rate:user:42:window1 60
+(integer) 1
+127.0.0.1:6379> INCR rate:user:42:window1
+(integer) 2
+127.0.0.1:6379> TTL rate:user:42:window1
+(integer) 58
+```
+
+`INCR` ครั้งแรกคืนค่า `1` จึงตั้งค่า expiry ทันที การเพิ่มค่าครั้งถัดไปจะนับในช่วงเวลาเดิม และ `TTL` ยืนยันว่า key จะหมดอายุหลังจากช่วงเวลาสิ้นสุด
+
+export const rateLimitingCode = `INCR rate:user:42:window1
+EXPIRE rate:user:42:window1 60
+INCR rate:user:42:window1
+TTL rate:user:42:window1`;
+
+<TryRedis client:visible code={rateLimitingCode} />
+
+<Callout title="INCR + EXPIRE ให้ rate limiter แบบ atomic ต่อช่วงเวลาอย่างง่าย">
+เนื่องจาก INCR เป็น atomic สองคำขอที่เกิดขึ้นพร้อมกันบน key เดียวกันจึงไม่สามารถอ่านค่า 0 พร้อมกันและคิดว่าตัวเองเป็นคำขอแรกทั้งคู่ได้ counter จะเพิ่มค่าอย่างถูกต้องแม้ภายใต้ภาระงานสูง
+</Callout>
+
+## Fixed window กับ sliding window
+
+INCR + EXPIRE ให้ **fixed window**: คำขอทั้งหมดใน bucket 60 วินาทีเดียวกันจะใช้ counter ร่วมกัน การส่งคำขอจำนวนมากที่ปลายของช่วงเวลาหนึ่งและต้นของช่วงเวลาถัดไปอาจทำให้อัตราที่อนุญาตเพิ่มขึ้นเป็นสองเท่าที่ขอบเขตได้
+
+สำหรับ **sliding window** ที่แท้จริง คุณจะต้องใช้ sorted set: เก็บ timestamp ของแต่ละคำขอด้วย `ZADD` ตัดรายการเก่าออกด้วย `ZREMRANGEBYSCORE` แล้วนับรายการที่ยังมีผลด้วย `ZCARD` วิธีนี้แม่นยำกว่าแต่มีต้นทุนต่อคำขอสูงกว่าเล็กน้อย
+
+export const quizRateLimiting = [
+  {
+    q: "ทำไมเราจึงเรียก EXPIRE เฉพาะเมื่อ count == 1?",
+    options: [
+      "เพื่อหลีกเลี่ยงการรีเซ็ตช่วงเวลาทุกครั้งที่มีคำขอ",
+      "เพราะ INCR ไม่ทำงานหลังจาก EXPIRE",
+      "เพื่อประหยัด CPU",
+      "EXPIRE ใช้งานได้เพียงครั้งเดียวต่อ key"
+    ],
+    answer: 0
+  },
+  {
+    q: "HTTP status code ใดที่ควรส่งคืนเมื่อถูก rate limit?",
+    options: ["400", "401", "403", "429"],
+    answer: 3
+  },
+  {
+    q: "INCR เป็น atomic หมายความว่าอย่างไรสำหรับคำขอที่เกิดขึ้นพร้อมกัน?",
+    options: [
+      "มีเพียงคำขอเดียวที่ทำงานได้ในเวลาใดเวลาหนึ่งทั่วทั้งระบบ",
+      "INCR สองตัวที่เกิดพร้อมกันบน key เดียวกันไม่สามารถให้ค่าเดียวกันได้",
+      "INCR ล็อกทั้งฐานข้อมูล",
+      "INCR ใช้ optimistic locking ภายใน"
+    ],
+    answer: 1
+  },
+  {
+    q: "โครงสร้างข้อมูลใดรองรับ sliding-window rate limiter ที่แท้จริง?",
+    options: [
+      "String กับ INCR",
+      "List กับ LPUSH",
+      "Sorted set กับ ZADD",
+      "Hash กับ HINCRBY"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="patterns/rate-limiting" questions={quizRateLimiting} />
+
+<ProgressTracker client:visible id="patterns/rate-limiting" />

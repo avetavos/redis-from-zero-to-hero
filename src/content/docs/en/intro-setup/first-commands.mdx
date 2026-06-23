@@ -1,0 +1,168 @@
+---
+title: 'Your First Commands'
+description: 'SET, GET, DEL, EXISTS, KEYS, and TYPE — the core vocabulary for working with Redis keys.'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The key-value mental model
+
+Redis is, at its core, a key-value store. Every piece of data lives under a **key**. Keys are always strings. Values have a **type** — string, list, hash, set, sorted set, or stream — and the type determines which commands you can run on that value.
+
+Think of it like a giant dictionary: you look up a key, you get its value. You can also ask whether a key exists, what type its value is, or delete it entirely.
+
+## SET and GET
+
+`SET key value` stores a value. `GET key` retrieves it. If the key already exists, `SET` overwrites it.
+
+```text
+127.0.0.1:6379> SET name "Redis"
+OK
+127.0.0.1:6379> GET name
+"Redis"
+127.0.0.1:6379> SET score 100
+OK
+```
+
+## DEL — delete one or more keys
+
+`DEL key [key ...]` deletes one or more keys and returns the **number of keys actually deleted**. If a key does not exist, it is simply skipped and does not count toward the return value.
+
+```text
+127.0.0.1:6379> DEL name
+(integer) 1
+127.0.0.1:6379> GET name
+(nil)
+```
+
+## EXISTS — check if a key exists
+
+`EXISTS key` returns `1` if the key exists, `0` if it does not. You can pass multiple keys — the return value is the count of keys that exist.
+
+```text
+127.0.0.1:6379> EXISTS name
+(integer) 1
+127.0.0.1:6379> EXISTS missing
+(integer) 0
+```
+
+## TYPE — inspect the value type
+
+`TYPE key` returns the type of the value stored at a key: `string`, `list`, `hash`, `set`, `zset`, or `stream`. It returns `none` if the key does not exist.
+
+```text
+127.0.0.1:6379> TYPE name
+string
+```
+
+## KEYS — list keys by pattern
+
+`KEYS pattern` returns all keys matching a glob pattern. `KEYS *` matches everything.
+
+```text
+127.0.0.1:6379> KEYS *
+1) "score"
+2) "name"
+```
+
+> **WARNING:** Never use `KEYS *` in production. Redis is single-threaded — `KEYS` blocks the entire server until it has scanned every key. On a large dataset this can stall your application for seconds. Use `SCAN` instead, which iterates in small, non-blocking batches.
+
+## Full session walkthrough
+
+Here is everything above in one continuous session:
+
+```text
+127.0.0.1:6379> SET name "Redis"
+OK
+127.0.0.1:6379> GET name
+"Redis"
+127.0.0.1:6379> SET score 100
+OK
+127.0.0.1:6379> EXISTS name
+(integer) 1
+127.0.0.1:6379> EXISTS missing
+(integer) 0
+127.0.0.1:6379> TYPE name
+string
+127.0.0.1:6379> KEYS *
+1) "score"
+2) "name"
+127.0.0.1:6379> DEL name
+(integer) 1
+127.0.0.1:6379> GET name
+(nil)
+```
+
+export const firstCmdsCode = `SET name "Redis"
+GET name
+SET score 100
+EXISTS name
+EXISTS missing
+TYPE name
+KEYS *
+DEL name
+GET name`;
+
+<TryRedis client:visible code={firstCmdsCode} />
+
+## Key naming best practices
+
+Keys are just strings, so you can name them anything — but meaningful names make debugging and monitoring far easier. The standard convention is **colon-separated namespaces**:
+
+| Pattern | Example |
+|---------|---------|
+| `object:id` | `user:42` |
+| `object:id:field` | `user:42:email` |
+| `type:identifier` | `session:abc123` |
+
+This makes it easy to group related keys, use glob patterns safely, and understand what a key holds at a glance in tools like RedisInsight.
+
+<Callout title="Every value is stored under a key — pick clear key names">
+
+Meaningful key names pay off when you are debugging a live system. `user:42:email` tells you immediately what the key holds and who it belongs to. An opaque key like `e42` does not.
+
+Use colon-separated namespaces consistently across your codebase. Many teams adopt a convention such as `object:id:field` and enforce it in a shared constants file so key construction never drifts.
+
+</Callout>
+
+export const quizFirst = [
+  {
+    q: "What does `DEL` return?",
+    options: [
+      "OK if all keys were deleted",
+      "The number of keys actually deleted",
+      "The values of the deleted keys",
+      "1 if any key was deleted, 0 otherwise",
+    ],
+    answer: 1,
+  },
+  {
+    q: "What does `EXISTS` return for a key that does not exist?",
+    options: ["(nil)", "0", "false", "-1"],
+    answer: 1,
+  },
+  {
+    q: "What does `TYPE` return for a key holding a plain string value?",
+    options: ["str", "text", "string", "varchar"],
+    answer: 2,
+  },
+  {
+    q: "Why should `KEYS *` be avoided in production?",
+    options: [
+      "It requires admin privileges to run",
+      "It only works on databases with fewer than 1000 keys",
+      "It blocks the server until it has scanned every key",
+      "It permanently deletes keys matching the pattern",
+    ],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="intro-setup/first-commands" questions={quizFirst} />
+
+<ProgressTracker client:visible id="intro-setup/first-commands" />

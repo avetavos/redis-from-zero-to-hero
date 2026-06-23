@@ -1,0 +1,118 @@
+---
+title: Session Store
+description: 'Session store using Redis hashes with a sliding TTL'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Why Redis for sessions?
+
+Application servers are stateless — sessions must live somewhere external. Redis is a natural fit: it is fast, supports key expiry natively, and its hash type maps cleanly onto a session object with named fields.
+
+## Storing a session as a hash
+
+Each session is stored at key `session:<id>`. Fields such as `userId`, `email`, and `role` map directly to hash fields. An `EXPIRE` sets the idle timeout; refreshing that expiry on every authenticated request gives a sliding TTL.
+
+## Redis CLI demo
+
+```text
+127.0.0.1:6379> HSET session:abc123 userId 42 email "ada@example.com" role "admin"
+(integer) 3
+127.0.0.1:6379> EXPIRE session:abc123 1800
+(integer) 1
+127.0.0.1:6379> HGETALL session:abc123
+1) "userId"
+2) "42"
+3) "email"
+4) "ada@example.com"
+5) "role"
+6) "admin"
+127.0.0.1:6379> HGET session:abc123 role
+"admin"
+127.0.0.1:6379> EXPIRE session:abc123 1800
+(integer) 1
+127.0.0.1:6379> TTL session:abc123
+(integer) 1799
+```
+
+`HSET` with multiple field-value pairs creates the session in one round trip. `HGETALL` returns every field; `HGET` fetches a single field. Calling `EXPIRE` again resets the countdown, implementing the sliding idle timeout.
+
+export const sessionsCode = `HSET session:abc123 userId 42 email "ada@example.com" role "admin"
+EXPIRE session:abc123 1800
+HGETALL session:abc123
+HGET session:abc123 role
+EXPIRE session:abc123 1800
+TTL session:abc123`;
+
+<TryRedis client:visible code={sessionsCode} />
+
+## Hashes vs. serialised JSON
+
+Storing the session as a single JSON string is tempting but forces you to deserialise the entire blob just to read or change one field. With a hash, `HGET` fetches only the field you need and `HSET` updates only the field that changed — no round-trip of the full session value, and no risk of a write overwriting a concurrent update to a different field.
+
+## Updating a single field
+
+```text
+127.0.0.1:6379> HSET session:abc123 role "superadmin"
+(integer) 0
+127.0.0.1:6379> HGET session:abc123 role
+"superadmin"
+```
+
+`HSET` returns `0` when it updates an existing field (no new field was added). Only the `role` field is touched; every other field remains unchanged.
+
+export const sessionUpdateCode = `HSET session:abc123 role "superadmin"
+HGET session:abc123 role`;
+
+<TryRedis client:visible code={sessionUpdateCode} />
+
+<Callout title="Store sessions as hashes with a sliding TTL">
+Call EXPIRE on every authenticated request to keep active sessions alive. When the user logs out, call DEL session:&lt;id&gt; explicitly. Hashes let you read or update individual fields without round-tripping the full session blob.
+</Callout>
+
+export const quizSessions = [
+  {
+    q: "Which command reads all fields and values of a hash?",
+    options: ["HGETALL", "HMGET", "HSCAN", "HKEYS"],
+    answer: 0
+  },
+  {
+    q: "How do you implement a sliding idle timeout for a session?",
+    options: [
+      "Set a very long TTL once at login",
+      "Call EXPIRE on every authenticated request to reset the countdown",
+      "Use PERSIST to remove the TTL",
+      "Use PEXPIRE with milliseconds only"
+    ],
+    answer: 1
+  },
+  {
+    q: "Why store a session as a hash rather than a JSON string?",
+    options: [
+      "Hashes use less memory always",
+      "Individual fields can be read or updated without deserialising the whole value",
+      "Redis does not support strings longer than 512 bytes",
+      "Hashes have built-in encryption"
+    ],
+    answer: 1
+  },
+  {
+    q: "What command deletes a session on logout?",
+    options: [
+      "EXPIRE session:id 0",
+      "HDEL session:id",
+      "DEL session:id",
+      "UNSET session:id"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="patterns/sessions" questions={quizSessions} />
+
+<ProgressTracker client:visible id="patterns/sessions" />
