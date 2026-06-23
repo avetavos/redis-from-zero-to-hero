@@ -1,0 +1,192 @@
+---
+title: 'Dockerfile Basics'
+description: 'Master the core Dockerfile instructions: FROM, WORKDIR, COPY, RUN, ENV, and EXPOSE — and build a real app image.'
+sidebar:
+  order: 2
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Core Dockerfile instructions
+
+A Dockerfile is a sequence of instructions. Docker reads them top to bottom and executes each one to build a new layer. Here are the six instructions you will use in almost every Dockerfile.
+
+### FROM — choose your base
+
+Every Dockerfile must start with `FROM`. It sets the starting point — the base image all subsequent instructions build on.
+
+```dockerfile
+FROM node:22-alpine
+```
+
+`node:22-alpine` is the official Node.js image built on Alpine Linux (~50 MB). Always pick the most specific, smallest base image that meets your needs.
+
+### WORKDIR — set the working directory
+
+`WORKDIR` creates a directory inside the image and makes it the current working directory for all subsequent instructions. Using it avoids hard-coding paths everywhere.
+
+```dockerfile
+WORKDIR /app
+```
+
+If the directory does not exist, Docker creates it. All `COPY`, `RUN`, and `CMD` instructions that follow operate relative to `/app`.
+
+### COPY — bring files into the image
+
+`COPY` copies files or directories from the **build context** (your project folder on the host) into the image filesystem.
+
+```dockerfile
+COPY package.json package-lock.json ./
+COPY src/ ./src/
+```
+
+The first argument is the source (relative to the build context). The second is the destination inside the image (relative to `WORKDIR`).
+
+### RUN — execute commands during build
+
+`RUN` executes a shell command and commits the result as a new layer. Use it to install dependencies, compile code, or run any one-time setup.
+
+```dockerfile
+RUN npm ci --omit=dev
+```
+
+Always combine related commands with `&&` to keep them in one layer and reduce image size:
+
+```dockerfile
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+```
+
+### ENV — set environment variables
+
+`ENV` sets environment variables that are baked into the image and available at both build time and runtime.
+
+```dockerfile
+ENV NODE_ENV=production
+ENV PORT=3000
+```
+
+### EXPOSE — document the port
+
+`EXPOSE` is documentation — it tells readers and tools which port the application listens on. It does **not** actually publish the port; you still need `-p` on `docker run`.
+
+```dockerfile
+EXPOSE 3000
+```
+
+## Building a real app image
+
+Here is a complete Dockerfile for a minimal Node.js HTTP server:
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY src/ ./src/
+ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", "src/server.js"]
+```
+
+Build it:
+
+```bash
+docker build -t myapp:1.0 .
+```
+
+Expected build output (layers are numbered, cached layers print `CACHED`):
+
+```text
+[+] Building 12.3s (9/9) FINISHED
+ => [internal] load build definition from Dockerfile                 0.0s
+ => [internal] load .dockerignore                                    0.0s
+ => [1/6] FROM docker.io/library/node:22-alpine                      4.1s
+ => [2/6] WORKDIR /app                                               0.0s
+ => [3/6] COPY package.json package-lock.json ./                     0.0s
+ => [4/6] RUN npm ci --omit=dev                                      6.8s
+ => [5/6] COPY src/ ./src/                                           0.0s
+ => [6/6] ENV NODE_ENV=production PORT=3000                          0.0s
+ => exporting to image                                               0.9s
+ => => naming to docker.io/library/myapp:1.0
+```
+
+Run the container:
+
+```bash
+docker run --rm -p 3000:3000 myapp:1.0
+```
+
+## Hands-on practice
+
+The snippet below includes a self-contained Dockerfile and a tiny inline `server.js` written with a shell `echo` — no external files needed. Paste it in Play with Docker and run it.
+
+export const dockerfileBasicsCode = `# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+# Inline a minimal server so no host files are needed
+RUN echo 'const h=require("http");h.createServer((_,r)=>{r.writeHead(200);r.end("Hello from Docker!\\n");}).listen(3000,()=>console.log("Listening on 3000"));' > server.js
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["node", "server.js"]
+# --- build & run ---
+# docker build -t myapp .
+# docker run --rm -p 3000:3000 myapp
+# curl http://localhost:3000`;
+
+<PlayWithDocker client:visible code={dockerfileBasicsCode} label="Build the app image" />
+
+<Callout title="Every instruction is a layer">
+Each `FROM`, `RUN`, `COPY`, and `ENV` instruction creates a new read-only layer. Fewer, well-combined layers keep your image small and transfer faster. Choose a slim base image (e.g., `-alpine` or `-slim` variants) and combine consecutive `RUN` commands with `&&` rather than splitting them across multiple lines.
+</Callout>
+
+export const quizBasics = [
+  {
+    q: "Which instruction sets the working directory for all subsequent Dockerfile instructions?",
+    options: [
+      "RUN",
+      "FROM",
+      "WORKDIR",
+      "ENV"
+    ],
+    answer: 2
+  },
+  {
+    q: "What does EXPOSE actually do?",
+    options: [
+      "It opens the port on the host machine so external traffic can reach the container",
+      "It documents the port the application listens on, but does not publish it",
+      "It creates a firewall rule inside the container",
+      "It maps a host port to a container port"
+    ],
+    answer: 1
+  },
+  {
+    q: "Why should you combine multiple shell commands in a single RUN instruction using &&?",
+    options: [
+      "Because Docker only allows one RUN instruction per Dockerfile",
+      "To run commands in parallel and speed up the build",
+      "To keep related commands in one layer and reduce image size",
+      "Because RUN cannot execute multi-line commands otherwise"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which instruction copies files from the host build context into the image?",
+    options: [
+      "ADD",
+      "COPY",
+      "IMPORT",
+      "MOVE"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="images-dockerfile/dockerfile-basics" questions={quizBasics} />
+
+<ProgressTracker client:visible id="images-dockerfile/dockerfile-basics" />

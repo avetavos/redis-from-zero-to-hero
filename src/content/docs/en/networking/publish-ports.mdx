@@ -1,0 +1,139 @@
+---
+title: 'Publishing and Exposing Ports'
+description: 'How to make container ports reachable from the host using -p, and why EXPOSE alone is not enough.'
+sidebar:
+  order: 4
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## EXPOSE vs -p
+
+There is a common source of confusion in Docker networking: the difference between `EXPOSE` in a Dockerfile and `-p` on `docker run`.
+
+- **`EXPOSE`** is documentation. It tells humans and tools which port the application listens on inside the container. It does not open any port or make anything reachable from outside.
+- **`-p`** (or `--publish`) actually binds a host port to a container port. This is what makes traffic from outside the container reach your application.
+
+If you only add `EXPOSE 80` to your Dockerfile and forget `-p`, the application inside the container is listening, but nothing from the host or the internet can reach it.
+
+## Basic port publishing syntax
+
+The `-p` flag takes the form `host_port:container_port`:
+
+```bash
+docker run -p 8080:80 nginx:alpine
+```
+
+This binds port `8080` on the host to port `80` inside the container. A request to `http://localhost:8080` on the host is forwarded to the container's port 80.
+
+## Bind to a specific host interface
+
+By default, Docker binds to all host interfaces (`0.0.0.0`). To restrict binding to the loopback interface only (no external access):
+
+```bash
+docker run -p 127.0.0.1:8080:80 nginx:alpine
+```
+
+This is useful for development environments where you want the service reachable only from the same machine.
+
+## Publish multiple ports
+
+Pass `-p` multiple times to publish more than one port:
+
+```bash
+docker run -p 8080:80 -p 8443:443 nginx:alpine
+```
+
+## List port mappings for a running container
+
+Use `docker port` to see all port bindings for a named container:
+
+```bash
+docker port webserver
+```
+
+Output example:
+
+```text
+80/tcp -> 0.0.0.0:8080
+```
+
+## Let Docker pick the host port (ephemeral ports)
+
+Omit the host port to let Docker assign an available port automatically:
+
+```bash
+docker run -p 80 nginx:alpine
+```
+
+Docker picks a free port in the ephemeral range (typically 32768–60999). Use `docker port` to find out which port was assigned.
+
+## Hands-on: publish and verify
+
+export const publishPortsCode = `# Run nginx with port 8080 on the host mapped to port 80 in the container
+docker run -d -p 8080:80 --name webserver nginx:alpine
+
+# Verify the port mapping
+docker port webserver
+
+# Test that the server is reachable
+curl http://localhost:8080
+
+# Cleanup
+docker stop webserver && docker rm webserver`;
+
+<PlayWithDocker client:visible code={publishPortsCode} label="Publish and test a port" />
+
+<Callout title="EXPOSE is documentation, -p is the real binding">
+EXPOSE in a Dockerfile tells readers which port the app uses but does not publish it. Only -p (or ports: in Compose) makes a port reachable from outside the container.
+</Callout>
+
+export const quizPublishPorts = [
+  {
+    q: "What does the EXPOSE instruction in a Dockerfile actually do?",
+    options: [
+      "It opens a firewall rule on the host to allow traffic to the container",
+      "It binds the host port to the container port",
+      "It documents the port the application listens on but does not publish it",
+      "It automatically forwards all traffic on that port from the host to the container"
+    ],
+    answer: 2
+  },
+  {
+    q: "You run: docker run -p 9000:3000 myapp. Which of the following correctly describes the port mapping?",
+    options: [
+      "Host port 3000 is mapped to container port 9000",
+      "Host port 9000 is mapped to container port 3000",
+      "Both host and container use port 9000",
+      "Both host and container use port 3000"
+    ],
+    answer: 1
+  },
+  {
+    q: "How do you restrict a published port so it is only reachable from the local machine (loopback interface)?",
+    options: [
+      "docker run -p 80 --internal myapp",
+      "docker run --restrict-external -p 80:80 myapp",
+      "docker run -p 127.0.0.1:8080:80 myapp",
+      "docker run -p localhost:8080:80 myapp"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which command lists the port mappings of a running container named 'webserver'?",
+    options: [
+      "docker inspect webserver --ports",
+      "docker ps -p webserver",
+      "docker network inspect webserver",
+      "docker port webserver"
+    ],
+    answer: 3
+  }
+];
+
+<Quiz client:visible id="networking/publish-ports" questions={quizPublishPorts} />
+
+<ProgressTracker client:visible id="networking/publish-ports" />

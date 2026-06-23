@@ -1,0 +1,133 @@
+---
+title: 'Docker คืออะไร?'
+description: 'ทำความเข้าใจสถาปัตยกรรมของ Docker: client, daemon, images, และ registries และการทำงานร่วมกัน'
+sidebar:
+  order: 2
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## สี่ส่วนประกอบของ Docker
+
+Docker ไม่ใช่โปรแกรมเดียว — มันคือ ecosystem ของส่วนประกอบที่ทำงานร่วมกัน การทำความเข้าใจแต่ละส่วนทำให้ง่ายขึ้นมากในการคิดว่าเกิดอะไรขึ้นเมื่อคุณรันคำสั่ง `docker`
+
+### Docker client (`docker` CLI)
+
+`docker` CLI คือโปรแกรมที่คุณโต้ตอบด้วยโดยตรง เมื่อคุณพิมพ์คำสั่งเช่น `docker run`, `docker build`, หรือ `docker pull` CLI จะแปลคำสั่งนั้นเป็น REST API request และส่งต่อไปยัง Docker daemon ตัว client เองไม่ได้ทำงานหนัก — มันเป็นแค่ API client แบบบาง
+
+client สื่อสารกับ daemon ผ่าน **Unix socket** ที่ `/var/run/docker.sock` โดยค่าเริ่มต้น สำหรับ daemon ระยะไกล (เช่น Docker host ที่รันบน cloud VM) client สามารถเชื่อมต่อผ่าน TCP พร้อม TLS ได้
+
+### Docker daemon (`dockerd`)
+
+daemon คือ background process ที่ทำงานต่อเนื่องซึ่งทำงานจริง มันรับฟังบน Unix socket (หรือ TCP port) และจัดการ API call ทุกอย่างที่ client ส่งมา daemon รับผิดชอบในการ:
+
+- **Pull และแคช images** จาก registries
+- **สร้างและรัน containers** จาก images เหล่านั้น
+- **จัดการ networks** เพื่อให้ containers สามารถสื่อสารกันและกับโลกภายนอกได้
+- **จัดการ volumes** สำหรับข้อมูลถาวรที่อยู่รอดเกินอายุการทำงานของ container
+
+### Images
+
+image คือ **แพ็กเกจแบบ read-only, layered** ที่บรรจุทุกสิ่งที่จำเป็นในการรัน process: application code, base OS filesystem, runtime libraries, environment variables, และ default command ที่จะรัน Images ถูก build จาก `Dockerfile` และถูกระบุด้วยชื่อและ tag เช่น `nginx:1.27-alpine`
+
+แต่ละ layer ใน image แสดงถึงคำสั่งเดียวใน `Dockerfile` Layers ถูกแคชและแชร์ระหว่าง images ซึ่งช่วยให้การใช้พื้นที่ดิสก์ต่ำและการ rebuild เร็ว
+
+### Registries
+
+registry คือเซิร์ฟเวอร์ที่จัดเก็บและแจกจ่าย images registry สาธารณะเริ่มต้นคือ **Docker Hub** (`docker.io`) เมื่อคุณรัน `docker pull nginx` daemon จะติดต่อ `docker.io`, ค้นหา repository `nginx`, และดาวน์โหลด image ไปยังแคชในเครื่อง
+
+Registries จัดระเบียบ images เป็น **repositories** repository หนึ่งสามารถมี images หลายเวอร์ชันของสิ่งเดียวกัน โดยแยกแยะด้วย **tags**:
+
+```text
+docker.io/library/nginx:1.27-alpine
+│          │       │     └─ tag
+│          │       └─ repository name
+│          └─ namespace (library = official images)
+└─ registry host
+```
+
+Private registries (Amazon ECR, GitHub Container Registry, registry ที่โฮสต์เอง) ทำงานในแบบเดียวกัน — คุณแค่ `docker login` เพื่อยืนยันตัวตนก่อน push หรือ pull
+
+## วิธีที่ส่วนประกอบทำงานร่วมกัน
+
+การไหลที่คำสั่ง `docker run` ทุกครั้งดำเนินตาม:
+
+```text
+You (terminal)
+    │
+    ▼
+docker CLI  ──REST API──►  dockerd  ──────────────────────────────────────────────┐
+                               │                                                  │
+                               │  Image not in local cache?                       │
+                               ▼                                                  │
+                         Docker Hub (or other registry)                           │
+                               │                                                  │
+                               │  Pull image layers to local cache                │
+                               ▼                                                  │
+                         Local image cache  ◄──────────────────────────────────────┘
+                               │
+                               │  Create container from image
+                               ▼
+                         Running container (isolated process on host kernel)
+```
+
+1. คุณพิมพ์ `docker run nginx`
+2. CLI ส่ง request `POST /containers/create` ไปยัง `dockerd` ผ่าน Unix socket
+3. `dockerd` ตรวจสอบแคช image ในเครื่องสำหรับ `nginx:latest`
+4. ถ้า image ไม่มี `dockerd` จะติดต่อ Docker Hub, ยืนยันตัวตนถ้าจำเป็น, และ pull image layers
+5. Layers ถูกเก็บไว้ในแคชในเครื่อง (โดยทั่วไปอยู่ใน `/var/lib/docker`)
+6. `dockerd` สร้าง container ใหม่จาก image และเริ่ม process
+7. Standard output จาก container ถูก stream กลับผ่าน `dockerd` ไปยัง terminal ของคุณผ่าน CLI
+
+<Callout title="CLI คุยกับ daemon">
+คำสั่ง `docker` ทุกคำสั่งที่คุณพิมพ์จะถูกส่งเป็น REST API call ไปยัง `dockerd` daemon ทำงานจริง — pull images, สร้าง containers, จัดการ networks CLI เป็นเพียง wrapper เพื่อความสะดวก การแยกส่วนนี้ยังหมายความว่าคุณสามารถชี้ CLI ไปยัง daemon ระยะไกลได้โดยการตั้งค่า environment variable `DOCKER_HOST` โดยไม่ต้องเปลี่ยนคำสั่งใดๆ ของคุณ
+</Callout>
+
+export const quizWhatIsDocker = [
+  {
+    q: "Docker daemon (`dockerd`) มีบทบาทอะไร?",
+    options: [
+      "มันคือ CLI tool ที่คุณพิมพ์คำสั่งเข้าไป",
+      "มันคือ background process ที่ทำงานต่อเนื่องซึ่งจัดการ images, containers, networks, และ volumes",
+      "มันคือเซิร์ฟเวอร์ที่จัดเก็บและแจกจ่าย images สาธารณะ",
+      "มันคอมไพล์ Dockerfiles เป็น binary executables"
+    ],
+    answer: 1
+  },
+  {
+    q: "Docker CLI ส่งคำสั่งของตัวเองไปที่ไหนโดยค่าเริ่มต้น?",
+    options: [
+      "โดยตรงไปยัง Docker Hub ผ่าน HTTPS",
+      "ไปยัง Kubernetes API server",
+      "ไปยัง Docker daemon ผ่าน Unix socket ที่ `/var/run/docker.sock`",
+      "ไปยัง SQLite database ในเครื่องที่คิวงาน"
+    ],
+    answer: 2
+  },
+  {
+    q: "Docker image คืออะไร?",
+    options: [
+      "instance ที่กำลังรันของแอปพลิเคชันที่มี kernel เป็นของตัวเอง",
+      "แพ็กเกจแบบ read-only, layered ที่บรรจุทุกสิ่งที่จำเป็นในการรัน process",
+      "network namespace ที่แชร์ระหว่าง containers",
+      "archive แบบบีบอัดของ virtual machine disk"
+    ],
+    answer: 1
+  },
+  {
+    q: "ใน image reference `docker.io/library/nginx:1.27-alpine`, `1.27-alpine` แสดงถึงอะไร?",
+    options: [
+      "registry host",
+      "namespace",
+      "repository name",
+      "tag ที่ระบุเวอร์ชันเฉพาะของ image"
+    ],
+    answer: 3
+  }
+];
+
+<Quiz client:visible id="intro/what-is-docker" questions={quizWhatIsDocker} />
+
+<ProgressTracker client:visible id="intro/what-is-docker" />

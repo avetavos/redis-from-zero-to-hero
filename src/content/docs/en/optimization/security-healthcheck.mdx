@@ -1,0 +1,207 @@
+---
+title: 'Security & HEALTHCHECK'
+description: 'Run containers as a non-root user, avoid baking secrets into images, add a HEALTHCHECK, and scan with docker scout for a production-ready security baseline.'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Why container security matters
+
+By default, processes inside a Docker container run as **root** (UID 0). If an attacker exploits a vulnerability in your application, they inherit root privileges inside the container — and depending on your host configuration, that can translate to host-level access. Two simple Dockerfile changes neutralise the most common risks.
+
+## Running as a non-root user
+
+The `USER` instruction sets the user that all subsequent `RUN`, `CMD`, and `ENTRYPOINT` instructions execute as.
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:22-alpine
+
+# Create a dedicated user and group
+RUN addgroup -S app && adduser -S app -G app
+
+WORKDIR /app
+COPY --chown=app:app package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY --chown=app:app src/ ./src/
+
+# Switch to the non-root user before CMD
+USER app
+
+EXPOSE 3000
+CMD ["node", "src/server.js"]
+```
+
+Key details:
+- `addgroup -S` and `adduser -S` create a **system** (no-login, no home-dir by default) group and user — appropriate for service accounts.
+- `--chown=app:app` on `COPY` sets file ownership in the same layer, avoiding a separate `RUN chown` instruction.
+- `USER app` must come after all `RUN` instructions that need root (package installs, etc.).
+
+## Never bake secrets into images
+
+Every layer in a Docker image is stored on disk and can be inspected with `docker history` or extracted from the registry. Secrets written into a `RUN` instruction — even if deleted in a later layer — remain visible in the build history.
+
+```dockerfile
+# WRONG — the token is permanently in the image history
+RUN curl -H "Authorization: Bearer ${SECRET_TOKEN}" https://api.example.com/data
+```
+
+Correct approaches:
+
+1. **Build-time secrets via BuildKit** — never stored in the image:
+   ```dockerfile
+   RUN --mount=type=secret,id=api_token \
+       curl -H "Authorization: Bearer $(cat /run/secrets/api_token)" https://api.example.com/data
+   ```
+   Pass with: `docker build --secret id=api_token,env=SECRET_TOKEN .`
+
+2. **Runtime environment variables** — pass secrets at `docker run` time, not at build time:
+   ```bash
+   docker run -e DATABASE_URL="postgres://user:pass@host/db" myapp
+   ```
+
+3. **Secrets managers** — inject secrets via Vault, AWS Secrets Manager, or Kubernetes Secrets at pod startup.
+
+## HEALTHCHECK
+
+The `HEALTHCHECK` instruction tells Docker how to test whether your container is functioning. Docker runs the command periodically; if it fails consecutively, the container status switches to `unhealthy` and orchestrators (Swarm, Kubernetes liveness probes equivalent) can restart it automatically.
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://localhost:3000/health || exit 1
+```
+
+Parameters:
+- `--interval` — how often to run the check (default: 30s)
+- `--timeout` — how long to wait before the check is considered failed (default: 30s)
+- `--start-period` — grace period after container start before failures count (default: 0s)
+- `--retries` — how many consecutive failures mark the container unhealthy (default: 3)
+
+Verify the health status:
+
+```bash
+docker ps --format "table {{.Names}}\t{{.Status}}"
+# NAME        STATUS
+# myapp       Up 2 minutes (healthy)
+```
+
+## Scanning with docker scout
+
+**Docker Scout** analyses your image layers against vulnerability databases and reports CVEs.
+
+```bash
+# Scan a local image
+docker scout cves myapp:prod
+
+# Compare two tags
+docker scout compare myapp:prod myapp:naive
+```
+
+A typical report looks like:
+
+```text
+   0C  2H  12M  3L  │ myapp:prod
+   0C  8H  45M  12L │ myapp:naive
+```
+
+`C` = Critical, `H` = High, `M` = Medium, `L` = Low. Switching to a slim or distroless base typically eliminates the majority of High and Critical CVEs.
+
+Integrate scanning into CI to catch regressions before they reach production:
+
+```bash
+docker scout cves --exit-code --only-severity critical,high myapp:prod
+```
+
+`--exit-code` causes the command to return a non-zero exit code if any matching CVEs are found — blocking the pipeline.
+
+## Hands-on: non-root + HEALTHCHECK Dockerfile
+
+export const securityHealthcheckCode = `# syntax=docker/dockerfile:1
+FROM node:22-alpine
+
+# Create a non-root user
+RUN addgroup -S app && adduser -S app -G app
+
+WORKDIR /app
+
+# Inline a minimal HTTP server
+RUN echo 'const http=require("http");' > server.js && \
+    echo 'http.createServer((req,res)=>{' >> server.js && \
+    echo '  if(req.url==="/health"){res.writeHead(200);res.end("ok\\n");}' >> server.js && \
+    echo '  else{res.writeHead(200);res.end("Hello (running as non-root)!\\n");}' >> server.js && \
+    echo '}).listen(3000,()=>console.log("Listening on 3000"));' >> server.js
+
+# Set ownership and switch user
+RUN chown -R app:app /app
+USER app
+
+EXPOSE 3000
+
+# Health check — polls /health every 10s
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -qO- http://localhost:3000/health || exit 1
+
+CMD ["node","server.js"]
+
+# --- Build and run ---
+# docker build -t myapp:secure .
+# docker run --rm -p 3000:3000 myapp:secure
+# docker ps  (check STATUS for "healthy")`;
+
+<PlayWithDocker client:visible code={securityHealthcheckCode} label="Non-root container with HEALTHCHECK" />
+
+<Callout title="Never run as root or bake secrets into an image; add a HEALTHCHECK">
+Running as a non-root user limits blast radius if your application is compromised. Baking secrets into image layers exposes them to anyone who can pull the image. A HEALTHCHECK lets the orchestrator automatically restart unhealthy containers before users notice a problem.
+</Callout>
+
+export const quizSecurityHealthcheck = [
+  {
+    q: "Why is running a container as root considered a security risk?",
+    options: [
+      "Root containers cannot connect to the network",
+      "If the application is exploited, the attacker gains root privileges inside the container which can extend to the host",
+      "Docker prevents root containers from writing files",
+      "Root users cannot read environment variables"
+    ],
+    answer: 1
+  },
+  {
+    q: "What happens to a secret written in a `RUN` instruction and then deleted in a later layer?",
+    options: [
+      "It is permanently removed from the image",
+      "It is encrypted by BuildKit automatically",
+      "It remains visible in the image layer history and can be extracted",
+      "Docker refuses to build the image"
+    ],
+    answer: 2
+  },
+  {
+    q: "What does the `--start-period` option in HEALTHCHECK control?",
+    options: [
+      "How often Docker runs the health check command",
+      "How long Docker waits for the check command to complete",
+      "A grace period after container start before health check failures count toward the retry limit",
+      "The maximum number of retries before marking the container unhealthy"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which `docker scout` flag causes the command to return a non-zero exit code when vulnerabilities are found — useful for blocking CI pipelines?",
+    options: [
+      "--fail",
+      "--block",
+      "--exit-code",
+      "--strict"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="optimization/security-healthcheck" questions={quizSecurityHealthcheck} />
+
+<ProgressTracker client:visible id="optimization/security-healthcheck" />

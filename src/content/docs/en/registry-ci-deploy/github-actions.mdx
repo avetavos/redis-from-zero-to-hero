@@ -1,0 +1,181 @@
+---
+title: 'GitHub Actions CI'
+description: 'Automate image builds and pushes with a GitHub Actions workflow using the official Docker actions: login, setup-buildx, metadata, and build-push.'
+sidebar:
+  order: 4
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Why automate image builds in CI?
+
+Building and pushing images by hand is error-prone. A CI pipeline ensures that every merge to your main branch produces a tested, tagged, and published image — without manual steps.
+
+GitHub Actions is the most common choice for projects hosted on GitHub. The Docker team publishes four official actions that make this straightforward:
+
+| Action | Purpose |
+|---|---|
+| `docker/login-action` | Authenticate to any registry |
+| `docker/setup-buildx-action` | Enable BuildKit (multi-platform, cache mounts) |
+| `docker/metadata-action` | Generate tags and labels from Git metadata |
+| `docker/build-push-action` | Build and push in a single step |
+
+## Setting up secrets
+
+Registry credentials must never appear in your repository. Store them as **encrypted repository secrets**:
+
+1. Go to your repository → **Settings → Secrets and variables → Actions → New repository secret**.
+2. Add `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (use a Docker Hub access token, not your password).
+
+The workflow below references these as `${{ secrets.DOCKERHUB_USERNAME }}` and `${{ secrets.DOCKERHUB_TOKEN }}` — GitHub Actions substitutes the values at runtime and masks them from logs.
+
+## The workflow file
+
+Create `.github/workflows/docker.yml` in your repository:
+
+```yaml
+name: Build and push Docker image
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # needed if pushing to GHCR
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: acme/api-server
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+```
+
+## Pushing to GHCR instead of Docker Hub
+
+To push to GitHub Container Registry, change the login step and the image name:
+
+```yaml
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+```
+
+And update the `images:` value in `metadata-action`:
+
+```yaml
+          images: ghcr.io/${{ github.repository }}
+```
+
+`GITHUB_TOKEN` is automatically provided by GitHub Actions — no manual secret needed.
+
+## What `metadata-action` produces
+
+Given a git tag `v2.1.0`, the metadata action generates:
+
+```text
+acme/api-server:2.1.0
+acme/api-server:2.1
+acme/api-server:latest
+acme/api-server:sha-abc1234
+```
+
+On a plain branch push (no semver tag), only the `sha-` tag and branch name are emitted — `latest` is only set on a tagged release.
+
+## BuildKit cache
+
+The `cache-from: type=gha` and `cache-to: type=gha,mode=max` lines use GitHub Actions cache to store BuildKit layers between runs. This can cut build times by 70-90% on unchanged layers.
+
+## Key points
+
+- `push: ${{ github.event_name != 'pull_request' }}` — build on every PR for validation, but only push on merges to main.
+- `setup-buildx-action` enables BuildKit features (layer cache, multi-platform, `--mount` in `RUN`).
+- Never put credentials directly in the YAML file. Always use `secrets.*`.
+
+<Callout title="Store registry credentials as encrypted CI secrets, never in the repo">
+Add `DOCKERHUB_TOKEN` (or equivalent) as an encrypted Actions secret, then reference it with `${{ secrets.DOCKERHUB_TOKEN }}` in your workflow YAML. GitHub masks this value in all logs. Committing credentials directly in a workflow file or Dockerfile exposes them to everyone with repository access and is a critical security incident waiting to happen.
+</Callout>
+
+export const quizGithubActions = [
+  {
+    q: "Why is `push: ${{ github.event_name != 'pull_request' }}` used in build-push-action?",
+    options: [
+      "To skip the build step on pull requests",
+      "To build and validate on PRs but only push the image on merges to main",
+      "To prevent the workflow from running on forks",
+      "To cache layers from previous pull requests"
+    ],
+    answer: 1
+  },
+  {
+    q: "What does docker/metadata-action generate from a git tag like v2.1.0?",
+    options: [
+      "Only the exact tag 2.1.0",
+      "A SHA digest tag only",
+      "Multiple tags: 2.1.0, 2.1, latest, and a short SHA tag",
+      "A YAML manifest with image labels"
+    ],
+    answer: 2
+  },
+  {
+    q: "Where should Docker Hub credentials be stored in a GitHub Actions workflow?",
+    options: [
+      "Hardcoded in the workflow YAML file",
+      "In a .env file committed to the repository",
+      "As encrypted repository secrets referenced via secrets.*",
+      "In the Dockerfile as ARG instructions"
+    ],
+    answer: 2
+  },
+  {
+    q: "What is the purpose of docker/setup-buildx-action in a CI workflow?",
+    options: [
+      "It installs Docker Engine on the runner",
+      "It enables BuildKit features including layer caching and multi-platform builds",
+      "It creates the Docker Hub repository automatically",
+      "It scans the image for security vulnerabilities"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="registry-ci-deploy/github-actions" questions={quizGithubActions} />
+
+<ProgressTracker client:visible id="registry-ci-deploy/github-actions" />

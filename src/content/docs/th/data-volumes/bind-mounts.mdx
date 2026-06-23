@@ -1,0 +1,156 @@
+---
+title: 'Bind Mounts'
+description: 'Mount ไดเรกทอรีของ host เข้า container สำหรับการแก้ไข code แบบ live และ workflow การพัฒนาในเครื่อง'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Bind mount คืออะไร?
+
+**Bind mount** map path เฉพาะเจาะจงบนเครื่อง host ของคุณโดยตรงเข้าไปใน container ต่างจาก named volume ตรงที่คุณเลือกเองว่าข้อมูลจะอยู่ที่ไหนบน host — Docker ไม่ได้จัดการ path ให้
+
+```text
+Host filesystem:         /home/user/myapp/src
+                              ↕  bind mount
+Container filesystem:    /app/src
+```
+
+การเปลี่ยนแปลงใดๆ ที่เกิดขึ้นฝั่ง host จะมองเห็นได้ทันทีภายใน container และในทางกลับกันด้วย ทำให้ bind mounts เหมาะสำหรับการพัฒนา: editor ของคุณแก้ไขไฟล์บน host และกระบวนการที่รันอยู่ภายใน container เห็นการอัปเดตทันที — ไม่ต้อง rebuild
+
+## Syntax
+
+**Short `-v` syntax:**
+
+```bash
+docker run -v /host/path:/container/path myimage
+```
+
+**Long `--mount` syntax (แนะนำสำหรับ scripts — ไม่มีความกำกวม):**
+
+```bash
+docker run \
+  --mount type=bind,source=/host/path,target=/container/path \
+  myimage
+```
+
+### ใช้ `$(pwd)` สำหรับไดเรกทอรีปัจจุบัน
+
+ในการพัฒนาคุณแทบจะต้องการ mount ไดเรกทอรีทำงานปัจจุบันเสมอ:
+
+```bash
+docker run --rm -v $(pwd):/app -w /app node:22-alpine node server.js
+```
+
+`$(pwd)` ขยายเป็น absolute path ของ host ณ เวลา runtime นี่เป็น pattern มาตรฐานสำหรับการรัน code โดยไม่ต้อง build image ใหม่ทุกครั้งที่มีการเปลี่ยนแปลง
+
+## Workflow การพัฒนาในทางปฏิบัติ
+
+```bash
+# Mount source ของคุณเข้า container ที่ /app
+# flag -w กำหนด working directory ภายใน container
+docker run -d --name dev-server \
+  -v $(pwd)/src:/app/src \
+  -p 3000:3000 \
+  node:22-alpine \
+  node /app/src/server.js
+```
+
+ตอนนี้แก้ไข `src/server.js` บน host ของคุณ ถ้ากระบวนการภายใน container ดู filesystem อยู่ (เช่น ด้วย `nodemon`) มันจะ restart อัตโนมัติ ไม่จำเป็นต้อง rebuild image สำหรับการเปลี่ยนแปลง code ทุกครั้ง
+
+## Read-only bind mounts
+
+เพิ่ม `:ro` เพื่อทำให้ mount เป็น read-only จากมุมมองของ container container สามารถอ่านไฟล์ได้แต่เขียนไม่ได้:
+
+```bash
+docker run --rm \
+  -v $(pwd)/config:/etc/myapp/config:ro \
+  myimage
+```
+
+ด้วย `--mount` syntax:
+
+```bash
+docker run --rm \
+  --mount type=bind,source=$(pwd)/config,target=/etc/myapp/config,readonly \
+  myimage
+```
+
+มีประโยชน์สำหรับการ inject ไฟล์ configuration จาก host เข้า container โดยไม่ให้ container เขียนทับโดยบังเอิญ
+
+## ฝึกปฏิบัติ
+
+snippet ด้านล่างสร้างไฟล์บน host (จำลองด้วย `echo` ในขั้นตอน setup) mount ไดเรกทอรีเข้า container และอ่านไฟล์จากภายใน container — สาธิตการแชร์ไฟล์แบบ live
+
+export const bindMountCode = `# 1. Create a directory with a file to share
+mkdir -p /tmp/bindtest && echo 'shared from host' > /tmp/bindtest/hello.txt
+
+# 2. Mount it into a container and read the file
+docker run --rm -v /tmp/bindtest:/data alpine cat /data/hello.txt
+
+# 3. Write from inside the container back to the host
+docker run --rm -v /tmp/bindtest:/data alpine sh -c "echo 'written by container' > /data/from-container.txt"
+
+# 4. Check the file now exists on the host path
+ls -la /tmp/bindtest/
+cat /tmp/bindtest/from-container.txt
+
+# 5. Clean up
+rm -rf /tmp/bindtest`
+
+<PlayWithDocker client:visible code={bindMountCode} label="แชร์ไฟล์ระหว่าง host และ container" />
+
+<Callout title="Bind mounts map host path — เหมาะสำหรับ dev แต่ผูกกับ layout ของ host">
+Bind mounts มีประสิทธิภาพสำหรับการพัฒนาในเครื่องเพราะการเปลี่ยนแปลงบน host ปรากฏทันทีใน container อย่างไรก็ตาม host path ต้องมีอยู่จริงและต้องเหมือนกันบนทุกเครื่องที่รัน container สำหรับการ deploy ใน production ที่ต้องการ portability ให้เลือกใช้ named volumes แทน
+</Callout>
+
+export const quizBindMounts = [
+  {
+    q: "ความแตกต่างสำคัญระหว่าง bind mount และ named volume คืออะไร?",
+    options: [
+      "Bind mounts เร็วกว่า named volumes",
+      "กับ bind mount คุณระบุ host path เองโดยตรง ส่วน Docker จัดการ path ให้กับ named volumes",
+      "Named volumes ต้องการสิทธิ์ root ส่วน bind mounts ไม่ต้องการ",
+      "Bind mounts ใช้ได้เฉพาะบน Linux"
+    ],
+    answer: 1
+  },
+  {
+    q: "expression ใดใน shell ที่ขยายเป็นไดเรกทอรีทำงานปัจจุบันในคำสั่ง `docker run`?",
+    options: [
+      "\${CWD}",
+      "\${HOST_PATH}",
+      "$(pwd)",
+      "$WORKDIR"
+    ],
+    answer: 2
+  },
+  {
+    q: "การเพิ่ม `:ro` ใน bind mount ทำอะไร?",
+    options: [
+      "ทำให้ mount เป็น read-only จากมุมมองของ container",
+      "เปิดใช้งานการ synchronize ไฟล์แบบ real-time",
+      "ลบ mount หลังจาก container หยุดทำงาน",
+      "จำกัด mount ให้ใช้ได้เฉพาะ root user ภายใน container"
+    ],
+    answer: 0
+  },
+  {
+    q: "ทำไม bind mounts ถึงเหมาะสำหรับการพัฒนาในเครื่องแต่ไม่แนะนำสำหรับ production?",
+    options: [
+      "Bind mounts ช้าเกินไปสำหรับ workloads ใน production",
+      "Bind mounts ต้องการ kernel module พิเศษที่ไม่มีใน production",
+      "Host path ต้องมีอยู่จริงและตรงกันบนทุกเครื่อง ซึ่งลด portability",
+      "Docker ไม่รองรับ bind mounts ใน Swarm mode"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="data-volumes/bind-mounts" questions={quizBindMounts} />
+
+<ProgressTracker client:visible id="data-volumes/bind-mounts" />

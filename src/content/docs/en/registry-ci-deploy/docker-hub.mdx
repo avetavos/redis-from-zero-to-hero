@@ -1,0 +1,153 @@
+---
+title: 'Docker Hub'
+description: 'Create an account, set up repositories, understand public vs private visibility, authenticate with docker login, and navigate rate limits.'
+sidebar:
+  order: 2
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is Docker Hub?
+
+**Docker Hub** (`hub.docker.com`) is the default public registry built into the Docker CLI. When you run `docker pull nginx`, Docker silently resolves that to `docker.io/library/nginx:latest` and downloads it from Docker Hub.
+
+It hosts two categories of images:
+
+- **Official images** — curated by Docker, Inc. (e.g., `nginx`, `node`, `postgres`). Short names with no owner prefix.
+- **Verified Publisher images** — maintained by software vendors (e.g., `elastic/elasticsearch`). Displayed with a blue badge.
+- **Community images** — published by individuals or teams under a namespace (e.g., `mycompany/myapp`).
+
+## Creating an account and a repository
+
+1. Sign up at [hub.docker.com](https://hub.docker.com).
+2. Create a repository: click **Create Repository**, choose a name, and set visibility to **Public** or **Private**.
+
+A Docker Hub image name follows the pattern:
+
+```text
+docker.io/<username>/<repository>:<tag>
+```
+
+For example:
+
+```text
+docker.io/acme/api-server:2.1.0
+```
+
+When pushing from the CLI you can omit `docker.io/` — it is the default registry:
+
+```bash
+docker push acme/api-server:2.1.0
+```
+
+## Public vs private repositories
+
+| | Public | Private |
+|---|---|---|
+| Anyone can pull | Yes | No (requires login) |
+| Free tier limit | Unlimited | 1 repo on free plan |
+| Use case | Open-source, tutorials | Production workloads |
+
+## Authenticating with `docker login`
+
+Before you can push, you must authenticate. Docker Hub supports password login, but **access tokens are strongly preferred** — they are scoped, revocable, and do not expose your password.
+
+Generate a token at **Docker Hub → Account Settings → Personal access tokens**, then:
+
+```bash
+docker login
+# Enter your Docker Hub username
+# Enter your access token (not your password)
+```
+
+Or supply credentials non-interactively (useful in scripts):
+
+```bash
+echo "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --stdin
+```
+
+After login, Docker stores credentials in `~/.docker/config.json`. Log out to clear them:
+
+```bash
+docker logout
+```
+
+## Pull rate limits
+
+Docker Hub enforces pull rate limits for unauthenticated requests:
+
+| Authentication | Limit |
+|---|---|
+| Anonymous (no login) | 100 pulls / 6 hours per IP |
+| Free authenticated account | 200 pulls / 6 hours |
+| Pro / Team / Business plan | Unlimited |
+
+CI runners share public IPs, so anonymous pulls frequently hit the limit. Always authenticate in CI — even with a free account — to get the higher limit.
+
+## Official vs verified vs community images
+
+```bash
+# Official image — no namespace prefix
+docker pull postgres:16
+
+# Verified Publisher image
+docker pull elastic/elasticsearch:8.14.0
+
+# Community image — always namespace/repo
+docker pull bitnami/postgresql:16
+```
+
+When choosing a base image, prefer official or verified publisher images for security and maintenance guarantees.
+
+<Callout title="Authenticate with docker login; mind anonymous pull rate limits">
+Use a personal access token (not your password) for `docker login`. In CI pipelines, always authenticate before pulling base images — anonymous pulls share a rate limit across all machines on the same public IP and can cause flaky builds. Store the token as an encrypted secret, never in your Dockerfile or source code.
+</Callout>
+
+export const quizDockerHub = [
+  {
+    q: "What is the recommended credential type for docker login on Docker Hub?",
+    options: [
+      "Your Docker Hub password",
+      "An SSH key",
+      "A personal access token",
+      "A client certificate"
+    ],
+    answer: 2
+  },
+  {
+    q: "What is the anonymous pull rate limit on Docker Hub (free tier)?",
+    options: [
+      "10 pulls per hour",
+      "100 pulls per 6 hours per IP",
+      "500 pulls per day",
+      "Unlimited"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which image type is curated directly by Docker, Inc. and has no namespace prefix?",
+    options: [
+      "Verified Publisher",
+      "Community",
+      "Official",
+      "Private"
+    ],
+    answer: 2
+  },
+  {
+    q: "Where does Docker store credentials after a successful docker login?",
+    options: [
+      "/etc/docker/credentials.json",
+      "~/.docker/config.json",
+      "The Docker Hub website",
+      "The system keychain only"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="registry-ci-deploy/docker-hub" questions={quizDockerHub} />
+
+<ProgressTracker client:visible id="registry-ci-deploy/docker-hub" />

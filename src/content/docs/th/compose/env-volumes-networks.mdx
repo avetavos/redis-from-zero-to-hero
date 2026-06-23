@@ -1,0 +1,231 @@
+---
+title: 'Env Vars, Volumes และ Networks'
+description: 'เชี่ยวชาญการฉีด environment variables ด้วยไฟล์ .env, named volumes สำหรับข้อมูลถาวร และ custom networks ใน Docker Compose'
+sidebar:
+  order: 4
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Environment variables ใน Compose
+
+มีสองวิธีในการส่ง environment variables เข้าเซอร์วิส
+
+### Inline environment
+
+กำหนด variables โดยตรงใน compose.yaml:
+
+```yaml
+services:
+  app:
+    image: myapp:latest
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+```
+
+### env_file
+
+อ้างอิงไฟล์ภายนอก Compose อ่านแต่ละบรรทัด `KEY=VALUE` จากไฟล์และฉีดเข้าคอนเทนเนอร์:
+
+```yaml
+services:
+  app:
+    image: myapp:latest
+    env_file:
+      - .env
+```
+
+ไฟล์ `.env`:
+
+```text
+NODE_ENV=production
+PORT=3000
+DATABASE_URL=postgres://db:5432/mydb
+```
+
+เก็บ `.env` ออกจาก version control — มักมี secrets อยู่
+
+## Variable interpolation ด้วย `${VAR}`
+
+Compose อ่านไฟล์ `.env` ใน directory เดียวกับ compose.yaml และใช้มันแทนที่ placeholder `${VAR}` ภายใน compose.yaml เอง:
+
+```yaml
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+```
+
+ด้วยไฟล์ `.env` ที่มี:
+
+```text
+DB_PASSWORD=supersecret
+DB_NAME=mydb
+```
+
+Compose แทนที่ค่าก่อนสตาร์ทคอนเทนเนอร์ นี่ทำให้ secrets ไม่ต้องอยู่ใน compose.yaml และให้นักพัฒนาแต่ละคนใช้ไฟล์ `.env` ของตนเองได้
+
+## Named volumes
+
+คอนเทนเนอร์เป็น ephemeral — ข้อมูลที่เขียนภายในคอนเทนเนอร์จะหายเมื่อคอนเทนเนอร์ถูกลบ Named volumes เก็บข้อมูลบน host และอยู่รอดได้แม้คอนเทนเนอร์จะ restart หรือถูก recreate
+
+ประกาศ named volume ที่ระดับบนสุดและ mount ต่อเซอร์วิส:
+
+```yaml
+services:
+  db:
+    image: postgres:17-alpine
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=secret
+
+volumes:
+  pgdata:
+```
+
+key `volumes:` ระดับบนสุด register volume กับ Compose รายการ `volumes:` ต่อเซอร์วิส mount มัน คุณสามารถ mount named volume เดียวกันในหลายเซอร์วิสได้
+
+## Custom networks
+
+Compose สร้าง default network อัตโนมัติ สำหรับการควบคุมมากขึ้น — แยก services หรือเชื่อมต่อ services ข้าม Compose files — กำหนด custom networks:
+
+```yaml
+services:
+  frontend:
+    image: nginx:alpine
+    networks:
+      - public
+
+  backend:
+    image: myapp:latest
+    networks:
+      - public
+      - private
+
+  db:
+    image: postgres:17-alpine
+    networks:
+      - private
+
+networks:
+  public:
+  private:
+```
+
+ที่นี่ `frontend` เข้าถึง `backend` ได้ แต่ `frontend` ไม่สามารถเข้าถึง `db` โดยตรง `backend` เชื่อม network ทั้งสอง
+
+## ลองปฏิบัติจริง
+
+snippet ด้านล่างเชื่อมต่อเซอร์วิสกับ env file และ named volume เพื่อให้ข้อมูลอยู่รอดได้หลัง restart
+
+export const envVolNetCode = `# Create .env file
+cat > .env <<'EOF'
+APP_MSG=Hello from .env interpolation!
+VOLUME_DATA_DIR=/data
+EOF
+
+# Create compose.yaml with env interpolation and a named volume
+cat > compose.yaml <<'EOF'
+services:
+  writer:
+    image: alpine
+    env_file:
+      - .env
+    volumes:
+      - mydata:\${VOLUME_DATA_DIR}
+    command: >
+      sh -c "
+        echo \${APP_MSG} &&
+        echo 'Writing to named volume...' &&
+        echo 'persistent data' > \${VOLUME_DATA_DIR}/file.txt &&
+        echo 'Wrote file to volume.'
+      "
+
+  reader:
+    image: alpine
+    volumes:
+      - mydata:/data
+    command: >
+      sh -c "
+        sleep 2 &&
+        echo 'Reading from volume:' &&
+        cat /data/file.txt
+      "
+    depends_on:
+      - writer
+
+volumes:
+  mydata:
+EOF
+
+# Run both services
+docker compose up
+
+# Verify the volume still exists after containers stop
+docker volume ls | grep mydata
+
+# Clean up (keeps the volume)
+docker compose down
+
+# Clean up including the volume
+docker compose down -v`;
+
+<PlayWithDocker client:visible code={envVolNetCode} label="ลอง env vars และ named volumes" />
+
+<Callout title="ค่า .env เติม placeholder variables ใน compose.yaml">
+Compose อ่านไฟล์ `.env` ข้าง compose.yaml อัตโนมัติและแทนที่ placeholder `${VAR}` ตลอดไฟล์ นี่แตกต่างจาก `env_file:` — key นั้นฉีด variables เข้า *container*; การ interpolation ด้วย `.env` เติม placeholder *ใน compose.yaml เอง* ก่อนคอนเทนเนอร์ใดๆ สตาร์ท
+</Callout>
+
+export const quizEnvVol = [
+  {
+    q: "ความแตกต่างระหว่าง environment: และ env_file: ในนิยามเซอร์วิสคืออะไร?",
+    options: [
+      "environment: กำหนด build-time variables; env_file: กำหนด runtime variables",
+      "environment: กำหนด variables inline ใน compose.yaml; env_file: อ่านจากไฟล์ภายนอก",
+      "ทั้งสองเหมือนกัน — ทั้งคู่อ่านจากไฟล์ .env",
+      "env_file: ทำงานได้กับ Docker secrets เท่านั้น"
+    ],
+    answer: 1
+  },
+  {
+    q: "Compose มองหาค่า interpolation ${VAR} ที่ไหน?",
+    options: [
+      "จาก shell environment ที่รัน docker compose up เท่านั้น",
+      "จากไฟล์ .env ใน directory เดียวกับ compose.yaml",
+      "จาก Docker secrets ที่เก็บใน Swarm",
+      "จาก ENV instructions ที่ build มาพร้อม image"
+    ],
+    answer: 1
+  },
+  {
+    q: "เกิดอะไรขึ้นกับ named volume เมื่อรัน docker compose down (ไม่มี -v)?",
+    options: [
+      "Volume ถูกลบพร้อมกับ containers",
+      "Volume ถูก archive เป็นไฟล์ tar",
+      "Volume ถูกเก็บไว้ — มีเพียง containers และ networks เท่านั้นที่ถูกลบ",
+      "Volume ถูกเปลี่ยนชื่อด้วย suffix _backup"
+    ],
+    answer: 2
+  },
+  {
+    q: "ในตัวอย่าง networks ทำไม frontend จึงไม่สามารถเข้าถึง db โดยตรง?",
+    options: [
+      "เพราะ frontend ใช้ image ต่างกัน",
+      "เพราะ frontend อยู่ใน public network เท่านั้น และ db อยู่ใน private network เท่านั้น",
+      "เพราะ key ports: ไม่ได้กำหนดบน db",
+      "เพราะ depends_on ขาดหายไประหว่าง frontend และ db"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="compose/env-volumes-networks" questions={quizEnvVol} />
+
+<ProgressTracker client:visible id="compose/env-volumes-networks" />

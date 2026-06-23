@@ -1,0 +1,162 @@
+---
+title: 'Layers และ Build Cache'
+description: 'ทำความเข้าใจว่า layer caching ของ Docker ทำงานอย่างไร ทำไมลำดับของ instruction จึงสำคัญ และจะจัดลำดับ instruction อย่างไรเพื่อใช้ cache ซ้ำได้สูงสุด'
+sidebar:
+  order: 4
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## build cache ทำงานอย่างไร
+
+ทุก instruction ใน Dockerfile สร้าง layer ขึ้นมาหนึ่งชั้น Docker เก็บ layer เหล่านี้ไว้บนดิสก์และกำหนด cache key ให้แต่ละชั้นโดยอิงจาก:
+
+- ตัวข้อความ instruction เอง
+- cache key ของ layer แม่
+- (สำหรับ `COPY`/`ADD`) checksum ของไฟล์ที่ถูกคัดลอก
+
+เมื่อคุณ rebuild image Docker จะตรวจสอบแต่ละ instruction เทียบกับ cache ถ้า cache key ตรงกัน Docker จะนำ layer ที่ cache ไว้มาใช้ซ้ำ — ทันทีและไม่มีต้นทุน ถ้า cache key **ไม่**ตรงกัน (instruction เปลี่ยน หรือไฟล์ที่คัดลอกเปลี่ยน) Docker จะทำให้ layer นั้น **และทุก layer หลังจากนั้น** เสียค่า cache แล้ว rebuild ใหม่ตั้งแต่ต้น
+
+นี่คือกฎสำคัญ:
+
+> **การทำ cache เสียค่าจะลามต่อลงไปด้านล่าง เมื่อ layer หนึ่งเสียค่า layer ถัด ๆ ไปทั้งหมดก็จะถูก rebuild ด้วย**
+
+## ทำไมลำดับของ instruction จึงสำคัญ
+
+ลองดู Dockerfile ที่จัดลำดับไม่ดีตัวนี้:
+
+```dockerfile
+# BAD: copies all source code first
+FROM node:22-alpine
+WORKDIR /app
+COPY . .                   # ← copies everything, including app source
+RUN npm ci --omit=dev      # ← runs after COPY — cache busted on every code change
+```
+
+ทุกครั้งที่คุณแก้ไฟล์ source เพียงไฟล์เดียว `COPY . .` จะเสียค่า ซึ่งทำให้ `RUN npm ci` เสียค่าตามไปด้วย นั่นหมายความว่า npm จะติดตั้ง dependencies ใหม่ทั้งหมดในทุกการ build — แม้ว่า `package.json` จะไม่ได้เปลี่ยนก็ตาม
+
+วิธีแก้คือคัดลอก dependency manifest ก่อน, ติดตั้ง, แล้วจึงคัดลอก source:
+
+```dockerfile
+# GOOD: dependency install is cached separately
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json package-lock.json ./   # ← only changes when deps change
+RUN npm ci --omit=dev                    # ← cached as long as package.json unchanged
+COPY . .                                  # ← source changes only bust this layer
+```
+
+ตอนนี้ `npm ci` จะถูกรันใหม่ก็ต่อเมื่อ `package.json` หรือ `package-lock.json` เปลี่ยนเท่านั้น การแก้โค้ดแอปจะทำให้เฉพาะ `COPY . .` สุดท้ายและอะไรก็ตามที่อยู่ใต้มันเสียค่าเท่านั้น
+
+## เห็น cache ทำงานจริง
+
+build ครั้งแรก — ทุกอย่างเป็นการดาวน์โหลดใหม่หมด:
+
+```text
+[+] Building 14.7s (7/7) FINISHED
+ => [1/5] FROM docker.io/library/node:22-alpine     5.2s
+ => [2/5] WORKDIR /app                              0.0s
+ => [3/5] COPY package.json package-lock.json ./    0.0s
+ => [4/5] RUN npm ci --omit=dev                     8.1s
+ => [5/5] COPY . .                                  0.0s
+ => exporting to image                              1.4s
+```
+
+build ครั้งที่สอง — เปลี่ยนเฉพาะ source ของแอป `npm ci` ถูก cache ไว้:
+
+```text
+[+] Building 1.1s (7/7) FINISHED
+ => [1/5] FROM docker.io/library/node:22-alpine     0.0s
+ => CACHED [2/5] WORKDIR /app                       0.0s
+ => CACHED [3/5] COPY package.json package-lock.json ./  0.0s
+ => CACHED [4/5] RUN npm ci --omit=dev              0.0s
+ => [5/5] COPY . .                                  0.0s
+ => exporting to image                              1.1s
+```
+
+การ build ลดจาก 14.7 วินาทีเหลือ 1.1 วินาที เพราะสี่ในห้า layer ถูกเสิร์ฟมาจาก cache
+
+## กฎการจัดลำดับโดยทั่วไป
+
+จัดลำดับ instruction จากที่ **เปลี่ยนน้อยที่สุด** ไปยังที่ **เปลี่ยนบ่อยที่สุด**:
+
+1. `FROM` (base image — แทบไม่เปลี่ยน)
+2. การติดตั้ง system package (`RUN apt-get install ...`)
+3. คัดลอก dependency manifest + ติดตั้ง (`COPY package.json ./` + `RUN npm ci`)
+4. source code ของแอปพลิเคชัน (`COPY . .`)
+5. ขั้นตอน build ที่ขึ้นกับ source (`RUN npm run build`)
+
+## ลงมือทำ: สังเกต cache
+
+snippet ด้านล่าง build image เล็ก ๆ สองครั้ง รันมันแล้วดูการ build ครั้งที่สองใช้ layer ที่เป็น `CACHED`
+
+export const layersCacheCode = `# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+# Step 1: copy only the manifest and install
+RUN echo '{"name":"demo","version":"1.0.0"}' > package.json
+RUN npm install --omit=dev 2>/dev/null || true
+# Step 2: copy "source" (simulated with an echo)
+RUN echo "console.log('Hello from app v1');" > app.js
+CMD ["node", "app.js"]
+# --- first build ---
+# docker build -t cachetest .
+# docker run --rm cachetest
+# --- change "source" and rebuild: only the last RUN reruns ---
+# docker build -t cachetest .`;
+
+<PlayWithDocker client:visible code={layersCacheCode} label="Watch the build cache" />
+
+<Callout title="จัดลำดับ instruction จากเปลี่ยนน้อยที่สุดไปเปลี่ยนบ่อยที่สุด">
+กฎทองคือ: วาง instruction ที่เปลี่ยนน้อย (base image, system package, การติดตั้ง dependency) ไว้ใกล้ส่วนบนของ Dockerfile และวาง instruction ที่เปลี่ยนบ่อย (การคัดลอก source ของแอป) ไว้ใกล้ส่วนล่าง วิธีนี้ทำให้ cache hit ได้มากที่สุดและทำให้การ rebuild เร็ว — บ่อยครั้งจาก 60+ วินาทีลดเหลือต่ำกว่า 2 วินาทีเมื่อมีเพียงโค้ดแอปพลิเคชันที่เปลี่ยน
+</Callout>
+
+export const quizLayersCache = [
+  {
+    q: "เกิดอะไรขึ้นกับทุก layer ที่อยู่ใต้ layer ที่เสียค่า?",
+    options: [
+      "ถูกข้ามไปและนำกลับมาใช้ซ้ำจาก cache",
+      "เสียค่าและถูก rebuild ใหม่ตั้งแต่ต้น",
+      "ถูกรวมเข้าเป็น layer เดียว",
+      "ถูกลบออกจาก image"
+    ],
+    answer: 1
+  },
+  {
+    q: "ทำไมเราจึง COPY package.json ก่อน COPY . . ใน Dockerfile ของ Node.js?",
+    options: [
+      "เพราะ Docker กำหนดให้ต้องคัดลอกไฟล์ manifest ก่อนไฟล์ source",
+      "เพื่อให้ npm ci รันก็ต่อเมื่อ dependencies เปลี่ยนเท่านั้น ไม่ใช่ทุกครั้งที่ source code เปลี่ยน",
+      "เพื่อลดจำนวน layer ใน image สุดท้าย",
+      "เพราะ COPY . . ไม่คัดลอก package.json"
+    ],
+    answer: 1
+  },
+  {
+    q: "instruction ใดต่อไปนี้สร้าง layer ใหม่ใน image?",
+    options: [
+      "EXPOSE",
+      "LABEL",
+      "RUN",
+      "ARG"
+    ],
+    answer: 2
+  },
+  {
+    q: "การ `docker build` ครั้งที่สองบน source ที่ไม่เปลี่ยนจะพิมพ์ `CACHED` สำหรับขั้นตอนส่วนใหญ่ นั่นหมายความว่าอะไร?",
+    options: [
+      "Docker ดาวน์โหลด layer มาจาก remote cache registry",
+      "Docker นำ layer ที่เก็บไว้ในเครื่องซึ่งมี cache key ตรงกันมาใช้ซ้ำ โดยข้ามการรันมัน",
+      "Docker ข้ามการ build image ทั้งหมด",
+      "Docker ใช้ writable layer ของ container ก่อนหน้า"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="images-dockerfile/layers-cache" questions={quizLayersCache} />
+
+<ProgressTracker client:visible id="images-dockerfile/layers-cache" />

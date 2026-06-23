@@ -1,0 +1,115 @@
+---
+title: 'Optimization & Best Practices — Module Overview'
+description: 'Learn why image size matters, what this module covers, and see a before/after size comparison that shows how much optimization can save.'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Why optimize Docker images?
+
+When you first build a Docker image you can easily end up with something that weighs **1–2 GB**. That size compounds in every direction: every `docker pull` on CI costs seconds (or minutes), every push to a registry costs bandwidth, and every megabyte in the final image is a megabyte an attacker could potentially exploit.
+
+Optimization is not about micro-tweaking. It is about applying a handful of well-known techniques — multi-stage builds, smart layer ordering, tight base images, and secure defaults — that routinely cut images by **70–90 %** while making them faster to ship and safer to run.
+
+### The three dimensions of optimization
+
+| Dimension | Goal | Techniques covered |
+|---|---|---|
+| **Size** | Smaller image = faster pulls, less storage | Multi-stage builds, small base images, `.dockerignore` |
+| **Build speed** | Faster iterative builds | Layer-cache ordering, `--mount=type=cache` |
+| **Security** | Reduced attack surface | Non-root user, no baked-in secrets, `HEALTHCHECK`, scanning |
+
+### Before and after
+
+Here is a realistic comparison. The left column is a naive single-stage Node.js image; the right column is the same app built with the techniques in this module:
+
+```text
+REPOSITORY          TAG        SIZE
+myapp               naive      1.21GB
+myapp               optimized  112MB
+```
+
+That is a **10× reduction** with no change to application behaviour — only to the Dockerfile.
+
+## What this module covers
+
+| Lesson | What you will learn |
+|---|---|
+| This page | Why optimize, three dimensions, before/after teaser |
+| Multi-stage builds | Separate build and runtime stages; `COPY --from` |
+| Cache ordering | Order instructions to maximize cache hits; pin versions |
+| Small images & `.dockerignore` | Alpine/distroless bases, exclude noise from the build context |
+| Security & HEALTHCHECK | Non-root user, no secrets in images, `HEALTHCHECK`, `docker scout` |
+
+## Hands-on: inspect image sizes
+
+The snippet below builds two minimal images — one bloated, one slim — so you can see `docker images` output side by side.
+
+export const optimizationIndexCode = `# Build a "before" image with unnecessary dev tools
+# syntax=docker/dockerfile:1
+FROM node:22 AS before
+WORKDIR /app
+RUN echo '{"name":"demo","version":"1.0.0"}' > package.json
+RUN npm install --save-dev typescript eslint
+RUN echo "console.log('hello');" > index.js
+CMD ["node","index.js"]
+
+# Build a "after" image with only what is needed
+FROM node:22-alpine AS after
+WORKDIR /app
+RUN echo '{"name":"demo","version":"1.0.0"}' > package.json
+RUN echo "console.log('hello');" > index.js
+CMD ["node","index.js"]
+
+# --- build both and compare sizes ---
+# docker build --target before -t myapp:before .
+# docker build --target after  -t myapp:after  .
+# docker images myapp`;
+
+<PlayWithDocker client:visible code={optimizationIndexCode} label="Compare image sizes" />
+
+<Callout title="Smaller images mean faster pulls and a smaller attack surface">
+Every package installed in a Docker image is a potential vulnerability. Keeping images small is not just about speed — it is about reducing the number of components that need to be patched, scanned, and maintained. A runtime image should contain only what the application needs to run, nothing more.
+</Callout>
+
+export const quizOptimizationIndex = [
+  {
+    q: "Which of the following is NOT one of the three dimensions of Docker image optimization covered in this module?",
+    options: [
+      "Image size",
+      "Build speed",
+      "Security",
+      "Network throughput"
+    ],
+    answer: 3
+  },
+  {
+    q: "A naive single-stage Node.js image weighs 1.21 GB. After applying multi-stage builds and a slim base image, what is a realistic optimized size?",
+    options: [
+      "~900 MB",
+      "~600 MB",
+      "~112 MB",
+      "~1 MB"
+    ],
+    answer: 2
+  },
+  {
+    q: "Why does reducing image size improve security?",
+    options: [
+      "Smaller images encrypt their filesystem automatically",
+      "Fewer installed packages means fewer potential vulnerabilities to patch",
+      "Docker refuses to run images larger than 500 MB",
+      "Size reduction removes all RUN instructions from the image"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="optimization/index" questions={quizOptimizationIndex} />
+
+<ProgressTracker client:visible id="optimization/index" />

@@ -1,0 +1,192 @@
+---
+title: 'พื้นฐาน Dockerfile'
+description: 'เชี่ยวชาญ instruction หลักของ Dockerfile: FROM, WORKDIR, COPY, RUN, ENV และ EXPOSE — พร้อม build image ของแอปจริง'
+sidebar:
+  order: 2
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## instruction หลักของ Dockerfile
+
+Dockerfile คือลำดับของ instruction Docker จะอ่านจากบนลงล่างและรันทีละบรรทัดเพื่อ build เป็น layer ใหม่ ต่อไปนี้คือ instruction หกตัวที่คุณจะได้ใช้ในแทบทุก Dockerfile
+
+### FROM — เลือก base ของคุณ
+
+ทุก Dockerfile ต้องเริ่มต้นด้วย `FROM` มันกำหนดจุดเริ่มต้น — base image ที่ instruction ถัด ๆ ไปทั้งหมดจะ build ต่อยอดขึ้นไป
+
+```dockerfile
+FROM node:22-alpine
+```
+
+`node:22-alpine` คือ image อย่างเป็นทางการของ Node.js ที่สร้างบน Alpine Linux (~50 MB) ให้เลือก base image ที่เฉพาะเจาะจงและเล็กที่สุดเท่าที่ตอบโจทย์ของคุณได้เสมอ
+
+### WORKDIR — กำหนด working directory
+
+`WORKDIR` สร้างไดเรกทอรีภายใน image และตั้งให้เป็น working directory ปัจจุบันสำหรับ instruction ถัด ๆ ไปทั้งหมด การใช้มันช่วยให้ไม่ต้อง hard-code path กระจายไปทั่ว
+
+```dockerfile
+WORKDIR /app
+```
+
+ถ้าไดเรกทอรียังไม่มีอยู่ Docker จะสร้างให้ instruction `COPY`, `RUN`, และ `CMD` ที่ตามมาทั้งหมดจะทำงานโดยอ้างอิงจาก `/app`
+
+### COPY — นำไฟล์เข้าสู่ image
+
+`COPY` คัดลอกไฟล์หรือไดเรกทอรีจาก **build context** (โฟลเดอร์โปรเจกต์ของคุณบนเครื่อง host) เข้าไปยัง filesystem ของ image
+
+```dockerfile
+COPY package.json package-lock.json ./
+COPY src/ ./src/
+```
+
+อาร์กิวเมนต์ตัวแรกคือต้นทาง (อ้างอิงจาก build context) ตัวที่สองคือปลายทางภายใน image (อ้างอิงจาก `WORKDIR`)
+
+### RUN — รันคำสั่งระหว่าง build
+
+`RUN` รันคำสั่ง shell และ commit ผลลัพธ์เป็น layer ใหม่ ใช้มันเพื่อติดตั้ง dependencies, คอมไพล์โค้ด, หรือรันการ setup แบบครั้งเดียวจบ
+
+```dockerfile
+RUN npm ci --omit=dev
+```
+
+ควรรวมคำสั่งที่เกี่ยวข้องกันด้วย `&&` เสมอเพื่อให้อยู่ใน layer เดียวกันและลดขนาด image:
+
+```dockerfile
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+```
+
+### ENV — กำหนด environment variable
+
+`ENV` กำหนด environment variable ที่ถูกฝังเข้าไปใน image และใช้ได้ทั้งตอน build time และ runtime
+
+```dockerfile
+ENV NODE_ENV=production
+ENV PORT=3000
+```
+
+### EXPOSE — ระบุพอร์ตเชิงเอกสาร
+
+`EXPOSE` เป็นเอกสารกำกับ — มันบอกผู้อ่านและเครื่องมือต่าง ๆ ว่าแอปพลิเคชันรับฟังที่พอร์ตไหน มัน**ไม่ได้**เปิดพอร์ตให้จริง ๆ คุณยังคงต้องใช้ `-p` ตอน `docker run`
+
+```dockerfile
+EXPOSE 3000
+```
+
+## การ build image ของแอปจริง
+
+นี่คือ Dockerfile ที่สมบูรณ์สำหรับ HTTP server ของ Node.js แบบ minimal:
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY src/ ./src/
+ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", "src/server.js"]
+```
+
+build มัน:
+
+```bash
+docker build -t myapp:1.0 .
+```
+
+ผลลัพธ์การ build ที่คาดหวัง (layer จะถูกใส่หมายเลข ส่วน layer ที่ถูก cache จะพิมพ์ `CACHED`):
+
+```text
+[+] Building 12.3s (9/9) FINISHED
+ => [internal] load build definition from Dockerfile                 0.0s
+ => [internal] load .dockerignore                                    0.0s
+ => [1/6] FROM docker.io/library/node:22-alpine                      4.1s
+ => [2/6] WORKDIR /app                                               0.0s
+ => [3/6] COPY package.json package-lock.json ./                     0.0s
+ => [4/6] RUN npm ci --omit=dev                                      6.8s
+ => [5/6] COPY src/ ./src/                                           0.0s
+ => [6/6] ENV NODE_ENV=production PORT=3000                          0.0s
+ => exporting to image                                               0.9s
+ => => naming to docker.io/library/myapp:1.0
+```
+
+รัน container:
+
+```bash
+docker run --rm -p 3000:3000 myapp:1.0
+```
+
+## ฝึกลงมือทำ
+
+snippet ด้านล่างประกอบด้วย Dockerfile ที่อยู่ในตัวเองครบ และ `server.js` แบบ inline เล็ก ๆ ที่เขียนด้วย `echo` ของ shell — ไม่ต้องใช้ไฟล์ภายนอกเลย วางมันใน Play with Docker แล้วรันได้เลย
+
+export const dockerfileBasicsCode = `# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+# Inline a minimal server so no host files are needed
+RUN echo 'const h=require("http");h.createServer((_,r)=>{r.writeHead(200);r.end("Hello from Docker!\\n");}).listen(3000,()=>console.log("Listening on 3000"));' > server.js
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["node", "server.js"]
+# --- build & run ---
+# docker build -t myapp .
+# docker run --rm -p 3000:3000 myapp
+# curl http://localhost:3000`;
+
+<PlayWithDocker client:visible code={dockerfileBasicsCode} label="Build the app image" />
+
+<Callout title="ทุก instruction คือ layer หนึ่งชั้น">
+ทุก instruction `FROM`, `RUN`, `COPY`, และ `ENV` จะสร้าง read-only layer ใหม่ขึ้นมา การมี layer น้อยลงและรวมไว้อย่างเหมาะสมจะทำให้ image ของคุณเล็กและส่งต่อได้เร็วขึ้น เลือก base image ที่เพรียวบาง (เช่น variant `-alpine` หรือ `-slim`) และรวมคำสั่ง `RUN` ที่ต่อเนื่องกันด้วย `&&` แทนที่จะแยกออกเป็นหลายบรรทัด
+</Callout>
+
+export const quizBasics = [
+  {
+    q: "instruction ใดกำหนด working directory สำหรับ instruction ถัด ๆ ไปทั้งหมดใน Dockerfile?",
+    options: [
+      "RUN",
+      "FROM",
+      "WORKDIR",
+      "ENV"
+    ],
+    answer: 2
+  },
+  {
+    q: "จริง ๆ แล้ว EXPOSE ทำอะไร?",
+    options: [
+      "มันเปิดพอร์ตบนเครื่อง host เพื่อให้ทราฟฟิกภายนอกเข้าถึง container ได้",
+      "มันระบุพอร์ตที่แอปพลิเคชันรับฟังเชิงเอกสาร แต่ไม่ได้เปิดพอร์ตให้จริง",
+      "มันสร้างกฎ firewall ภายใน container",
+      "มันแมปพอร์ตของ host ไปยังพอร์ตของ container"
+    ],
+    answer: 1
+  },
+  {
+    q: "ทำไมจึงควรรวมหลายคำสั่ง shell ไว้ใน instruction RUN เดียวโดยใช้ &&?",
+    options: [
+      "เพราะ Docker อนุญาตให้มี instruction RUN ได้แค่ตัวเดียวต่อ Dockerfile",
+      "เพื่อรันคำสั่งแบบขนานและเร่งความเร็วการ build",
+      "เพื่อให้คำสั่งที่เกี่ยวข้องกันอยู่ใน layer เดียวและลดขนาด image",
+      "เพราะมิฉะนั้น RUN จะไม่สามารถรันคำสั่งหลายบรรทัดได้"
+    ],
+    answer: 2
+  },
+  {
+    q: "instruction ใดคัดลอกไฟล์จาก build context ของ host เข้าไปใน image?",
+    options: [
+      "ADD",
+      "COPY",
+      "IMPORT",
+      "MOVE"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="images-dockerfile/dockerfile-basics" questions={quizBasics} />
+
+<ProgressTracker client:visible id="images-dockerfile/dockerfile-basics" />

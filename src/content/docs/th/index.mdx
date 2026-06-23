@@ -1,0 +1,63 @@
+---
+title: Docker — From Zero to Hero
+description: เรียน Docker ตั้งแต่พื้นฐานจนถึงระดับ production — image, container, volume, networking, Compose, การ optimize และ CI/CD
+template: splash
+hero:
+  tagline: คอร์ส Docker แบบ standalone ตั้งแต่ผู้เริ่มต้นจนถึงขั้นสูง เรียนผ่าน Dockerfile, คำสั่ง และ Compose file จริงพร้อมผลลัพธ์ที่คาดหวัง — และปุ่ม "Try in Play with Docker" คลิกเดียวเพื่อฝึกมือในเบราว์เซอร์
+  actions:
+    - text: เริ่มที่นี่
+      link: /docker-from-zero-to-hero/th/intro/
+      icon: right-arrow
+      variant: primary
+    - text: ข้ามไปที่ Images & the Dockerfile
+      link: /docker-from-zero-to-hero/th/images-dockerfile/
+      icon: open-book
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## สิ่งที่คุณจะได้เรียน
+
+<CardGrid>
+  <Card title="Intro & Concepts" icon="rocket">
+    container เทียบ VM, image เทียบ container, สถาปัตยกรรม Docker, ติดตั้ง &amp; รันครั้งแรก [เริ่ม →](/docker-from-zero-to-hero/th/intro/)
+  </Card>
+  <Card title="Images & the Dockerfile" icon="seti:docker">
+    FROM/COPY/RUN/CMD/ENTRYPOINT, การ build, การ tag, layer &amp; cache [สร้าง →](/docker-from-zero-to-hero/th/images-dockerfile/)
+  </Card>
+  <Card title="Running Containers" icon="laptop">
+    run/ps/exec/logs, port &amp; env, restart policy, inspect [รัน →](/docker-from-zero-to-hero/th/containers/)
+  </Card>
+  <Card title="Data & Volumes" icon="document">
+    named volume เทียบ bind mount, การคงข้อมูล, backup &amp; restore [เก็บข้อมูล →](/docker-from-zero-to-hero/th/data-volumes/)
+  </Card>
+  <Card title="Networking" icon="random">
+    bridge network, container DNS, การเปิด port, custom network [เชื่อมต่อ →](/docker-from-zero-to-hero/th/networking/)
+  </Card>
+  <Card title="Docker Compose" icon="puzzle">
+    compose.yaml, แอปหลาย service, env/volume/network, up/down [Compose →](/docker-from-zero-to-hero/th/compose/)
+  </Card>
+  <Card title="Optimization & Best Practices" icon="approve-check">
+    multi-stage build, การจัดลำดับ cache, image เล็ก &amp; non-root, HEALTHCHECK [optimize →](/docker-from-zero-to-hero/th/optimization/)
+  </Card>
+  <Card title="Registry, CI & Deploy" icon="setting">
+    Docker Hub, tag/push/pull, GitHub Actions, พื้นฐานการ deploy [ส่งงานจริง →](/docker-from-zero-to-hero/th/registry-ci-deploy/)
+  </Card>
+</CardGrid>
+
+## คอร์สนี้ทำงานยังไง
+
+<CardGrid>
+  <Card title="คำสั่งและไฟล์จริง" icon="open-book">
+    ทุกบทแสดง Dockerfile, คำสั่ง CLI และ Compose file จริง พร้อมผลลัพธ์ที่ควรจะได้
+  </Card>
+  <Card title="ฝึกมือในเบราว์เซอร์" icon="rocket">
+    ปุ่ม "Try in Play with Docker" คลิกเดียว คัดลอกสนิปเป็ตและเปิดสภาพแวดล้อม Docker จริงฟรี
+  </Card>
+  <Card title="แบบทดสอบ & ความคืบหน้า" icon="bars">
+    ทบทวนความเข้าใจหลังแต่ละบท ความคืบหน้าถูกบันทึกไว้ในเครื่อง
+  </Card>
+  <Card title="สองภาษา" icon="translate">
+    มีทั้งภาษาอังกฤษและไทย — สลับได้ตลอดจากแถบด้านบน
+  </Card>
+</CardGrid>

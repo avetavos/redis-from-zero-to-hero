@@ -1,0 +1,138 @@
+---
+title: 'Container DNS and User-Defined Networks'
+description: 'User-defined bridge networks give containers automatic DNS so they resolve each other by name.'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The problem: no DNS on the default bridge
+
+As you saw in the previous lesson, containers on the default bridge can reach each other by IP address but not by name. This is a significant limitation in practice — IP addresses are dynamic and change every time a container is recreated.
+
+Hardcoding IP addresses into application configuration is fragile. You need a way to refer to services by a stable name. That is exactly what user-defined networks provide.
+
+## The solution: create a user-defined bridge
+
+Use `docker network create` to create a named bridge network:
+
+```bash
+docker network create appnet
+```
+
+Docker creates a new bridge (separate from `docker0`) and starts an embedded DNS resolver scoped to that network. Containers attached to `appnet` can resolve each other's names automatically.
+
+## Running containers on a user-defined network
+
+Start an nginx container named `web` on `appnet`:
+
+```bash
+docker run -d --name web --network appnet nginx:alpine
+```
+
+Start an Alpine container named `client` on the same network:
+
+```bash
+docker run -it --name client --network appnet alpine sh
+```
+
+Inside the `client` shell, ping `web` by name:
+
+```bash
+ping -c 3 web
+```
+
+The ping succeeds. Docker's embedded DNS resolver translates `web` to the container's IP address automatically.
+
+## Inspecting the network
+
+From the host, inspect `appnet` to see which containers are attached and what IPs they were assigned:
+
+```bash
+docker network inspect appnet
+```
+
+The output includes a `Containers` section listing each attached container with its name, IP, and MAC address.
+
+## Teardown
+
+```bash
+docker stop web client
+docker rm web client
+docker network rm appnet
+```
+
+## Hands-on: DNS on a user-defined network
+
+export const containerDNSCode = `# Create a user-defined bridge network
+docker network create appnet
+
+# Start an nginx container on appnet
+docker run -d --name web --network appnet nginx:alpine
+
+# Start a client container on appnet and ping web by name
+docker run --rm --name client --network appnet alpine ping -c 3 web
+
+# Inspect the network to see attached containers
+docker network inspect appnet
+
+# Cleanup
+docker stop web && docker rm web
+docker network rm appnet`;
+
+<PlayWithDocker client:visible code={containerDNSCode} label="Try container DNS resolution" />
+
+<Callout title="User-defined networks give you DNS">
+Create a named network with `docker network create` and attach containers with `--network`. Containers on the same user-defined bridge resolve each other by container name automatically.
+</Callout>
+
+export const quizContainerDNS = [
+  {
+    q: "What feature do user-defined bridge networks provide that the default bridge does not?",
+    options: [
+      "Faster network throughput between containers",
+      "The ability to publish ports to the host",
+      "An embedded DNS resolver for container name resolution",
+      "Encryption of all inter-container traffic"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which command creates a user-defined bridge network named 'appnet'?",
+    options: [
+      "docker network init appnet",
+      "docker network create appnet",
+      "docker network add --driver bridge appnet",
+      "docker bridge create appnet"
+    ],
+    answer: 1
+  },
+  {
+    q: "You run two containers on the same user-defined bridge network. Container A is named 'api' and container B is named 'db'. How can container A reach container B?",
+    options: [
+      "Only by the container's IP address — names do not work on any bridge network",
+      "By using 'db.local' as the hostname",
+      "By the container name 'db' — the embedded DNS resolver handles it",
+      "Only after running docker network connect for each container"
+    ],
+    answer: 2
+  },
+  {
+    q: "What happens to container name resolution if you move containers back to the default bridge after using a user-defined network?",
+    options: [
+      "Name resolution continues to work because it is cached",
+      "Name resolution stops working — the default bridge has no embedded DNS",
+      "Name resolution works only for containers started after the move",
+      "Docker automatically migrates the DNS resolver to the default bridge"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="networking/container-dns" questions={quizContainerDNS} />
+
+<ProgressTracker client:visible id="networking/container-dns" />

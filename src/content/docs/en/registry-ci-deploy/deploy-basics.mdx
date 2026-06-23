@@ -1,0 +1,211 @@
+---
+title: 'Deploy Basics'
+description: 'Deploy a container to a server: docker run with restart policies, rolling updates with docker compose, and keeping secrets out of images.'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The simple deployment pattern
+
+The most straightforward deployment: SSH to your server, pull the new image, and start a container.
+
+```bash
+# On the deployment server
+docker pull acme/api-server:2.1.0
+docker stop api-server || true
+docker rm   api-server || true
+docker run -d \
+  --name api-server \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  -e DATABASE_URL="$DATABASE_URL" \
+  acme/api-server:2.1.0
+```
+
+The `|| true` prevents the pipeline from failing if the container does not yet exist on a first deploy.
+
+## Restart policies
+
+The `--restart` flag tells Docker what to do if the container exits:
+
+| Policy | Behaviour |
+|---|---|
+| `no` (default) | Never restart |
+| `on-failure` | Restart only on non-zero exit |
+| `always` | Always restart, including after `docker restart` daemon |
+| `unless-stopped` | Like `always` but does not restart if you explicitly `docker stop` it |
+
+For production services, use `unless-stopped`. It survives host reboots and daemon restarts but respects intentional stops.
+
+## Rolling updates with Docker Compose
+
+If your server already runs services with Compose v2, updates are a two-command operation:
+
+```bash
+# Pull all updated images defined in compose.yml
+docker compose pull
+
+# Recreate containers that have a newer image
+docker compose up -d
+```
+
+Compose recreates only the services whose image digest has changed, leaving unchanged services running. If you use a `compose.yml` with pinned image tags:
+
+```yaml
+services:
+  api:
+    image: acme/api-server:2.1.0
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+```
+
+Change the tag in `compose.yml` and run `docker compose up -d` — Compose detects the tag change and recreates the service.
+
+## Environment variables and secrets on the host
+
+**Never bake secrets into your image.** Instead, pass them at runtime.
+
+Three patterns, from simplest to most robust:
+
+### 1. Environment variables via `-e`
+
+```bash
+docker run -d \
+  -e DATABASE_URL="postgres://user:pass@db:5432/app" \
+  -e SECRET_KEY="abc123" \
+  acme/api-server:2.1.0
+```
+
+Simple, but the values appear in `docker inspect` output and shell history.
+
+### 2. Environment file via `--env-file`
+
+```bash
+# .env (not committed to git)
+DATABASE_URL=postgres://user:pass@db:5432/app
+SECRET_KEY=abc123
+```
+
+```bash
+docker run -d --env-file .env acme/api-server:2.1.0
+```
+
+Cleaner than `-e` flags. Keep the `.env` file in a secrets manager or vault on the server.
+
+### 3. Docker secrets (Swarm / Compose)
+
+For teams running Docker Swarm or Compose with the `secrets:` block, secrets are mounted as files at `/run/secrets/<name>` inside the container. This is the most secure option — secrets are never exposed as environment variables.
+
+```yaml
+services:
+  api:
+    image: acme/api-server:2.1.0
+    secrets:
+      - db_password
+
+secrets:
+  db_password:
+    external: true
+```
+
+## Verifying the deployment
+
+After pulling and restarting, confirm the new version is running:
+
+```bash
+docker ps
+docker logs api-server --tail 20
+docker inspect api-server | grep Image
+```
+
+## Hands-on: pull and run a public image with a restart policy
+
+The snippet below demonstrates `docker pull`, `docker run -d --restart unless-stopped`, and log inspection — using a public image so no credentials are needed.
+
+export const deployPullCode = `# Pull a versioned nginx image
+docker pull nginx:1.27-alpine
+
+# Run it detached with a restart policy
+docker run -d \\
+  --name web \\
+  --restart unless-stopped \\
+  -p 8080:80 \\
+  nginx:1.27-alpine
+
+# Verify it is running
+docker ps
+
+# Check logs
+docker logs web --tail 5
+
+# Simulate an update: pull a different tag and recreate
+docker pull nginx:1.26-alpine
+docker stop web && docker rm web
+docker run -d \\
+  --name web \\
+  --restart unless-stopped \\
+  -p 8080:80 \\
+  nginx:1.26-alpine
+
+docker ps`;
+
+<PlayWithDocker client:visible code={deployPullCode} label="Deploy with a restart policy" />
+
+<Callout title="Pull the new tag and recreate; keep secrets in env/secret stores, not images">
+The standard update pattern is: pull the new tag, stop and remove the old container, start a new one with the same flags. Use `--restart unless-stopped` for long-running services. Never bake credentials into the image — pass them at runtime with `--env-file` or mount them via Docker secrets.
+</Callout>
+
+export const quizDeployBasics = [
+  {
+    q: "Which restart policy restarts a container on host reboot but does NOT restart it if you explicitly stop it with docker stop?",
+    options: [
+      "always",
+      "on-failure",
+      "unless-stopped",
+      "no"
+    ],
+    answer: 2
+  },
+  {
+    q: "What does `docker compose up -d` do when you update the image tag in compose.yml?",
+    options: [
+      "It rebuilds the image from the Dockerfile",
+      "It recreates only the services whose image has changed, leaving others running",
+      "It restarts all services regardless of changes",
+      "It pulls all images but does not recreate any containers"
+    ],
+    answer: 1
+  },
+  {
+    q: "Why should secrets never be baked into a Docker image?",
+    options: [
+      "Docker images cannot store environment variables",
+      "Images are often shared, stored in registries, and inspectable — secrets in layers are exposed to anyone who can pull the image",
+      "Container orchestrators cannot read secrets from images",
+      "The image size increases significantly when secrets are added"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which flag makes a running container survive a Docker daemon or host restart?",
+    options: [
+      "--detach",
+      "--keep-alive",
+      "--restart unless-stopped",
+      "--persistent"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="registry-ci-deploy/deploy-basics" questions={quizDeployBasics} />
+
+<ProgressTracker client:visible id="registry-ci-deploy/deploy-basics" />

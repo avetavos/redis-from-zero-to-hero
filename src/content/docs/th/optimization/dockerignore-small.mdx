@@ -1,0 +1,188 @@
+---
+title: 'Base Image ขนาดเล็กและ .dockerignore'
+description: 'เลือก base image ขนาดเล็ก (Alpine, distroless, -slim) และใช้ .dockerignore เพื่อตัด noise ออกจาก build context — สองวิธีง่ายๆ ที่ให้ผลตอบแทนสูง'
+sidebar:
+  order: 4
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Build context คืออะไร
+
+เมื่อรัน `docker build .` Docker จะ package ทุกอย่างในไดเรกทอรีปัจจุบันเป็น **build context** และส่งไปยัง build daemon Build context ขนาดใหญ่จะทำให้ทุก build ช้าลง แม้ว่าไฟล์ส่วนใหญ่จะไม่ถูกใช้โดย instruction `COPY` ใดๆ
+
+```text
+Sending build context to Docker daemon  823.4MB   ← node_modules รวมอยู่ด้วย!
+```
+
+ไฟล์ `.dockerignore` บอก Docker ว่า path ใดบ้างที่ควรยกเว้นจาก build context — เหมือนกับที่ `.gitignore` ทำสำหรับ Git
+
+## การเขียนไฟล์ .dockerignore
+
+สร้าง `.dockerignore` ในไดเรกทอรีเดียวกับ `Dockerfile`:
+
+```text
+# Dependencies — ติดตั้งใหม่ภายใน image
+node_modules/
+vendor/
+
+# Version control
+.git/
+.gitignore
+
+# Editor และ OS noise
+.DS_Store
+*.log
+.env
+.env.*
+
+# Test และ CI files ที่ไม่จำเป็นใน runtime
+__tests__/
+coverage/
+.github/
+*.test.ts
+*.spec.ts
+```
+
+หลังเพิ่มไฟล์นี้ build context จะลดจากหลายร้อย MB เหลือแค่ไม่กี่ KB สำหรับโปรเจกต์ Node.js ทั่วไป นอกจากนี้การยกเว้นไฟล์ `.env` ยังป้องกันไม่ให้ secret รั่วไหลเข้าไปใน image โดยไม่ตั้งใจ
+
+## การเลือก base image ขนาดเล็ก
+
+Base image มักเป็นส่วนที่ใหญ่ที่สุดของขนาด image ต่อไปนี้คือตัวเลือกทั่วไปจากใหญ่สุดไปเล็กสุด:
+
+| Base | ขนาดโดยประมาณ | หมายเหตุ |
+|---|---|---|
+| `ubuntu:24.04` | ~78 MB | apt ecosystem เต็มรูปแบบ; ใหญ่ |
+| `debian:bookworm` | ~117 MB | Debian เต็ม; พบบ่อย |
+| `node:22` | ~1.1 GB | รวม Debian เต็มและ devtools |
+| `node:22-slim` | ~235 MB | Debian slim; ไม่มี devtools |
+| `node:22-alpine` | ~55 MB | Alpine Linux; เล็กที่สุดที่มี shell |
+| `cgr.dev/chainguard/node` | ~50 MB | Distroless; minimal, ไม่มี shell |
+| `scratch` | 0 MB | ว่างเปล่าสมบูรณ์; สำหรับ static binary |
+
+### Alpine Linux
+
+Alpine ใช้ musl libc และ BusyBox เป็น base image ขนาดเล็กที่ได้รับความนิยมมากที่สุดสำหรับ container เพราะ:
+
+- Base image ขนาดต่ำกว่า 5 MB
+- Package manager `apk` ครอบคลุม tool ทั่วไปส่วนใหญ่
+- Official image สำหรับ Node.js, Python, Go, Ruby และอื่นๆ ล้วนมี variant `-alpine`
+
+```dockerfile
+FROM node:22-alpine
+```
+
+ข้อควรระวัง: Alpine ใช้ `musl` แทน `glibc` package บางอย่างที่ compile สำหรับ `glibc` (เช่น Node addon บางตัว) อาจต้องการงานเพิ่มเติม สำหรับแอปพลิเคชัน pure-JS มักจะใช้แทนกันได้โดยตรง
+
+### Distroless images
+
+**Distroless** images ของ Google มีเฉพาะ language runtime เท่านั้น — ไม่มี shell, ไม่มี package manager, ไม่มี `ls` หรือ `cat` ทำให้เล็กกว่าและมี attack surface น้อยกว่ามากเพราะไม่มี tooling ที่ผู้โจมตีจะใช้ประโยชน์ได้
+
+```dockerfile
+FROM gcr.io/distroless/nodejs22-debian12
+```
+
+เพราะไม่มี shell, `CMD` และ `ENTRYPOINT` ต้องใช้ exec form (JSON array):
+
+```dockerfile
+CMD ["dist/server.js"]
+```
+
+### ลบ apt cache หลัง install
+
+เมื่อต้องติดตั้ง package ด้วย `apt-get` ควร cleanup package list ใน `RUN` layer เดียวกันเสมอ:
+
+```dockerfile
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+`--no-install-recommends` ข้าม optional recommended package `rm -rf /var/lib/apt/lists/*` ลบ package index ที่ดาวน์โหลดออกจาก layer หากวางไว้ใน `RUN` instruction แยกต่างหาก ขนาดนั้นถูก commit ไปแล้วและการ cleanup จะไม่มีผลใดๆ
+
+## ลงมือทำ: เปรียบเทียบ build context และ base image
+
+snippet ด้านล่างแสดง pattern `.dockerignore` และ Alpine base image
+
+export const dockerignoreSmallCode = `# syntax=docker/dockerfile:1
+
+# .dockerignore (create alongside this Dockerfile):
+# node_modules/
+# .git/
+# .env
+# coverage/
+
+FROM node:22-alpine
+WORKDIR /app
+
+# Only manifests first for cache efficiency
+COPY package.json ./
+RUN echo '{}' > package-lock.json
+
+# Application source (node_modules excluded by .dockerignore)
+COPY src/ ./src/ 2>/dev/null || true
+RUN echo "console.log('Running on Alpine, image is tiny!');" > src/index.js 2>/dev/null || true
+
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["node","src/index.js"]
+
+# --- Build and check the size ---
+# docker build -t myapp:alpine .
+# docker images myapp:alpine`;
+
+<PlayWithDocker client:visible code={dockerignoreSmallCode} label="Build with Alpine and check size" />
+
+<Callout title=".dockerignore ที่ดีลด build context และป้องกัน cache busting">
+การยกเว้น `node_modules/` จาก build context ป้องกันการ copy host dependencies เข้าไปใน image โดยไม่ตั้งใจ (ซึ่งจะ overwrite dependencies ที่ติดตั้งถูกต้อง) การยกเว้น `.git/` ป้องกันไม่ให้ประวัติ Git ถูกส่งไปยัง daemon ทุก build ทั้งสองอย่างยังป้องกันไม่ให้ไฟล์ host เก่าทำให้ cache layer ถูก invalidate อย่างไม่คาดคิด
+</Callout>
+
+export const quizDockerignoreSmall = [
+  {
+    q: "จุดประสงค์หลักของไฟล์ .dockerignore คืออะไร?",
+    options: [
+      "ป้องกัน Docker daemon ไม่ให้เริ่มทำงาน",
+      "ยกเว้นไฟล์และไดเรกทอรีจาก build context ที่ส่งไปยัง Docker daemon",
+      "แสดงรายการ environment variable ที่มีอยู่ภายใน container",
+      "กำหนด port ที่จะ expose"
+    ],
+    answer: 1
+  },
+  {
+    q: "ทำไม `rm -rf /var/lib/apt/lists/*` ต้องอยู่ใน RUN instruction เดียวกับ `apt-get install`?",
+    options: [
+      "apt-get ปฏิเสธที่จะรันหาก cleanup command อยู่แยกกัน",
+      "Docker อนุญาตให้มี RUN เพียงอันเดียวต่อ Dockerfile",
+      "หากรันใน RUN แยกต่างหาก package list ถูก commit ไปยัง layer ก่อนหน้าแล้วและไม่สามารถลบได้",
+      "เป็นเพียง convention เท่านั้น ตำแหน่งไม่มีผลต่อขนาด image"
+    ],
+    answer: 2
+  },
+  {
+    q: "base image ใดต่อไปนี้เล็กที่สุดและใช้กันมากที่สุดสำหรับ Node.js production image?",
+    options: [
+      "node:22",
+      "ubuntu:24.04",
+      "node:22-alpine",
+      "debian:bookworm"
+    ],
+    answer: 2
+  },
+  {
+    q: "ข้อจำกัดสำคัญของ distroless image คืออะไร?",
+    options: [
+      "ไม่สามารถรัน Node.js application ได้",
+      "ไม่มี shell ดังนั้นการ debug ภายใน container ที่กำลังรันจึงทำไม่ได้",
+      "ใช้ได้เฉพาะกับ Go application เท่านั้น",
+      "ต้องการ root privilege เสมอ"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="optimization/dockerignore-small" questions={quizDockerignoreSmall} />
+
+<ProgressTracker client:visible id="optimization/dockerignore-small" />

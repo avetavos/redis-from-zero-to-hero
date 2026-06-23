@@ -1,0 +1,154 @@
+---
+title: 'Backup & Restore'
+description: 'Back up, restore, and migrate Docker volumes using a throwaway container that tars the volume data.'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The backup pattern
+
+Docker volumes live inside Docker's managed storage area. You cannot simply `cp` them from the host. The idiomatic way to back up a volume is to spin up a **throwaway container** that mounts both the source volume and a bind-mounted backup directory, then uses `tar` to archive the volume contents.
+
+```bash
+docker run --rm \
+  -v mydata:/data \
+  -v $(pwd):/backup \
+  alpine \
+  tar czf /backup/mydata-backup.tgz -C /data .
+```
+
+Breaking this down:
+
+| Part | Meaning |
+|------|---------|
+| `--rm` | Remove the container immediately after it exits |
+| `-v mydata:/data` | Mount the volume to back up at `/data` |
+| `-v $(pwd):/backup` | Mount the current host directory at `/backup` (the archive lands here) |
+| `alpine` | Minimal image — no extra dependencies needed |
+| `tar czf /backup/mydata-backup.tgz -C /data .` | Create a compressed archive of everything in `/data` |
+
+After the command, `mydata-backup.tgz` exists on your host in the current directory.
+
+## Restoring a volume
+
+To restore from the archive into a volume (creating the volume if it does not exist):
+
+```bash
+# Create a fresh (or existing) volume to restore into
+docker volume create mydata-restored
+
+# Unpack the archive into the volume
+docker run --rm \
+  -v mydata-restored:/data \
+  -v $(pwd):/backup \
+  alpine \
+  tar xzf /backup/mydata-backup.tgz -C /data
+```
+
+`tar xzf` extracts the archive. `-C /data` changes into `/data` before extracting, so the files land directly in the volume root.
+
+## Migrating a volume to another host
+
+Volume migration is backup + copy + restore:
+
+1. **Back up** on the source host (command above — produces `mydata-backup.tgz`).
+2. **Copy** the archive to the target host: `scp mydata-backup.tgz user@target:/home/user/`.
+3. **Restore** on the target host using the restore command above.
+
+The target does not need to know anything about the source host's Docker setup. The volume is just a tar archive at transfer time.
+
+## Backing up a running container's volume safely
+
+If possible, stop the container before backing up to avoid a mid-write inconsistency:
+
+```bash
+docker stop myapp
+docker run --rm -v myapp-data:/data -v $(pwd):/backup alpine tar czf /backup/myapp-data.tgz -C /data .
+docker start myapp
+```
+
+For databases with their own backup tools (e.g., `pg_dump`, `mysqldump`), prefer the database-native dump over a raw volume tar — it produces a consistent snapshot regardless of buffered writes.
+
+## Hands-on practice
+
+The snippet below creates a volume, writes data to it, backs it up to a tar archive, creates a new empty volume, restores the archive into it, and verifies the data is intact.
+
+export const backupRestoreCode = `# 1. Create a source volume and populate it
+docker volume create source-vol
+docker run --rm -v source-vol:/data alpine sh -c "echo 'important data' > /data/record.txt && echo 'more data' > /data/extra.txt"
+
+# 2. Back up the volume to the current directory
+docker run --rm -v source-vol:/data -v $(pwd):/backup alpine tar czf /backup/source-vol.tgz -C /data .
+
+# 3. Verify the archive exists on the host
+ls -lh source-vol.tgz
+
+# 4. Create a new volume and restore into it
+docker volume create restored-vol
+docker run --rm -v restored-vol:/data -v $(pwd):/backup alpine tar xzf /backup/source-vol.tgz -C /data
+
+# 5. Verify restored data
+docker run --rm -v restored-vol:/data alpine ls /data
+docker run --rm -v restored-vol:/data alpine cat /data/record.txt
+
+# 6. Clean up
+docker volume rm source-vol restored-vol
+rm source-vol.tgz`
+
+<PlayWithDocker client:visible code={backupRestoreCode} label="Back up, restore, and verify a Docker volume" />
+
+<Callout title="Back up volumes with a throwaway container that tars the data">
+The one-liner pattern — `docker run --rm -v vol:/data -v $(pwd):/backup alpine tar czf /backup/data.tgz -C /data .` — is the standard, portable way to back up any Docker volume. It works on every host that runs Docker, requires no extra tools, and produces a standard tar archive you can move anywhere.
+</Callout>
+
+export const quizBackupRestore = [
+  {
+    q: "Why do you need a throwaway container to back up a Docker volume instead of copying files directly from the host?",
+    options: [
+      "Docker encrypts volume data so it can only be read via a container",
+      "Docker volumes live in a Docker-managed directory that is not directly accessible from the host",
+      "You must have root access to read volume data, which a container provides",
+      "tar cannot be run on the host without Docker"
+    ],
+    answer: 1
+  },
+  {
+    q: "What does the `-C /data` flag do in the tar command used for volume backup?",
+    options: [
+      "Creates a compressed archive",
+      "Changes into /data before archiving, so files are stored without the /data prefix",
+      "Excludes hidden files from the archive",
+      "Specifies the compression algorithm"
+    ],
+    answer: 1
+  },
+  {
+    q: "What is the recommended approach when backing up a database volume?",
+    options: [
+      "Always use raw volume tar regardless of database type",
+      "Stop Docker completely before backing up",
+      "Use the database-native dump tool for a consistent snapshot",
+      "Mount the volume as read-only during backup"
+    ],
+    answer: 2
+  },
+  {
+    q: "After backing up a volume to `data.tgz`, what is the correct tar flag combination to restore it?",
+    options: [
+      "tar czf",
+      "tar xzf",
+      "tar tzf",
+      "tar rzf"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="data-volumes/backup-restore" questions={quizBackupRestore} />
+
+<ProgressTracker client:visible id="data-volumes/backup-restore" />

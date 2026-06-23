@@ -1,0 +1,17 @@
+:root { --sl-color-accent: #2496ED; --sl-color-accent-low: #0b2540; --sl-color-accent-high: #cfe6fb; }
+
+.tsgo { display: grid; gap: 1rem; grid-template-columns: 1fr; margin: 1rem 0; }
+.tsgo__col header { display:flex; justify-content:space-between; align-items:center; font-weight:600; font-size:.85rem; padding:.25rem .5rem; background:var(--sl-color-gray-6); border-radius:6px 6px 0 0; }
+.tsgo__col pre { margin:0; border-radius:0 0 6px 6px; white-space:pre; overflow:auto; }
+.tsgo__copy { cursor:pointer; font-size:.75rem; border:1px solid var(--sl-color-gray-5); border-radius:4px; padding:.1rem .5rem; background:var(--sl-color-bg); color:inherit; }
+.quiz__q { border:1px solid var(--sl-color-gray-5); border-radius:6px; margin:.5rem 0; padding:.25rem .75rem; }
+.quiz label { display:block; padding:.15rem .25rem; cursor:pointer; } .quiz label.ok { color:var(--sl-color-green-high); font-weight:600; } .quiz label.bad { color:var(--sl-color-red-high); }
+.quiz__score { font-weight:700; }
+.pt { margin:2rem 0; padding:.5rem 1rem; border-radius:6px; border:1px solid var(--sl-color-accent); background:var(--sl-color-bg); cursor:pointer; color:inherit; }
+.pt--done { background:var(--sl-color-accent); color:#001; }
+/* inline code chips inside the No-TS-equivalent callout: dark text on light chip */
+.rs-only :not(pre) > code { background-color:#eceff4; color:#24292f; }
+.pwd { margin:1rem 0; border:1px solid var(--sl-color-gray-5); border-radius:8px; overflow:hidden; }
+.pwd__code { margin:0; border:0; border-radius:0; white-space:pre; overflow:auto; }
+.pwd__btn { display:block; width:100%; cursor:pointer; font-size:.82rem; font-weight:600; border:0; border-top:1px solid var(--sl-color-gray-5); padding:.5rem .8rem; background:var(--sl-color-accent); color:#fff; }
+.pwd__btn:hover { filter:brightness(1.08); }

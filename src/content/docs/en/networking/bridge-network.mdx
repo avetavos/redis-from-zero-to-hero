@@ -1,0 +1,145 @@
+---
+title: 'The Default Bridge Network'
+description: 'How the default bridge network works, container IPs, isolation, and why it lacks DNS name resolution.'
+sidebar:
+  order: 2
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## How the default bridge works
+
+When the Docker daemon starts, it creates a virtual Ethernet switch called `docker0` on the host. This is the default bridge network. Every container that you start without specifying `--network` is connected to `docker0` automatically.
+
+Containers on the default bridge receive an IP address from the `172.17.0.0/16` subnet. The gateway — and the host itself — sits at `172.17.0.1`.
+
+```text
+Host
+  └── docker0 (172.17.0.1)
+        ├── container c1  (172.17.0.2)
+        └── container c2  (172.17.0.3)
+```
+
+## Running two containers and inspecting their IPs
+
+Start an nginx container named `c1` and an Alpine container named `c2`:
+
+```bash
+docker run -d --name c1 nginx:alpine
+docker run -d --name c2 alpine sleep 300
+```
+
+Inspect the IP address assigned to each container:
+
+```bash
+docker inspect c1 --format '{{.NetworkSettings.IPAddress}}'
+docker inspect c2 --format '{{.NetworkSettings.IPAddress}}'
+```
+
+You will see addresses like `172.17.0.2` and `172.17.0.3`.
+
+## Containers can ping each other by IP
+
+Because both containers are on the same `docker0` bridge, layer-3 routing between them works. From `c2`, ping `c1` by its IP address:
+
+```bash
+docker exec c2 ping -c 3 172.17.0.2
+```
+
+The ping succeeds. Traffic flows through `docker0` on the host.
+
+## Container name resolution does NOT work on the default bridge
+
+Now try the same ping using the container name instead of the IP:
+
+```bash
+docker exec c2 ping c1
+```
+
+This fails with `bad address 'c1'` or a similar DNS error. The default bridge network does **not** include an embedded DNS resolver, so container names are not resolvable. Only user-defined networks (covered in the next lesson) provide automatic DNS.
+
+## Cleanup
+
+Stop and remove both containers when you are done:
+
+```bash
+docker stop c1 c2
+docker rm c1 c2
+```
+
+## Hands-on: bridge IP inspection
+
+export const bridgeNetworkCode = `# Start two containers on the default bridge
+docker run -d --name c1 alpine sleep 300
+docker run -d --name c2 alpine sleep 300
+
+# Find their IPs
+C1_IP=\$(docker inspect c1 --format '{{.NetworkSettings.IPAddress}}')
+C2_IP=\$(docker inspect c2 --format '{{.NetworkSettings.IPAddress}}')
+echo "c1 IP: \$C1_IP"
+echo "c2 IP: \$C2_IP"
+
+# Ping c2 from c1 by IP (succeeds)
+docker exec c1 ping -c 3 \$C2_IP
+
+# Try to ping by name (fails — no DNS on default bridge)
+docker exec c1 ping -c 1 c2 || echo "Name resolution failed as expected"
+
+# Cleanup
+docker stop c1 c2 && docker rm c1 c2`;
+
+<PlayWithDocker client:visible code={bridgeNetworkCode} label="Explore the default bridge" />
+
+<Callout title="IP works, names do not">
+On the default bridge, containers reach each other by IP address. Container name resolution requires a user-defined network (covered in the next lesson).
+</Callout>
+
+export const quizBridgeNetwork = [
+  {
+    q: "What subnet does the Docker default bridge network use for container IP addresses?",
+    options: [
+      "192.168.0.0/16",
+      "10.0.0.0/8",
+      "172.17.0.0/16",
+      "172.16.0.0/12"
+    ],
+    answer: 2
+  },
+  {
+    q: "Why does pinging a container by name fail on the default bridge network?",
+    options: [
+      "Containers on the default bridge are fully isolated and cannot communicate at all",
+      "The default bridge does not include an embedded DNS resolver",
+      "Docker blocks ICMP (ping) traffic on the default bridge for security reasons",
+      "Container names are only resolvable from the host, not from other containers"
+    ],
+    answer: 1
+  },
+  {
+    q: "What is the name of the virtual Ethernet switch Docker creates for the default bridge network?",
+    options: [
+      "eth0",
+      "veth0",
+      "docker0",
+      "bridge0"
+    ],
+    answer: 2
+  },
+  {
+    q: "Two containers are on the default bridge network. Which of the following statements is true?",
+    options: [
+      "They can communicate by container name but not by IP address",
+      "They cannot communicate at all without publishing ports",
+      "They can communicate by IP address but not by container name",
+      "They share the same IP address and network namespace"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="networking/bridge-network" questions={quizBridgeNetwork} />
+
+<ProgressTracker client:visible id="networking/bridge-network" />

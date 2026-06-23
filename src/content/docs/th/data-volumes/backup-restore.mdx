@@ -1,0 +1,154 @@
+---
+title: 'Backup & Restore'
+description: 'สำรอง กู้คืน และย้าย Docker volumes โดยใช้ throwaway container ที่ tar ข้อมูล volume'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## รูปแบบการสำรองข้อมูล
+
+Docker volumes อาศัยอยู่ภายในพื้นที่จัดเก็บที่ Docker จัดการ คุณไม่สามารถ `cp` ไฟล์เหล่านั้นจาก host ได้โดยตรง วิธีมาตรฐานในการสำรองข้อมูล volume คือการสร้าง **throwaway container** ที่ mount ทั้ง source volume และไดเรกทอรี backup ที่ bind-mounted แล้วใช้ `tar` เพื่อ archive เนื้อหาของ volume
+
+```bash
+docker run --rm \
+  -v mydata:/data \
+  -v $(pwd):/backup \
+  alpine \
+  tar czf /backup/mydata-backup.tgz -C /data .
+```
+
+อธิบายแต่ละส่วน:
+
+| ส่วน | ความหมาย |
+|-----|---------|
+| `--rm` | ลบ container ทันทีหลังจาก exit |
+| `-v mydata:/data` | Mount volume ที่จะสำรองที่ `/data` |
+| `-v $(pwd):/backup` | Mount ไดเรกทอรี host ปัจจุบันที่ `/backup` (archive จะอยู่ที่นี่) |
+| `alpine` | Image ขนาดเล็ก — ไม่ต้องการ dependency เพิ่มเติม |
+| `tar czf /backup/mydata-backup.tgz -C /data .` | สร้าง compressed archive ของทุกอย่างใน `/data` |
+
+หลังจากคำสั่ง `mydata-backup.tgz` จะอยู่บน host ของคุณในไดเรกทอรีปัจจุบัน
+
+## การกู้คืน volume
+
+เพื่อกู้คืนจาก archive เข้าสู่ volume (สร้าง volume ถ้ายังไม่มี):
+
+```bash
+# สร้าง volume ใหม่ (หรืออันที่มีอยู่) เพื่อกู้คืนเข้าไป
+docker volume create mydata-restored
+
+# แตก archive เข้าสู่ volume
+docker run --rm \
+  -v mydata-restored:/data \
+  -v $(pwd):/backup \
+  alpine \
+  tar xzf /backup/mydata-backup.tgz -C /data
+```
+
+`tar xzf` แตก archive ออก `-C /data` เปลี่ยนไปที่ `/data` ก่อนแตก ทำให้ไฟล์ลงที่ volume root โดยตรง
+
+## การย้าย volume ไปยัง host อื่น
+
+การย้าย volume คือ สำรอง + คัดลอก + กู้คืน:
+
+1. **สำรอง** บน source host (คำสั่งข้างต้น — ผลิต `mydata-backup.tgz`)
+2. **คัดลอก** archive ไปยัง target host: `scp mydata-backup.tgz user@target:/home/user/`
+3. **กู้คืน** บน target host ด้วยคำสั่งกู้คืนข้างต้น
+
+target ไม่จำเป็นต้องรู้อะไรเกี่ยวกับการตั้งค่า Docker ของ source host ระหว่างการถ่ายโอน volume คือแค่ tar archive ธรรมดา
+
+## การสำรองข้อมูล volume ของ container ที่กำลังรันอย่างปลอดภัย
+
+ถ้าเป็นไปได้ ให้หยุด container ก่อนสำรองเพื่อหลีกเลี่ยงความไม่สอดคล้องในกรณีที่กำลังเขียนข้อมูลอยู่:
+
+```bash
+docker stop myapp
+docker run --rm -v myapp-data:/data -v $(pwd):/backup alpine tar czf /backup/myapp-data.tgz -C /data .
+docker start myapp
+```
+
+สำหรับฐานข้อมูลที่มี backup tools ของตัวเอง (เช่น `pg_dump`, `mysqldump`) ให้เลือกใช้ database-native dump แทนการ tar volume โดยตรง — ผลิต snapshot ที่สอดคล้องกันโดยไม่คำนึงถึงการเขียนที่ค้างอยู่ใน buffer
+
+## ฝึกปฏิบัติ
+
+snippet ด้านล่างสร้าง volume เขียนข้อมูลลงไป สำรองข้อมูลไปยัง tar archive สร้าง volume ใหม่ที่ว่างเปล่า กู้คืน archive เข้าไป และตรวจสอบว่าข้อมูลครบถ้วน
+
+export const backupRestoreCode = `# 1. Create a source volume and populate it
+docker volume create source-vol
+docker run --rm -v source-vol:/data alpine sh -c "echo 'important data' > /data/record.txt && echo 'more data' > /data/extra.txt"
+
+# 2. Back up the volume to the current directory
+docker run --rm -v source-vol:/data -v $(pwd):/backup alpine tar czf /backup/source-vol.tgz -C /data .
+
+# 3. Verify the archive exists on the host
+ls -lh source-vol.tgz
+
+# 4. Create a new volume and restore into it
+docker volume create restored-vol
+docker run --rm -v restored-vol:/data -v $(pwd):/backup alpine tar xzf /backup/source-vol.tgz -C /data
+
+# 5. Verify restored data
+docker run --rm -v restored-vol:/data alpine ls /data
+docker run --rm -v restored-vol:/data alpine cat /data/record.txt
+
+# 6. Clean up
+docker volume rm source-vol restored-vol
+rm source-vol.tgz`
+
+<PlayWithDocker client:visible code={backupRestoreCode} label="สำรอง กู้คืน และตรวจสอบ Docker volume" />
+
+<Callout title="สำรอง volumes ด้วย throwaway container ที่ tar ข้อมูล">
+รูปแบบ one-liner — `docker run --rm -v vol:/data -v $(pwd):/backup alpine tar czf /backup/data.tgz -C /data .` — เป็นวิธีมาตรฐานและพกพาได้ในการสำรอง Docker volume ทุกอัน ทำงานได้บนทุก host ที่รัน Docker ไม่ต้องการ tools เพิ่มเติม และผลิต standard tar archive ที่คุณสามารถย้ายไปที่ไหนก็ได้
+</Callout>
+
+export const quizBackupRestore = [
+  {
+    q: "ทำไมคุณต้องใช้ throwaway container เพื่อสำรอง Docker volume แทนที่จะคัดลอกไฟล์โดยตรงจาก host?",
+    options: [
+      "Docker เข้ารหัสข้อมูล volume ทำให้อ่านได้เฉพาะผ่าน container",
+      "Docker volumes อาศัยอยู่ในไดเรกทอรีที่ Docker จัดการซึ่งไม่สามารถเข้าถึงโดยตรงจาก host",
+      "คุณต้องมีสิทธิ์ root เพื่ออ่านข้อมูล volume ซึ่ง container มอบให้",
+      "tar ไม่สามารถรันบน host ได้โดยไม่มี Docker"
+    ],
+    answer: 1
+  },
+  {
+    q: "flag `-C /data` ในคำสั่ง tar ที่ใช้สำรอง volume ทำอะไร?",
+    options: [
+      "สร้าง compressed archive",
+      "เปลี่ยนไปที่ /data ก่อน archive เพื่อให้ไฟล์ถูกเก็บโดยไม่มี prefix /data",
+      "ยกเว้นไฟล์ที่ซ่อนอยู่จาก archive",
+      "ระบุ compression algorithm"
+    ],
+    answer: 1
+  },
+  {
+    q: "แนวทางที่แนะนำเมื่อสำรองข้อมูล volume ของฐานข้อมูลคืออะไร?",
+    options: [
+      "ใช้ raw volume tar เสมอโดยไม่คำนึงถึงประเภทฐานข้อมูล",
+      "หยุด Docker ทั้งหมดก่อนสำรอง",
+      "ใช้ database-native dump tool เพื่อ snapshot ที่สอดคล้องกัน",
+      "Mount volume เป็น read-only ระหว่างการสำรอง"
+    ],
+    answer: 2
+  },
+  {
+    q: "หลังจากสำรอง volume ไปยัง `data.tgz` combination ของ tar flag ที่ถูกต้องในการกู้คืนคืออะไร?",
+    options: [
+      "tar czf",
+      "tar xzf",
+      "tar tzf",
+      "tar rzf"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="data-volumes/backup-restore" questions={quizBackupRestore} />
+
+<ProgressTracker client:visible id="data-volumes/backup-restore" />

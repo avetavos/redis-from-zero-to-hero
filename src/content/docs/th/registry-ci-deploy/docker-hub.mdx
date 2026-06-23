@@ -1,0 +1,153 @@
+---
+title: 'Docker Hub'
+description: 'สร้างบัญชี, ตั้งค่า repository, ทำความเข้าใจ public vs private, authenticate ด้วย docker login, และจัดการ rate limits'
+sidebar:
+  order: 2
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Docker Hub คืออะไร?
+
+**Docker Hub** (`hub.docker.com`) คือ registry สาธารณะค่าเริ่มต้นที่ติดมากับ Docker CLI เมื่อคุณรัน `docker pull nginx` Docker จะแปลงเป็น `docker.io/library/nginx:latest` โดยอัตโนมัติแล้วดาวน์โหลดจาก Docker Hub
+
+Docker Hub รองรับ image สามประเภท:
+
+- **Official images** — ดูแลโดย Docker, Inc. (เช่น `nginx`, `node`, `postgres`) ชื่อสั้นไม่มี prefix
+- **Verified Publisher images** — ดูแลโดยผู้จำหน่ายซอฟต์แวร์ (เช่น `elastic/elasticsearch`) แสดงป้ายสีน้ำเงิน
+- **Community images** — เผยแพร่โดยบุคคลหรือทีม ภายใต้ namespace ของตัวเอง (เช่น `mycompany/myapp`)
+
+## การสร้างบัญชีและ repository
+
+1. สมัครที่ [hub.docker.com](https://hub.docker.com)
+2. สร้าง repository: คลิก **Create Repository**, ตั้งชื่อ, และกำหนด visibility เป็น **Public** หรือ **Private**
+
+ชื่อ image บน Docker Hub ใช้รูปแบบ:
+
+```text
+docker.io/<username>/<repository>:<tag>
+```
+
+ตัวอย่าง:
+
+```text
+docker.io/acme/api-server:2.1.0
+```
+
+เมื่อ push จาก CLI สามารถละ `docker.io/` ได้ — เป็น registry เริ่มต้น:
+
+```bash
+docker push acme/api-server:2.1.0
+```
+
+## Public vs private repository
+
+| | Public | Private |
+|---|---|---|
+| ทุกคน pull ได้ | ใช่ | ไม่ (ต้อง login) |
+| ขีดจำกัด free tier | ไม่จำกัด | 1 repo บน free plan |
+| Use case | Open-source, tutorials | งาน production |
+
+## การ authenticate ด้วย `docker login`
+
+ก่อน push ต้องผ่านการ authenticate Docker Hub รองรับการ login ด้วยรหัสผ่าน แต่ **access token เป็นตัวเลือกที่ดีกว่า** — สามารถกำหนดสิทธิ์ ยกเลิกได้ และไม่เปิดเผยรหัสผ่านของคุณ
+
+สร้าง token ที่ **Docker Hub → Account Settings → Personal access tokens** จากนั้น:
+
+```bash
+docker login
+# ใส่ Docker Hub username
+# ใส่ access token (ไม่ใช่รหัสผ่าน)
+```
+
+หรือส่ง credentials แบบไม่โต้ตอบ (เหมาะกับ script):
+
+```bash
+echo "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --stdin
+```
+
+หลัง login Docker จะเก็บ credentials ไว้ที่ `~/.docker/config.json` logout เพื่อล้างออก:
+
+```bash
+docker logout
+```
+
+## Pull rate limits
+
+Docker Hub จำกัดจำนวนการ pull สำหรับคำขอที่ไม่ผ่านการ authenticate:
+
+| การ authenticate | ขีดจำกัด |
+|---|---|
+| Anonymous (ไม่ login) | 100 pulls / 6 ชั่วโมง ต่อ IP |
+| Free account | 200 pulls / 6 ชั่วโมง |
+| Pro / Team / Business plan | ไม่จำกัด |
+
+CI runner ใช้ IP สาธารณะร่วมกัน ดังนั้น anonymous pull มักถึงขีดจำกัดบ่อย ควร authenticate ใน CI เสมอ แม้ใช้ free account ก็ตาม
+
+## Official vs verified vs community images
+
+```bash
+# Official image — ไม่มี namespace prefix
+docker pull postgres:16
+
+# Verified Publisher image
+docker pull elastic/elasticsearch:8.14.0
+
+# Community image — ต้องมี namespace/repo เสมอ
+docker pull bitnami/postgresql:16
+```
+
+เมื่อเลือก base image ควรเลือก official หรือ verified publisher image เพื่อความปลอดภัยและการดูแลระยะยาว
+
+<Callout title="Authenticate ด้วย docker login; ระวัง anonymous pull rate limits">
+ใช้ personal access token (ไม่ใช่รหัสผ่าน) สำหรับ `docker login` ใน CI pipeline ควร authenticate เสมอก่อน pull base image — anonymous pull ใช้ rate limit ร่วมกันทุกเครื่องบน IP เดียวกัน และอาจทำให้ build ล้มเหลวแบบสุ่ม เก็บ token ไว้เป็น encrypted secret ห้ามใส่ใน Dockerfile หรือ source code
+</Callout>
+
+export const quizDockerHub = [
+  {
+    q: "ประเภท credentials ที่แนะนำสำหรับ docker login บน Docker Hub คืออะไร?",
+    options: [
+      "รหัสผ่าน Docker Hub ของคุณ",
+      "SSH key",
+      "Personal access token",
+      "Client certificate"
+    ],
+    answer: 2
+  },
+  {
+    q: "Anonymous pull rate limit บน Docker Hub (free tier) คือเท่าไร?",
+    options: [
+      "10 pulls ต่อชั่วโมง",
+      "100 pulls ต่อ 6 ชั่วโมง ต่อ IP",
+      "500 pulls ต่อวัน",
+      "ไม่จำกัด"
+    ],
+    answer: 1
+  },
+  {
+    q: "image ประเภทใดที่ Docker, Inc. ดูแลโดยตรงและไม่มี namespace prefix?",
+    options: [
+      "Verified Publisher",
+      "Community",
+      "Official",
+      "Private"
+    ],
+    answer: 2
+  },
+  {
+    q: "Docker เก็บ credentials หลัง docker login สำเร็จไว้ที่ไหน?",
+    options: [
+      "/etc/docker/credentials.json",
+      "~/.docker/config.json",
+      "เว็บไซต์ Docker Hub",
+      "System keychain เท่านั้น"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="registry-ci-deploy/docker-hub" questions={quizDockerHub} />
+
+<ProgressTracker client:visible id="registry-ci-deploy/docker-hub" />

@@ -1,0 +1,243 @@
+---
+title: 'Lifecycle & Scaling'
+description: 'Control the full Compose lifecycle — up, down, logs, build, ps — and scale services horizontally with --scale.'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The core lifecycle commands
+
+Once you have a `compose.yaml`, these six commands cover day-to-day operations.
+
+### docker compose up
+
+Start all services defined in `compose.yaml`. Press `Ctrl-C` to stop.
+
+```bash
+docker compose up
+```
+
+Start in the background (detached mode):
+
+```bash
+docker compose up -d
+```
+
+Rebuild images before starting (useful after changing a Dockerfile):
+
+```bash
+docker compose up -d --build
+```
+
+### docker compose down
+
+Stop and remove containers and the default network. Named volumes are kept.
+
+```bash
+docker compose down
+```
+
+Also remove named volumes:
+
+```bash
+docker compose down -v
+```
+
+### docker compose logs
+
+Stream logs from all services:
+
+```bash
+docker compose logs -f
+```
+
+Stream logs from a specific service:
+
+```bash
+docker compose logs -f app
+```
+
+### docker compose ps
+
+List running containers for the current project:
+
+```bash
+docker compose ps
+```
+
+### docker compose build
+
+Build or rebuild images for services that use `build:`:
+
+```bash
+docker compose build
+```
+
+Build a specific service:
+
+```bash
+docker compose build app
+```
+
+### docker compose exec
+
+Run a command inside a running service container:
+
+```bash
+docker compose exec app sh
+```
+
+## Scaling services
+
+Run multiple replicas of a stateless service with `--scale`:
+
+```bash
+docker compose up -d --scale worker=3
+```
+
+This starts three containers for the `worker` service. Each replica gets a unique name such as `project-worker-1`, `project-worker-2`, `project-worker-3`.
+
+Important constraints on scaled services:
+
+- Do not use a fixed `container_name:` — Compose cannot give three containers the same name.
+- Do not use host-port mappings on a scaled service — you cannot bind the same host port to three containers.
+
+A scalable service definition:
+
+```yaml
+services:
+  worker:
+    image: myapp:latest
+    # No container_name — Compose auto-names replicas
+    # No ports — no host-port binding on scaled services
+    environment:
+      - QUEUE_URL=amqp://rabbit
+```
+
+## Understanding down vs down -v
+
+```text
+docker compose down        stops containers + removes containers + removes networks
+docker compose down -v     same as above + removes named volumes
+```
+
+Named volumes hold your database data, uploaded files, and caches. Only pass `-v` when you deliberately want to wipe that data — for example, when resetting a development database to a clean state.
+
+## Full lifecycle in practice
+
+```bash
+# Build images
+docker compose build
+
+# Start everything detached
+docker compose up -d
+
+# Watch logs
+docker compose logs -f
+
+# Check status
+docker compose ps
+
+# Scale the worker up
+docker compose up -d --scale worker=3
+
+# Shut down (keep volumes)
+docker compose down
+
+# Full reset — destroy volumes too
+docker compose down -v
+```
+
+## Hands-on practice
+
+export const lifecycleCode = `# Create a compose.yaml with a scalable worker
+cat > compose.yaml <<'EOF'
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+
+  worker:
+    image: alpine
+    command: >
+      sh -c "echo Worker \$HOSTNAME started && sleep 20"
+EOF
+
+# Start in detached mode
+docker compose up -d
+
+# Show running containers
+docker compose ps
+
+# Scale workers to 3
+docker compose up -d --scale worker=3
+
+# Show all containers (1 web + 3 workers)
+docker compose ps
+
+# Stream logs from all workers
+docker compose logs worker
+
+# Tear down (containers + network, volumes kept)
+docker compose down
+
+echo "All containers removed. Named volumes (if any) are still intact."`;
+
+<PlayWithDocker client:visible code={lifecycleCode} label="Scale workers and manage lifecycle" />
+
+<Callout title="docker compose down removes containers and networks — add -v for volumes">
+Running `docker compose down` stops and removes containers and the auto-created network. Named volumes are intentionally kept so your data survives a restart. Add the `-v` flag only when you want to destroy the volumes too (e.g., resetting a dev database). There is no undo for `-v`.
+</Callout>
+
+export const quizLifecycle = [
+  {
+    q: "Which command starts services in detached (background) mode?",
+    options: [
+      "docker compose start -d",
+      "docker compose up -d",
+      "docker compose run --detach",
+      "docker compose up --background"
+    ],
+    answer: 1
+  },
+  {
+    q: "What does docker compose down -v do that docker compose down alone does not?",
+    options: [
+      "It stops services more gracefully using SIGTERM",
+      "It also removes named volumes",
+      "It removes the compose.yaml file",
+      "It forces removes stuck containers"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which flag rebuilds images before starting services?",
+    options: [
+      "docker compose up --rebuild",
+      "docker compose up --refresh",
+      "docker compose up --build",
+      "docker compose build && docker compose up"
+    ],
+    answer: 2
+  },
+  {
+    q: "Why can a scaled service not use a host-port mapping like ports: - '8080:80'?",
+    options: [
+      "Scaled services cannot use the ports: key at all",
+      "Three replicas cannot bind to the same single host port simultaneously",
+      "The --scale flag disables port forwarding",
+      "Only the first replica would get the port; the rest would silently skip it"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="compose/lifecycle-scale" questions={quizLifecycle} />
+
+<ProgressTracker client:visible id="compose/lifecycle-scale" />

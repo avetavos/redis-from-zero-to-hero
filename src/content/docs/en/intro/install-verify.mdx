@@ -1,0 +1,172 @@
+---
+title: 'Install & Verify Docker'
+description: 'Install Docker Desktop on macOS or Windows, Docker Engine on Linux, and confirm everything works with docker version, docker info, and docker run hello-world.'
+sidebar:
+  order: 4
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## macOS and Windows — Docker Desktop
+
+Docker Desktop is the recommended installation for macOS and Windows. It bundles the Docker daemon, the CLI, Docker Compose, and a lightweight Linux VM that hosts the container runtime.
+
+1. Download Docker Desktop from [https://www.docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop).
+2. Run the installer and follow the prompts.
+3. Launch Docker Desktop from your Applications folder (macOS) or Start menu (Windows).
+4. Wait for the whale icon in the menu bar / system tray to stop animating — the daemon is ready.
+
+Docker Desktop includes Docker Compose v2 (`docker compose`) out of the box. No separate installation is needed.
+
+## Linux — Docker Engine
+
+On Ubuntu or Debian, install the official Docker Engine packages:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+```
+
+For other distributions (Fedora, RHEL, Arch) the package names and package manager differ, but the general pattern is the same: add Docker's official repository, then install the engine, CLI, and containerd packages. The [official Docker docs](https://docs.docker.com/engine/install/) list distro-specific instructions.
+
+After installation, start the daemon and optionally enable it on boot:
+
+```bash
+sudo systemctl start docker
+sudo systemctl enable docker
+```
+
+To run Docker commands without `sudo`, add your user to the `docker` group:
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+Log out and back in for the group change to take effect.
+
+## Verifying the installation
+
+### docker version
+
+```bash
+docker version
+```
+
+Expected output (versions will differ):
+
+```text
+Client: Docker Engine - Community
+ Version:           26.1.4
+ API version:       1.45
+ Go version:        go1.21.11
+ Git commit:        5650f9b
+ Built:             Wed Jun  5 11:29:39 2024
+ OS/Arch:           linux/amd64
+ Context:           default
+
+Server: Docker Engine - Community
+ Engine:
+  Version:          26.1.4
+  API version:      1.45 (minimum version 1.24)
+  Go version:       go1.21.11
+  Git commit:       fc5ddd1
+  Built:            Wed Jun  5 11:29:39 2024
+  OS/Arch:          linux/amd64
+```
+
+Both a **Client** section and a **Server** section must appear. If the Server section is missing, the daemon is not running.
+
+### docker info
+
+```bash
+docker info
+```
+
+This prints the daemon's full configuration — storage driver, number of containers and images, runtime, cgroup driver, and more. It is useful for troubleshooting and confirming the daemon is healthy.
+
+### docker run hello-world
+
+```bash
+docker run hello-world
+```
+
+Expected output:
+
+```text
+Unable to find image 'hello-world:latest' locally
+latest: Pulling from library/hello-world
+Digest: sha256:...
+Status: Downloaded newer image for hello-world:latest
+
+Hello from Docker!
+This message shows that your installation appears to be working correctly.
+
+To generate this message, Docker took the following steps:
+ 1. The Docker client contacted the Docker daemon.
+ 2. The Docker daemon pulled the "hello-world" image from the Docker Hub.
+ 3. The Docker daemon created a new container from that image which runs the
+    executable that produces the output you are currently reading.
+ 4. The Docker daemon streamed that output to the Docker client, which sent it
+    to your terminal.
+```
+
+Seeing "Hello from Docker!" confirms the full pipeline is working: CLI, daemon, image pull from Docker Hub, and container execution.
+
+export const installVerifyCode = `docker version
+docker run hello-world`;
+
+<PlayWithDocker client:visible code={installVerifyCode} label="Verify your Docker installation in the browser" />
+
+<Callout title="`docker version` shows both client and server">
+The client is the CLI binary on your machine. The server (daemon) may run locally or remotely. If the Server section is missing, the Docker daemon is not running — start Docker Desktop or `sudo systemctl start docker`.
+</Callout>
+
+export const quizInstallVerify = [
+  {
+    q: "Which operating systems use Docker Desktop as the recommended installation method?",
+    options: [
+      "Linux and macOS",
+      "macOS and Windows",
+      "Windows and Linux",
+      "All operating systems — Docker Desktop is universal"
+    ],
+    answer: 1
+  },
+  {
+    q: "What does `docker version` display that `docker --version` does not?",
+    options: [
+      "The current user and home directory",
+      "Both Client and Server (daemon) version details",
+      "The list of installed plugins",
+      "The Docker Hub authentication status"
+    ],
+    answer: 1
+  },
+  {
+    q: "You run `docker version` and only see a Client section — no Server section. What does this most likely mean?",
+    options: [
+      "Your Docker installation is outdated and needs upgrading",
+      "The Docker daemon is not running",
+      "You do not have network access to Docker Hub",
+      "The server section is hidden for security reasons"
+    ],
+    answer: 1
+  },
+  {
+    q: "What is the purpose of running `docker run hello-world` after installing Docker?",
+    options: [
+      "It configures Docker Desktop with default settings",
+      "It verifies the full pipeline: CLI, daemon, image pull, and container execution",
+      "It registers your machine with Docker Hub",
+      "It installs the hello-world image permanently for offline use"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="intro/install-verify" questions={quizInstallVerify} />
+
+<ProgressTracker client:visible id="intro/install-verify" />

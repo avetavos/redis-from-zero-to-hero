@@ -1,0 +1,227 @@
+---
+title: 'ไฟล์ compose.yaml'
+description: 'เรียนรู้โครงสร้างของ compose.yaml: services, image, build, ports, environment และ command — และทำไมจึงไม่ต้องมี version key อีกต่อไป'
+sidebar:
+  order: 2
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## มองภาพรวม compose.yaml
+
+ทุก Compose file มี key ระดับบนสุดที่จำเป็นหนึ่งตัว: `services` ส่วนอื่นๆ — networks, volumes, configs — เป็นตัวเลือก
+
+```yaml
+services:
+  service-name:
+    image: some-image:tag
+    build: .
+    ports:
+      - "hostPort:containerPort"
+    environment:
+      - KEY=value
+    command: ["executable", "arg"]
+```
+
+แต่ละ key ภายใต้ `services` คือชื่อเซอร์วิสที่คุณเลือกเอง Compose สตาร์ทหนึ่งคอนเทนเนอร์ต่อหนึ่งเซอร์วิสโดยค่าเริ่มต้น
+
+## key services
+
+`services` คือ map แต่ละรายการคือเซอร์วิสที่มีชื่อ ชื่อนั้นกลายเป็นทั้ง identifier ของคอนเทนเนอร์และ DNS hostname ที่เซอร์วิสอื่นใช้เพื่อเข้าถึงมันบน network ภายใน
+
+```yaml
+services:
+  api:
+    image: node:22-alpine
+  db:
+    image: postgres:17-alpine
+```
+
+ที่นี่ `api` และ `db` คือสองเซอร์วิส Compose สร้างหนึ่งคอนเทนเนอร์สำหรับแต่ละตัว
+
+## image กับ build
+
+ใช้ `image` เพื่อ pull image สำเร็จรูปจาก registry:
+
+```yaml
+services:
+  web:
+    image: nginx:alpine
+```
+
+ใช้ `build` เพื่อสร้าง image จาก Dockerfile ในเครื่องตอน build time:
+
+```yaml
+services:
+  app:
+    build: .
+```
+
+คุณสามารถรวมทั้งสองได้ — `build` บอกว่า Dockerfile อยู่ที่ไหน และ `image` ตั้งชื่อ image ที่ได้:
+
+```yaml
+services:
+  app:
+    build: .
+    image: myapp:dev
+```
+
+## ports
+
+`ports` map host port ไปยัง container port ในรูปแบบ `"host:container"` ใส่ quote เสมอเพื่อป้องกัน YAML แปลค่าผิด:
+
+```yaml
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+      - "8443:443"
+```
+
+## environment
+
+ส่ง environment variables เข้าคอนเทนเนอร์แบบ list หรือ mapping:
+
+```yaml
+# แบบ list
+environment:
+  - NODE_ENV=production
+  - PORT=3000
+
+# แบบ mapping
+environment:
+  NODE_ENV: production
+  PORT: "3000"
+```
+
+ทั้งสองแบบเทียบเท่ากัน แบบ list คล้าย shell export syntax จึงพบบ่อยกว่า
+
+## command
+
+Override ค่า `CMD` เริ่มต้นจาก image:
+
+```yaml
+services:
+  worker:
+    image: myapp:latest
+    command: ["node", "worker.js"]
+```
+
+ส่งเป็น string ธรรมดาสำหรับคำสั่งที่ให้ shell ตีความ:
+
+```yaml
+services:
+  worker:
+    image: myapp:latest
+    command: node worker.js
+```
+
+## ไม่ต้องมี version key อีกแล้ว
+
+tutorial เก่าๆ จะแสดง `version: "3.9"` ที่ด้านบนของไฟล์ นั่นล้าสมัยแล้ว Compose Specification ไม่ต้องการหรือแนะนำ key `version` อีกต่อไป tooling รุ่นใหม่ไม่สนใจมัน ละเว้นจากไฟล์ใหม่ทั้งหมด
+
+## ตัวอย่างสมบูรณ์
+
+```yaml
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://db:5432/mydb
+    command: ["node", "src/server.js"]
+  db:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_PASSWORD=secret
+```
+
+## ลองปฏิบัติจริง
+
+snippet ด้านล่างเขียน `compose.yaml` สมบูรณ์และสตาร์ทเพื่อตรวจสอบแต่ละ field ในทางปฏิบัติ
+
+export const composeFileCode = `# Write a compose.yaml with two services
+cat > compose.yaml <<'EOF'
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    environment:
+      - NGINX_HOST=localhost
+    command: ["nginx", "-g", "daemon off;"]
+  echo:
+    image: alpine
+    command: ["sh", "-c", "echo 'compose.yaml works!' && sleep 30"]
+EOF
+
+# Start both services
+docker compose up -d
+
+# Show running containers
+docker compose ps
+
+# Read echo output
+docker compose logs echo
+
+# Clean up
+docker compose down`;
+
+<PlayWithDocker client:visible code={composeFileCode} label="สำรวจ fields ของ compose.yaml" />
+
+<Callout title="หนึ่งเซอร์วิส = หนึ่งคอนเทนเนอร์ (โดยค่าเริ่มต้น)">
+แต่ละรายการภายใต้ `services` สตาร์ทหนึ่งคอนเทนเนอร์เว้นแต่คุณจะใช้ `--scale` ชื่อเซอร์วิสทำหน้าที่เป็น hostname บน Compose network ภายใน key `version:` ที่ล้าสมัยที่ด้านบนของไฟล์ไม่จำเป็นอีกต่อไป — ละเว้นจาก compose.yaml ใหม่ทั้งหมด
+</Callout>
+
+export const quizComposeFile = [
+  {
+    q: "key ระดับบนสุดใดที่จำเป็นในทุก compose.yaml?",
+    options: [
+      "version",
+      "networks",
+      "services",
+      "volumes"
+    ],
+    answer: 2
+  },
+  {
+    q: "วิธีที่ถูกต้องในการ map host port 9000 ไปยัง container port 80 ใน compose.yaml คืออะไร?",
+    options: [
+      "ports: 9000-80",
+      'ports:\n  - "9000:80"',
+      "expose: 9000:80",
+      "bind: 9000:80"
+    ],
+    answer: 1
+  },
+  {
+    q: "ทำไมต้องละเว้น key version: จากไฟล์ compose.yaml ใหม่?",
+    options: [
+      "มันทำให้เกิด build error ใน Docker 24+",
+      "มันล้าสมัยแล้ว — Compose Specification ไม่ต้องการหรือใช้มันอีกต่อไป",
+      "มันขัดแย้งกับ key services",
+      "มันทำงานได้กับ docker-compose v1 เท่านั้น"
+    ],
+    answer: 1
+  },
+  {
+    q: "key build: . ในนิยามเซอร์วิสทำอะไร?",
+    options: [
+      "Pull image ที่ tag ด้วยจุด",
+      "สร้าง image จาก Dockerfile ใน directory ปัจจุบัน",
+      "กำหนด working directory ภายในคอนเทนเนอร์",
+      "Copy directory ปัจจุบันเข้าไปในคอนเทนเนอร์"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="compose/compose-file" questions={quizComposeFile} />
+
+<ProgressTracker client:visible id="compose/compose-file" />

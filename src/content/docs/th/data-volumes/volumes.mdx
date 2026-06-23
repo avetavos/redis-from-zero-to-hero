@@ -1,0 +1,179 @@
+---
+title: 'Named Volumes'
+description: 'สร้างและจัดการ Docker named volumes เพื่อเก็บข้อมูลถาวรข้ามการ restart และการสร้าง container ใหม่'
+sidebar:
+  order: 2
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Named volume คืออะไร?
+
+**Named volume** คือหน่วยพื้นที่จัดเก็บที่ Docker สร้างและจัดการแทนคุณ Docker เก็บข้อมูล volume ไว้ในไดเรกทอรีของตัวเอง (โดยทั่วไปคือ `/var/lib/docker/volumes/` บน Linux) คุณอ้างถึง volume ด้วยชื่อ — ไม่ใช่ด้วย host path
+
+เนื่องจาก Docker เป็นเจ้าของตำแหน่งที่จัดเก็บ named volumes จึง:
+
+- ทำงานได้เหมือนกันบน Linux, macOS และ Windows
+- รอดจาก `docker rm` — volume แยกจาก container
+- สามารถแชร์ระหว่าง container หลายตัวพร้อมกันได้
+- เป็นวิธีที่แนะนำในการเก็บข้อมูลแอปพลิเคชันใน production
+
+## การจัดการ volumes
+
+### สร้าง volume
+
+```bash
+docker volume create mydata
+```
+
+### แสดงรายการ volumes ทั้งหมด
+
+```bash
+docker volume ls
+```
+
+ผลลัพธ์ที่คาดหวัง:
+
+```text
+DRIVER    VOLUME NAME
+local     mydata
+```
+
+### ตรวจสอบรายละเอียด volume
+
+```bash
+docker volume inspect mydata
+```
+
+```text
+[
+  {
+    "CreatedAt": "2024-06-01T10:00:00Z",
+    "Driver": "local",
+    "Mountpoint": "/var/lib/docker/volumes/mydata/_data",
+    "Name": "mydata",
+    "Scope": "local"
+  }
+]
+```
+
+`Mountpoint` คือที่ที่ Docker เก็บข้อมูลจริงบน host คุณแทบไม่จำเป็นต้องเข้าถึงโดยตรง — Docker ซ่อนรายละเอียดนั้นไว้
+
+### ลบ volume
+
+```bash
+docker volume rm mydata
+```
+
+ไม่สามารถลบ volume ได้ขณะที่ container กำลังใช้งานอยู่ ลบ container ก่อน หรือใช้ `docker volume prune` เพื่อลบ volumes ที่ไม่ได้ใช้ทั้งหมดในครั้งเดียว
+
+## การ mount volume เข้า container
+
+มีสองรูปแบบ syntax ทั้งสองเทียบเท่ากัน — ใช้แบบไหนก็ได้ที่คุณอ่านง่ายกว่า
+
+**Short `-v` syntax:**
+
+```bash
+docker run -d --name myapp -v mydata:/app/data myimage
+```
+
+**Long `--mount` syntax (ชัดเจนและแนะนำสำหรับ scripts):**
+
+```bash
+docker run -d --name myapp \
+  --mount type=volume,source=mydata,target=/app/data \
+  myimage
+```
+
+ถ้า volume `mydata` ยังไม่มีอยู่ Docker จะสร้างให้อัตโนมัติเมื่อคุณรัน container
+
+## ข้อมูลคงอยู่ข้ามการสร้าง container ใหม่
+
+คุณสมบัติสำคัญของ named volume: คุณสามารถลบ container และสร้างใหม่ได้ ข้อมูลทั้งหมดที่เขียนลง volume ยังคงอยู่ครบถ้วน
+
+```bash
+# รัน container และเขียนข้อมูล
+docker run --name writer -v mydata:/app/data alpine sh -c "echo 'persistent' > /app/data/file.txt"
+
+# ลบ container
+docker rm writer
+
+# สร้าง container ใหม่ mount volume เดิม
+docker run --rm -v mydata:/app/data alpine cat /app/data/file.txt
+# Output: persistent
+```
+
+## ฝึกปฏิบัติ
+
+snippet ด้านล่างรัน container เขียนข้อมูลลง named volume ลบ container แล้ว mount volume เดิมใน container ใหม่เพื่อพิสูจน์ว่าข้อมูลรอดมาได้
+
+export const namedVolumeCode = `# 1. Create a named volume
+docker volume create demo-vol
+
+# 2. Write data into the volume via a container
+docker run --rm -v demo-vol:/data alpine sh -c "echo 'data survives!' > /data/message.txt"
+
+# 3. Read it back from a completely new container
+docker run --rm -v demo-vol:/data alpine cat /data/message.txt
+
+# 4. Inspect the volume
+docker volume inspect demo-vol
+
+# 5. Clean up
+docker volume rm demo-vol`
+
+<PlayWithDocker client:visible code={namedVolumeCode} label="เขียนข้อมูล สร้าง container ใหม่ ข้อมูลยังอยู่" />
+
+<Callout title="Named volumes เป็นวิธีที่แนะนำในการเก็บข้อมูลถาวร">
+ใช้ named volumes สำหรับข้อมูลที่แอปพลิเคชันต้องเก็บรักษาข้ามการ deploy — ไฟล์ฐานข้อมูล เนื้อหาที่อัปโหลด ข้อมูล cache Docker จัดการตำแหน่งที่จัดเก็บ ทำให้ configuration สามารถพกพาได้ข้ามสภาพแวดล้อม host ต่างๆ โดยไม่ต้องเปลี่ยน flag แม้แต่อันเดียว
+</Callout>
+
+export const quizVolumes = [
+  {
+    q: "เกิดอะไรขึ้นกับ named volume เมื่อคุณรัน `docker rm` บน container ที่ใช้งานอยู่?",
+    options: [
+      "Volume ถูกลบพร้อมกับ container",
+      "Volume ถูก archive อัตโนมัติ",
+      "Volume ไม่ได้รับผลกระทบ — คงอยู่แยกจาก container",
+      "Volume ถูกแปลงเป็น bind mount"
+    ],
+    answer: 2
+  },
+  {
+    q: "flag ใดที่ mount named volume ด้วย short syntax?",
+    options: [
+      "--volume-name",
+      "-v name:/container/path",
+      "--attach name:/container/path",
+      "--bind name:/container/path"
+    ],
+    answer: 1
+  },
+  {
+    q: "`docker volume prune` ทำอะไร?",
+    options: [
+      "ลบ volumes ทั้งหมดรวมถึงที่ใช้โดย running containers",
+      "บีบอัดข้อมูล volume เพื่อประหยัดพื้นที่ดิสก์",
+      "ลบ volumes ทั้งหมดที่ไม่ได้อ้างอิงโดย container ใดๆ",
+      "สำรองข้อมูล volumes ทั้งหมดไปยัง tar archive"
+    ],
+    answer: 2
+  },
+  {
+    q: "ถ้าคุณระบุชื่อ volume ที่ยังไม่มีอยู่ใน `docker run` Docker จะทำอะไร?",
+    options: [
+      "คำสั่งล้มเหลวพร้อม error",
+      "Docker สร้าง volume ให้อัตโนมัติ",
+      "Docker ใช้ tmpfs mount แทน",
+      "Docker สร้าง anonymous volume ที่มีชื่อสุ่ม"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="data-volumes/volumes" questions={quizVolumes} />
+
+<ProgressTracker client:visible id="data-volumes/volumes" />

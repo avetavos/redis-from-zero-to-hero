@@ -1,0 +1,125 @@
+---
+title: 'คอนเทนเนอร์กับ VM'
+description: 'ทำความเข้าใจว่าคอนเทนเนอร์แตกต่างจากเครื่องเสมือนอย่างไร เมื่อใดควรเลือกใช้แต่ละแบบ และความแตกต่างระหว่างอิมเมจกับคอนเทนเนอร์ที่กำลังทำงานอยู่'
+sidebar:
+  order: 3
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ความแตกต่างพื้นฐาน
+
+ทั้งคอนเทนเนอร์และเครื่องเสมือน (VM) แก้ปัญหาเดียวกัน นั่นคือการรันซอฟต์แวร์ในสภาพแวดล้อมที่แยกออกจากกัน แต่ทั้งสองบรรลุการแยกนี้ที่ชั้นต่างกันของสแต็ก
+
+**VM** บูตระบบปฏิบัติการเกสต์แบบเต็มรูปแบบภายในไฮเปอร์ไวเซอร์ VM แต่ละตัวมีเคอร์เนล ไลบรารีระบบ และ init system ของตัวเอง ทำให้ VM มีน้ำหนักมาก: ใช้เวลาเป็นวินาที (บางครั้งเป็นนาที) ในการเริ่มต้น และใช้แรมหลายร้อยเมกะไบต์ก่อนที่แอปพลิเคชันของคุณจะโหลดด้วยซ้ำ
+
+**คอนเทนเนอร์** ข้ามขั้นตอน guest OS ทั้งหมด มันแชร์เคอร์เนลของโฮสต์และแยกเฉพาะ process namespace, filesystem และ network โดยใช้ฟีเจอร์เคอร์เนล Linux (namespaces และ cgroups) ทำให้คอนเทนเนอร์มีน้ำหนักเบา: การเริ่มต้นวัดเป็นมิลลิวินาที และการใช้หน่วยความจำน้อยมาก
+
+## การเปรียบเทียบสแต็ก
+
+```text
+Virtual Machine stack
+─────────────────────
+  Application
+  Guest OS (kernel + system libs)
+  Hypervisor (VMware, KVM, Hyper-V…)
+  Host OS Kernel
+  Hardware
+
+Container stack
+───────────────
+  Application
+  Container Runtime (containerd / runc)
+  Host OS Kernel
+  Hardware
+```
+
+ชั้นไฮเปอร์ไวเซอร์และ guest OS หายไปในโมเดลคอนเทนเนอร์ คอนเทนเนอร์หลายตัวบนโฮสต์เดียวกันแชร์เคอร์เนลเดียว ทำให้ขนาดต่อคอนเทนเนอร์เล็กลงอย่างมาก
+
+## เมื่อใดควรใช้คอนเทนเนอร์
+
+- **Microservices** — แต่ละบริการส่งมอบเป็นอิมเมจของตัวเอง ปรับขนาดได้อิสระ และรีสตาร์ทโดยไม่กระทบ sibling อื่น
+- **CI/CD pipelines** — คอนเทนเนอร์แบบชั่วคราวให้ทุก build มีสภาพแวดล้อมที่สะอาดและทำซ้ำได้ ซึ่งจะหายไปเมื่อเสร็จสิ้น
+- **สภาพแวดล้อมนักพัฒนาที่สอดคล้องกัน** — อิมเมจเดียวกันทำงานบนแล็ปท็อปของนักพัฒนา ใน CI และในโปรดักชัน กำจัดบั๊ก "works on my machine"
+- **การขยายขนาดแนวนอนที่รวดเร็ว** — คอนเทนเนอร์ instance ใหม่เริ่มต้นในมิลลิวินาที ทำให้ auto-scaling ตอบสนองได้ดี
+
+## เมื่อใดควรใช้ VM
+
+- **การแยกความปลอดภัยที่แข็งแกร่ง** — คอนเทนเนอร์ที่ถูกโจมตีอาจหลุดออกสู่เคอร์เนลโฮสต์ได้ในทางทฤษฎี; ขอบเขตไฮเปอร์ไวเซอร์ของ VM เป็นกำแพงที่แข็งแกร่งกว่ามาก
+- **ต่างตระกูล OS** — การรัน Windows workloads บนโฮสต์ Linux (หรือกลับกัน) ต้องใช้ VM เพราะคอนเทนเนอร์แชร์เคอร์เนลโฮสต์
+- **แอปพลิเคชันเลกาซี** — ซอฟต์แวร์ที่ต้องการเวอร์ชันเคอร์เนลเฉพาะ, kernel module หรือการกำหนดค่าระดับระบบที่ไม่สามารถแชร์กับโฮสต์ได้
+
+## อิมเมจกับคอนเทนเนอร์
+
+คำสองคำนี้มักสับสนกัน ความแตกต่างมีความแม่นยำดังนี้:
+
+- **อิมเมจ** คือ blueprint แบบ static อ่านอย่างเดียว — snapshot ของ layered filesystem ที่รวมแอปพลิเคชัน dependencies และ metadata ของคุณ อิมเมจสร้างครั้งเดียวและแชร์ผ่าน registry
+- **คอนเทนเนอร์** คือ instance ที่กำลังทำงาน (หรือหยุด) ของอิมเมจ เมื่อ Docker เริ่มคอนเทนเนอร์ มันเพิ่ม thin writable layer บน read-only image layers คุณสามารถรันคอนเทนเนอร์หลายตัวจากอิมเมจเดียวกันพร้อมกัน; ทั้งหมดแชร์ image layers เดียวกัน แต่แต่ละตัวได้รับ writable layer ของตัวเอง
+
+```text
+Image (read-only layers)
+  └─ Layer 3: app binary
+  └─ Layer 2: python:3.12
+  └─ Layer 1: debian:bookworm-slim
+
+Container = Image + writable layer
+  └─ Writable layer (runtime changes)
+  └─ Layer 3: app binary       ← shared, read-only
+  └─ Layer 2: python:3.12      ← shared, read-only
+  └─ Layer 1: debian:bookworm-slim  ← shared, read-only
+```
+
+การลบคอนเทนเนอร์จะลบเฉพาะ writable layer ของมัน อิมเมจพื้นฐานยังคงอยู่และสามารถนำมาใช้สร้างคอนเทนเนอร์ใหม่ได้ทันที
+
+<Callout title="คอนเทนเนอร์จำลอง OS; VM จำลองฮาร์ดแวร์">
+คอนเทนเนอร์แชร์เคอร์เนลโฮสต์และแยกเฉพาะ process namespace, filesystem และ network VM รันระบบปฏิบัติการแบบเต็มรูปแบบภายในไฮเปอร์ไวเซอร์ — หนักกว่าแต่ให้การแยกที่แข็งแกร่งกว่า (เคอร์เนลต่างกัน, OS ต่างตระกูล)
+</Callout>
+
+export const quizContainersVsVMs = [
+  {
+    q: "คอนเทนเนอร์แชร์อะไรกับโฮสต์ที่ VM ไม่แชร์?",
+    options: [
+      "ไฮเปอร์ไวเซอร์",
+      "เคอร์เนลโฮสต์",
+      "ไลบรารีของ guest OS",
+      "BIOS ของฮาร์ดแวร์"
+    ],
+    answer: 1
+  },
+  {
+    q: "ข้อใดอธิบายได้ดีที่สุดว่าทำไมคอนเทนเนอร์เริ่มต้นเร็วกว่า VM?",
+    options: [
+      "คอนเทนเนอร์ใช้ CPU ที่เร็วกว่าซึ่งจัดสรรโดยไฮเปอร์ไวเซอร์",
+      "คอนเทนเนอร์ข้ามการบูต guest OS kernel",
+      "คอนเทนเนอร์ถูก compile เป็น native machine code",
+      "คอนเทนเนอร์ข้าม host filesystem ทั้งหมด"
+    ],
+    answer: 1
+  },
+  {
+    q: "คุณต้องการรัน Windows workload บนโฮสต์ Linux ควรใช้อะไร?",
+    options: [
+      "Docker container ที่มี Windows base image",
+      "VM เพราะคอนเทนเนอร์แชร์เคอร์เนลโฮสต์",
+      "Docker Compose ที่มี flag windows: true",
+      "คอนเทนเนอร์ที่มี --platform=windows"
+    ],
+    answer: 1
+  },
+  {
+    q: "ความสัมพันธ์ระหว่าง Docker image กับ Docker container คืออะไร?",
+    options: [
+      "เป็นสิ่งเดียวกัน — คำทั้งสองสามารถใช้แทนกันได้",
+      "image คือ running instance; container คือ static blueprint",
+      "image คือ static blueprint; container คือ running instance ที่มี writable layer อยู่ด้านบน",
+      "container คือ compressed archive ของหลาย image"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="intro/containers-vs-vms" questions={quizContainersVsVMs} />
+
+<ProgressTracker client:visible id="intro/containers-vs-vms" />

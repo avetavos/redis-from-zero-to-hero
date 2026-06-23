@@ -1,0 +1,195 @@
+---
+title: 'CMD vs ENTRYPOINT'
+description: 'ทำความเข้าใจ exec form กับ shell form, CMD และ ENTRYPOINT ทำงานร่วมกันอย่างไร และจะกำหนด executable ที่ตายตัวพร้อม default arguments ที่ปรับแต่งได้อย่างไร'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## สองวิธีในการระบุสิ่งที่ container จะรัน
+
+Docker ให้ instruction สองตัวเพื่อกำหนดว่าจะเกิดอะไรขึ้นเมื่อ container เริ่มทำงาน:
+
+- **`CMD`** — คำสั่งเริ่มต้น (หรืออาร์กิวเมนต์เริ่มต้น) override ได้ง่ายตอน `docker run`
+- **`ENTRYPOINT`** — executable ที่ตายตัว override ได้ยากกว่า ทำให้ container ทำตัวเหมือนโปรแกรมเฉพาะตัวหนึ่ง
+
+ทั้งสองมักถูกสับสนกัน การเข้าใจความต่างจะช่วยให้คุณสร้าง container ที่ใช้งานอย่างถูกต้องได้ง่าย
+
+## exec form กับ shell form
+
+ทั้ง `CMD` และ `ENTRYPOINT` รับ syntax ได้สองรูปแบบ
+
+### exec form (แนะนำ)
+
+```dockerfile
+CMD ["node", "server.js"]
+ENTRYPOINT ["node"]
+```
+
+อาร์กิวเมนต์อยู่ในรูป JSON array Docker จะรันโปรแกรม **โดยตรง** — ไม่มี shell มาเกี่ยวข้อง PID 1 ภายใน container คือโปรเซสของคุณ นั่นหมายความว่ามันจะรับสัญญาณ OS (SIGTERM, SIGINT) ได้อย่างถูกต้อง ซึ่งสำคัญมากต่อการ shutdown แบบ graceful
+
+### shell form
+
+```dockerfile
+CMD node server.js
+ENTRYPOINT node
+```
+
+Docker จะห่อคำสั่งไว้ใน `/bin/sh -c "..."` shell จะกลายเป็น PID 1 แทนที่จะเป็นโปรเซสของคุณ แอปของคุณจะรันเป็น child ของ shell และสัญญาณ OS จะไม่ถูกส่งต่ออย่างเชื่อถือได้ หลีกเลี่ยงรูปแบบนี้สำหรับ production service
+
+## CMD — คำสั่งเริ่มต้น
+
+`CMD` กำหนดคำสั่งเริ่มต้นที่ container จะรัน ถ้าผู้ใช้ส่งคำสั่งมาตอน `docker run` มันจะ **แทนที่** `CMD` ทั้งหมด
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM alpine:3.20
+CMD ["echo", "Hello from CMD!"]
+```
+
+```bash
+# Uses CMD
+docker run --rm myimage
+# Output: Hello from CMD!
+
+# Overrides CMD completely
+docker run --rm myimage echo "Custom message"
+# Output: Custom message
+```
+
+## ENTRYPOINT — executable ที่ตายตัว
+
+`ENTRYPOINT` กำหนด executable ที่จะรันเสมอ อาร์กิวเมนต์ที่ส่งมาตอน `docker run` จะถูก **ต่อท้าย** entry point — ไม่ใช่แทนที่
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM alpine:3.20
+ENTRYPOINT ["ping"]
+CMD ["-c", "3", "8.8.8.8"]
+```
+
+```bash
+# Uses ENTRYPOINT + CMD defaults
+docker run --rm pinger
+# Runs: ping -c 3 8.8.8.8
+
+# Appends to ENTRYPOINT, replaces CMD
+docker run --rm pinger -c 1 1.1.1.1
+# Runs: ping -c 1 1.1.1.1
+```
+
+## ENTRYPOINT + CMD ใช้ร่วมกัน (แพตเทิร์น)
+
+แพตเทิร์นที่ยืดหยุ่นที่สุดและเป็นสำนวนที่นิยมใช้:
+
+- **`ENTRYPOINT`** = executable (ตายตัว)
+- **`CMD`** = อาร์กิวเมนต์เริ่มต้น (ผู้ใช้แทนที่ได้)
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+COPY server.js .
+ENTRYPOINT ["node"]
+CMD ["server.js"]
+```
+
+```bash
+# Default: node server.js
+docker run --rm myapp
+
+# Override: node --version
+docker run --rm myapp --version
+```
+
+## การ override ENTRYPOINT
+
+คุณยังสามารถ override `ENTRYPOINT` ได้เมื่อจำเป็นโดยใช้แฟล็ก `--entrypoint`:
+
+```bash
+docker run --rm --entrypoint sh myapp
+```
+
+คำสั่งนี้จะพาคุณเข้าสู่ shell ภายใน container — มีประโยชน์สำหรับการ debug
+
+## ตารางสรุป
+
+| | ไม่ override | `docker run img args` | `docker run --entrypoint X img` |
+|---|---|---|---|
+| มีแค่ CMD | รัน CMD | แทนที่ CMD ด้วย args | n/a — ใช้ entrypoint ใหม่ |
+| มีแค่ ENTRYPOINT | รัน ENTRYPOINT | ต่อ args ท้าย ENTRYPOINT | แทนที่ ENTRYPOINT |
+| ENTRYPOINT + CMD | รัน ENTRYPOINT + CMD เริ่มต้น | แทนที่ CMD ด้วย args | แทนที่ ENTRYPOINT |
+
+## ฝึกลงมือทำ
+
+export const cmdEntrypointCode = `# syntax=docker/dockerfile:1
+FROM alpine:3.20
+# ENTRYPOINT sets the fixed executable
+# CMD sets the default arguments
+ENTRYPOINT ["echo"]
+CMD ["Hello from ENTRYPOINT + CMD!"]
+# --- build ---
+# docker build -t greet .
+# Run with defaults (uses CMD):
+# docker run --rm greet
+# Override CMD with your own message:
+# docker run --rm greet "My custom message"
+# Override ENTRYPOINT entirely:
+# docker run --rm --entrypoint sh greet`;
+
+<PlayWithDocker client:visible code={cmdEntrypointCode} label="Experiment with CMD and ENTRYPOINT" />
+
+<Callout title="ใช้ exec form; ENTRYPOINT กำหนด executable, CMD กำหนดค่าเริ่มต้น">
+ให้เลือกใช้ exec form (`["executable", "arg"]`) แทน shell form เสมอ — โปรเซสของคุณจะรับสัญญาณ OS โดยตรงในฐานะ PID 1 ทำให้ shutdown แบบ graceful ได้ ใช้ `ENTRYPOINT` เพื่อนิยามว่า container _คือ_ อะไร (เช่น ตัวรัน Node.js, เครื่องมือ CLI) ใช้ `CMD` เพื่อจัดเตรียมอาร์กิวเมนต์เริ่มต้นที่สมเหตุสมผลซึ่งผู้ใช้สามารถ override ได้ง่ายตอน `docker run` โดยไม่ต้องแตะ Dockerfile
+</Callout>
+
+export const quizCmdEntrypoint = [
+  {
+    q: "ทำไม exec form (`[\"node\", \"server.js\"]`) จึงถูกแนะนำมากกว่า shell form (`node server.js`)?",
+    options: [
+      "exec form รันได้เร็วกว่าเพราะข้าม shell",
+      "exec form ทำให้โปรเซสเป็น PID 1 จึงรับสัญญาณ OS โดยตรงเพื่อการ shutdown แบบ graceful",
+      "shell form ถูก deprecated และจะถูกนำออกใน Docker เวอร์ชันถัดไป",
+      "exec form อนุญาตให้มีหลายคำสั่งใน instruction เดียว"
+    ],
+    answer: 1
+  },
+  {
+    q: "ถ้า Dockerfile มีทั้ง ENTRYPOINT [\"ping\"] และ CMD [\"-c\", \"3\", \"8.8.8.8\"] อะไรจะรันเมื่อคุณสั่ง `docker run img -c 1 1.1.1.1`?",
+    options: [
+      "ping -c 3 8.8.8.8 (CMD ไม่ถูก override)",
+      "ping -c 1 1.1.1.1 (CMD ถูกแทนที่ด้วยอาร์กิวเมนต์ของผู้ใช้ ส่วน ENTRYPOINT ถูกคงไว้)",
+      "-c 1 1.1.1.1 (ENTRYPOINT ถูกตัดทิ้ง)",
+      "ping -c 3 8.8.8.8 -c 1 1.1.1.1 (อาร์กิวเมนต์ถูกรวมเข้าด้วยกัน)"
+    ],
+    answer: 1
+  },
+  {
+    q: "แฟล็ก docker run ใดที่ให้คุณแทนที่ ENTRYPOINT ตอน runtime?",
+    options: [
+      "--cmd",
+      "--override",
+      "--entrypoint",
+      "--exec"
+    ],
+    answer: 2
+  },
+  {
+    q: "การใช้ CMD ตามสำนวนที่นิยมเมื่อมีการตั้ง ENTRYPOINT ไว้ด้วยคืออะไร?",
+    options: [
+      "CMD ถูกละเว้นเมื่อมี ENTRYPOINT อยู่",
+      "CMD จัดเตรียมอาร์กิวเมนต์เริ่มต้นให้ ENTRYPOINT ซึ่งผู้ใช้สามารถ override ได้",
+      "CMD กำหนด working directory ให้โปรเซส ENTRYPOINT",
+      "CMD จัดเตรียม executable สำรองหาก ENTRYPOINT ล้มเหลว"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="images-dockerfile/cmd-entrypoint" questions={quizCmdEntrypoint} />
+
+<ProgressTracker client:visible id="images-dockerfile/cmd-entrypoint" />

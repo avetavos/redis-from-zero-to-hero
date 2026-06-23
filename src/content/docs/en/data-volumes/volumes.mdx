@@ -1,0 +1,179 @@
+---
+title: 'Named Volumes'
+description: 'Create and manage Docker named volumes to persist data across container restarts and replacements.'
+sidebar:
+  order: 2
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is a named volume?
+
+A **named volume** is a storage unit that Docker creates and manages on your behalf. Docker stores volume data under its own directory (typically `/var/lib/docker/volumes/` on Linux). You refer to the volume by name — never by a host path.
+
+Because Docker owns the storage location, named volumes:
+
+- Work identically on Linux, macOS, and Windows.
+- Survive `docker rm` — the volume is separate from the container.
+- Can be shared between multiple containers simultaneously.
+- Are the recommended way to persist application data in production.
+
+## Managing volumes
+
+### Create a volume
+
+```bash
+docker volume create mydata
+```
+
+### List all volumes
+
+```bash
+docker volume ls
+```
+
+Expected output:
+
+```text
+DRIVER    VOLUME NAME
+local     mydata
+```
+
+### Inspect a volume
+
+```bash
+docker volume inspect mydata
+```
+
+```text
+[
+  {
+    "CreatedAt": "2024-06-01T10:00:00Z",
+    "Driver": "local",
+    "Mountpoint": "/var/lib/docker/volumes/mydata/_data",
+    "Name": "mydata",
+    "Scope": "local"
+  }
+]
+```
+
+`Mountpoint` is where Docker stores the actual data on the host. You rarely need to access it directly — Docker abstracts it away.
+
+### Remove a volume
+
+```bash
+docker volume rm mydata
+```
+
+A volume cannot be removed while a container is using it. Remove the container first, or use `docker volume prune` to delete all unused volumes at once.
+
+## Mounting a volume into a container
+
+There are two syntaxes. Both are equivalent — use whichever you find more readable.
+
+**Short `-v` syntax:**
+
+```bash
+docker run -d --name myapp -v mydata:/app/data myimage
+```
+
+**Long `--mount` syntax (explicit and recommended for scripts):**
+
+```bash
+docker run -d --name myapp \
+  --mount type=volume,source=mydata,target=/app/data \
+  myimage
+```
+
+If the volume `mydata` does not exist yet, Docker creates it automatically when you run the container.
+
+## Data persists across container replacements
+
+The key property of a named volume: you can delete the container and recreate it, and all the data written to the volume is still there.
+
+```bash
+# Run a container and write data
+docker run --name writer -v mydata:/app/data alpine sh -c "echo 'persistent' > /app/data/file.txt"
+
+# Remove the container
+docker rm writer
+
+# Start a brand-new container mounting the same volume
+docker run --rm -v mydata:/app/data alpine cat /app/data/file.txt
+# Output: persistent
+```
+
+## Hands-on practice
+
+The snippet below runs a container, writes data to a named volume, removes the container, and mounts the same volume in a new container to prove the data survived.
+
+export const namedVolumeCode = `# 1. Create a named volume
+docker volume create demo-vol
+
+# 2. Write data into the volume via a container
+docker run --rm -v demo-vol:/data alpine sh -c "echo 'data survives!' > /data/message.txt"
+
+# 3. Read it back from a completely new container
+docker run --rm -v demo-vol:/data alpine cat /data/message.txt
+
+# 4. Inspect the volume
+docker volume inspect demo-vol
+
+# 5. Clean up
+docker volume rm demo-vol`
+
+<PlayWithDocker client:visible code={namedVolumeCode} label="Write data, recreate container, data persists" />
+
+<Callout title="Named volumes are the preferred way to persist data">
+Use named volumes for any data your application must keep across deployments — database files, uploaded content, cache warm-up data. Docker manages the storage location, making the configuration portable across different host environments without changing a single flag.
+</Callout>
+
+export const quizVolumes = [
+  {
+    q: "What happens to a named volume when you run `docker rm` on the container using it?",
+    options: [
+      "The volume is deleted along with the container",
+      "The volume is archived automatically",
+      "The volume is unaffected — it persists independently of the container",
+      "The volume is converted to a bind mount"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which flag mounts a named volume using the short syntax?",
+    options: [
+      "--volume-name",
+      "-v name:/container/path",
+      "--attach name:/container/path",
+      "--bind name:/container/path"
+    ],
+    answer: 1
+  },
+  {
+    q: "What does `docker volume prune` do?",
+    options: [
+      "Removes all volumes including those used by running containers",
+      "Compresses volume data to save disk space",
+      "Deletes all volumes not referenced by any container",
+      "Backs up all volumes to a tar archive"
+    ],
+    answer: 2
+  },
+  {
+    q: "If you specify a volume name that does not exist in a `docker run` command, what does Docker do?",
+    options: [
+      "The command fails with an error",
+      "Docker creates the volume automatically",
+      "Docker uses a tmpfs mount instead",
+      "Docker creates an anonymous volume with a random name"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="data-volumes/volumes" questions={quizVolumes} />
+
+<ProgressTracker client:visible id="data-volumes/volumes" />

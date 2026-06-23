@@ -1,0 +1,87 @@
+---
+title: 'บทนำและแนวคิด — ภาพรวมโมดูล'
+description: 'ทำความเข้าใจปัญหาที่ Docker แก้ไข รัน container แรกของคุณ และดูสิ่งที่โมดูลนี้ครอบคลุม'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ทำไมต้องใช้ Docker?
+
+นักพัฒนาทุกคนเคยได้ยิน: *"มันทำงานได้บนเครื่องฉัน"* แอปพลิเคชันทำงานได้อย่างสมบูรณ์ในระหว่างการพัฒนา แต่พังในสภาพแวดล้อม staging หรือ production เพราะ OS ที่ต่างกัน เวอร์ชัน library ที่ไม่ตรงกัน หรือ environment variable ที่ขาดหายไป Docker กำจัดช่องว่างนั้นด้วยการบรรจุแอปพลิเคชันของคุณพร้อมกับทุกสิ่งที่จำเป็น ไม่ว่าจะเป็น runtime, dependencies, และการกำหนดค่า ลงใน unit ที่พกพาได้หน่วยเดียวที่เรียกว่า **container**
+
+ด้วย Docker คุณจะได้รับ:
+
+- **สภาพแวดล้อมที่สม่ำเสมอ** — container ทำงานเหมือนกันทุกประการบนแล็ปท็อป, CI server, และ cloud VM
+- **การแยกส่วน (Isolation)** — แต่ละ container มี filesystem และ process space เป็นของตัวเอง ดังนั้นแอปพลิเคชันจึงไม่รบกวนกัน
+- **ความเร็ว** — container เริ่มต้นในหน่วยมิลลิวินาที ไม่ใช่นาที
+- **ความสามารถในการทำซ้ำ** — `Dockerfile` คือสูตรที่แม่นยำ ใครก็ตามที่ build มันจะได้ image เดียวกัน
+
+## สิ่งที่โมดูลนี้ครอบคลุม
+
+| บทเรียน | สิ่งที่จะเรียนรู้ |
+|---|---|
+| หน้านี้ | ปัญหาที่ Docker แก้ไข, container แรกของคุณ |
+| Docker คืออะไร? | สถาปัตยกรรม: client, daemon, images, registries |
+| Containers กับ VMs | การแชร์ kernel, isolation แบบเบา, เมื่อใดควรใช้อะไร |
+| ติดตั้งและตรวจสอบ | การติดตั้ง Docker, ตรวจสอบการติดตั้ง |
+| Container แรกของคุณ | Interactive + detached containers, docker ps, docker stop |
+
+## Container แรกของคุณ
+
+วิธีที่เร็วที่สุดในการยืนยันว่า Docker ทำงานได้ และเพื่อดูว่าเกิดอะไรขึ้นเมื่อคุณรัน container คือการใช้ image `hello-world` อย่างเป็นทางการ Docker จะดึง image จาก Docker Hub หากยังไม่มีในแคชในเครื่อง จากนั้นเริ่ม container, พิมพ์ข้อความยืนยัน, และออก
+
+```bash
+docker run hello-world
+```
+
+ลองทำตอนนี้โดยใช้ playground แบบโต้ตอบด้านล่าง:
+
+export const helloWorldCode = `docker run hello-world`;
+
+<PlayWithDocker client:visible code={helloWorldCode} label="รัน hello-world" />
+
+<Callout title="Container ไม่ใช่ VM">
+Container คือ process ที่แยกส่วนซึ่งทำงานโดยตรงบน kernel ของ host — มันไม่ใช่ virtual machine แบบเต็มรูปแบบ ไม่มี guest OS แยกต่างหากที่ต้องบูต kernel ถูกแชร์ระหว่าง host และ container ทั้งหมด นั่นเป็นเหตุผลที่ container เริ่มต้นในหน่วยมิลลิวินาทีและใช้หน่วยความจำเพียงเศษเสี้ยวของที่ VM ต้องการ การแยกส่วนให้บริการโดย Linux namespaces (สำหรับ process, network, และการมองเห็น filesystem) และ cgroups (สำหรับการจำกัดทรัพยากร) ไม่ใช่โดย hardware virtualisation
+</Callout>
+
+export const quizIntroIndex = [
+  {
+    q: "Docker แก้ไขปัญหาหลักอะไร?",
+    options: [
+      "ทำให้แอปพลิเคชันทำงานเร็วขึ้นโดยใช้ OS kernel แยกต่างหาก",
+      "รับประกันสภาพแวดล้อมที่สม่ำเสมอในทุกขั้นตอนตั้งแต่ development, staging ไปจนถึง production",
+      "แทนที่ virtual machines ทั้งหมดในทุกกรณีการใช้งาน",
+      "ให้ GUI สำหรับการจัดการเซิร์ฟเวอร์"
+    ],
+    answer: 1
+  },
+  {
+    q: "Docker container คืออะไร?",
+    options: [
+      "Virtual machine แบบเต็มรูปแบบที่มี kernel เป็นของตัวเอง",
+      "Binary ที่คอมไพล์แล้วซึ่งทำงานได้บน Linux เท่านั้น",
+      "Process ที่แยกส่วนซึ่งแชร์ host kernel และถูกเริ่มต้นจาก image",
+      "ประเภทของ network proxy สำหรับ microservices"
+    ],
+    answer: 2
+  },
+  {
+    q: "คุณสมบัติ Linux kernel ใดที่ให้ container isolation?",
+    options: [
+      "Hypervisor และ BIOS virtualisation extensions",
+      "Namespaces และ cgroups",
+      "SELinux policies และ firewall rules เท่านั้น",
+      "Docker Hub certificates และ TLS"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="intro/index" questions={quizIntroIndex} />
+
+<ProgressTracker client:visible id="intro/index" />

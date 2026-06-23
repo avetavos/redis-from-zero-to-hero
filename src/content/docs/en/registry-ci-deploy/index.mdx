@@ -1,0 +1,115 @@
+---
+title: 'Registry, CI & Deploy — Module Overview'
+description: 'Learn how Docker images travel from your machine to a registry and on to a running server: build, tag, push, pull, and deploy.'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is a container registry?
+
+Once you have built a Docker image it lives only on your machine. A **registry** is a server that stores and distributes images so that other machines — a CI runner, a cloud server, a colleague's laptop — can pull and run exactly the same image.
+
+The workflow is always the same three steps:
+
+```text
+Build → Tag → Push          (your machine / CI runner)
+                  ↓
+              Registry
+                  ↓
+         Pull → Run          (deployment server)
+```
+
+Every step maps to a Docker command you already know (or will learn in this module):
+
+```bash
+docker build -t myapp:1.0 .
+docker tag  myapp:1.0 docker.io/acme/myapp:1.0
+docker push docker.io/acme/myapp:1.0
+# --- on the server ---
+docker pull docker.io/acme/myapp:1.0
+docker run -d docker.io/acme/myapp:1.0
+```
+
+## Docker Hub vs other registries
+
+| Registry | Address | Notes |
+|---|---|---|
+| **Docker Hub** | `docker.io` (default) | Largest public registry; free public repos |
+| **GHCR** | `ghcr.io` | GitHub Container Registry; integrated with GitHub Actions |
+| **ECR** | `*.dkr.ecr.*.amazonaws.com` | AWS-native; IAM auth |
+| **GAR** | `*.pkg.dev` | Google Artifact Registry |
+| **Self-hosted** | Any host | Run `registry:2` yourself |
+
+When no registry address is specified, Docker defaults to `docker.io`. The snippet `FROM node:22-alpine` is shorthand for `FROM docker.io/library/node:22-alpine`.
+
+## What this module covers
+
+| Lesson | What you will learn |
+|---|---|
+| This page | Registries, image distribution workflow, Docker Hub vs alternatives |
+| Docker Hub | Accounts, repos, public vs private, `docker login`, rate limits |
+| Tag, Push & Pull | Naming convention, `docker tag`, `docker push`, `docker pull`, version tags |
+| GitHub Actions CI | Automated build & push with `docker/build-push-action` |
+| Deploy basics | `docker run -d`, `--restart`, rolling updates, secrets on the host |
+
+## Hands-on: pull and run a public image
+
+No credentials needed — any public image on Docker Hub can be pulled straight from Play with Docker. Try it now.
+
+export const registryPullCode = `# Pull a public image from Docker Hub
+docker pull docker.io/library/hello-world:latest
+
+# Run it
+docker run --rm hello-world
+
+# Pull an nginx image and check the tag
+docker pull nginx:1.27-alpine
+docker images nginx`;
+
+<PlayWithDocker client:visible code={registryPullCode} label="Pull a public image" />
+
+<Callout title="A registry stores and distributes images">
+Think of a registry as a Git hosting service for Docker images. You push images from your build machine and pull them on any server that needs to run them. Docker Hub is the default public registry; GHCR, ECR, and GAR are popular alternatives for private or cloud-native workflows.
+</Callout>
+
+export const quizIndex = [
+  {
+    q: "What is the main purpose of a container registry?",
+    options: [
+      "To build Docker images from Dockerfiles",
+      "To store and distribute Docker images across machines",
+      "To run containers in the cloud",
+      "To manage container networking"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which registry does Docker use by default when no registry address is specified?",
+    options: [
+      "ghcr.io",
+      "gcr.io",
+      "docker.io",
+      "registry.hub.docker.com"
+    ],
+    answer: 2
+  },
+  {
+    q: "What is the correct order of steps in the image distribution workflow?",
+    options: [
+      "Pull → Push → Build → Run",
+      "Build → Push → Pull → Run",
+      "Build → Pull → Push → Run",
+      "Tag → Build → Push → Pull"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="registry-ci-deploy/index" questions={quizIndex} />
+
+<ProgressTracker client:visible id="registry-ci-deploy/index" />

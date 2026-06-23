@@ -1,0 +1,207 @@
+---
+title: 'Security และ HEALTHCHECK'
+description: 'รัน container ในฐานะ non-root user, หลีกเลี่ยงการฝัง secret ใน image, เพิ่ม HEALTHCHECK และ scan ด้วย docker scout เพื่อ baseline ความปลอดภัยสำหรับ production'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ทำไม container security จึงสำคัญ
+
+โดย default process ภายใน Docker container จะรันในฐานะ **root** (UID 0) หาก attacker ใช้ประโยชน์จากช่องโหว่ในแอปพลิเคชัน พวกเขาจะได้รับ root privilege ภายใน container ซึ่งขึ้นอยู่กับ host configuration อาจแปลงเป็น host-level access ได้ การเปลี่ยนแปลง Dockerfile สองอย่างง่ายๆ สามารถลดความเสี่ยงที่พบบ่อยที่สุดได้
+
+## การรันในฐานะ non-root user
+
+instruction `USER` กำหนด user ที่ instruction `RUN`, `CMD` และ `ENTRYPOINT` ที่ตามมาทั้งหมดจะ execute
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:22-alpine
+
+# สร้าง user และ group เฉพาะ
+RUN addgroup -S app && adduser -S app -G app
+
+WORKDIR /app
+COPY --chown=app:app package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY --chown=app:app src/ ./src/
+
+# เปลี่ยนไปใช้ non-root user ก่อน CMD
+USER app
+
+EXPOSE 3000
+CMD ["node", "src/server.js"]
+```
+
+รายละเอียดสำคัญ:
+- `addgroup -S` และ `adduser -S` สร้าง **system** group และ user (ไม่มี login, ไม่มี home dir) — เหมาะสำหรับ service account
+- `--chown=app:app` ใน `COPY` กำหนด ownership ใน layer เดียวกัน ป้องกันการใช้ `RUN chown` แยกต่างหาก
+- `USER app` ต้องวางหลัง instruction `RUN` ทั้งหมดที่ต้องการ root (การ install package เป็นต้น)
+
+## อย่าฝัง secret ใน image
+
+ทุก layer ใน Docker image ถูกเก็บไว้บน disk และสามารถตรวจสอบได้ด้วย `docker history` หรือดึงออกจาก registry Secret ที่เขียนใน `RUN` instruction แม้จะถูกลบใน layer ต่อมา ก็ยังมองเห็นได้ใน build history
+
+```dockerfile
+# ผิด — token จะอยู่ใน image history ตลอดไป
+RUN curl -H "Authorization: Bearer \${SECRET_TOKEN}" https://api.example.com/data
+```
+
+วิธีที่ถูกต้อง:
+
+1. **Build-time secrets ผ่าน BuildKit** — ไม่ถูกเก็บใน image:
+   ```dockerfile
+   RUN --mount=type=secret,id=api_token \
+       curl -H "Authorization: Bearer $(cat /run/secrets/api_token)" https://api.example.com/data
+   ```
+   ส่งด้วย: `docker build --secret id=api_token,env=SECRET_TOKEN .`
+
+2. **Runtime environment variables** — ส่ง secret ตอน `docker run` ไม่ใช่ตอน build:
+   ```bash
+   docker run -e DATABASE_URL="postgres://user:pass@host/db" myapp
+   ```
+
+3. **Secrets managers** — inject secret ผ่าน Vault, AWS Secrets Manager หรือ Kubernetes Secrets ตอน pod startup
+
+## HEALTHCHECK
+
+instruction `HEALTHCHECK` บอก Docker วิธีทดสอบว่า container ทำงานปกติหรือไม่ Docker จะรัน command เป็นระยะๆ หากล้มเหลวต่อเนื่อง status ของ container จะเปลี่ยนเป็น `unhealthy` และ orchestrator (Swarm, Kubernetes liveness probes เทียบเท่า) จะ restart อัตโนมัติ
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://localhost:3000/health || exit 1
+```
+
+Parameters:
+- `--interval` — ความถี่ในการรัน check (default: 30s)
+- `--timeout` — รอนานแค่ไหนก่อนถือว่า check ล้มเหลว (default: 30s)
+- `--start-period` — ระยะเวลาผ่อนผันหลัง container start ก่อนที่การ fail จะนับ (default: 0s)
+- `--retries` — จำนวนครั้งที่ fail ต่อเนื่องก่อนทำเครื่องหมาย unhealthy (default: 3)
+
+ตรวจสอบ health status:
+
+```bash
+docker ps --format "table {{.Names}}\t{{.Status}}"
+# NAME        STATUS
+# myapp       Up 2 minutes (healthy)
+```
+
+## การ Scan ด้วย docker scout
+
+**Docker Scout** วิเคราะห์ layer ของ image เทียบกับ vulnerability database และรายงาน CVE
+
+```bash
+# Scan local image
+docker scout cves myapp:prod
+
+# เปรียบเทียบสอง tag
+docker scout compare myapp:prod myapp:naive
+```
+
+รายงานทั่วไปจะมีลักษณะดังนี้:
+
+```text
+   0C  2H  12M  3L  │ myapp:prod
+   0C  8H  45M  12L │ myapp:naive
+```
+
+`C` = Critical, `H` = High, `M` = Medium, `L` = Low การเปลี่ยนไปใช้ slim หรือ distroless base มักจะขจัด CVE ระดับ High และ Critical ส่วนใหญ่ได้
+
+รวม scan เข้าไปใน CI เพื่อตรวจจับ regression ก่อนถึง production:
+
+```bash
+docker scout cves --exit-code --only-severity critical,high myapp:prod
+```
+
+`--exit-code` ทำให้ command return non-zero exit code เมื่อพบ CVE ที่ตรงเงื่อนไข ซึ่ง block pipeline ได้
+
+## ลงมือทำ: non-root และ HEALTHCHECK Dockerfile
+
+export const securityHealthcheckCode = `# syntax=docker/dockerfile:1
+FROM node:22-alpine
+
+# Create a non-root user
+RUN addgroup -S app && adduser -S app -G app
+
+WORKDIR /app
+
+# Inline a minimal HTTP server
+RUN echo 'const http=require("http");' > server.js && \
+    echo 'http.createServer((req,res)=>{' >> server.js && \
+    echo '  if(req.url==="/health"){res.writeHead(200);res.end("ok\\n");}' >> server.js && \
+    echo '  else{res.writeHead(200);res.end("Hello (running as non-root)!\\n");}' >> server.js && \
+    echo '}).listen(3000,()=>console.log("Listening on 3000"));' >> server.js
+
+# Set ownership and switch user
+RUN chown -R app:app /app
+USER app
+
+EXPOSE 3000
+
+# Health check — polls /health every 10s
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -qO- http://localhost:3000/health || exit 1
+
+CMD ["node","server.js"]
+
+# --- Build and run ---
+# docker build -t myapp:secure .
+# docker run --rm -p 3000:3000 myapp:secure
+# docker ps  (check STATUS for "healthy")`;
+
+<PlayWithDocker client:visible code={securityHealthcheckCode} label="Non-root container with HEALTHCHECK" />
+
+<Callout title="อย่ารันในฐานะ root หรือฝัง secret ใน image และควรเพิ่ม HEALTHCHECK เสมอ">
+การรันในฐานะ non-root user จำกัด blast radius หาก application ถูก compromise การฝัง secret ใน image layer เปิดเผยต่อทุกคนที่ดึง image ได้ HEALTHCHECK ช่วยให้ orchestrator restart container ที่ unhealthy โดยอัตโนมัติก่อนที่ user จะสังเกตเห็นปัญหา
+</Callout>
+
+export const quizSecurityHealthcheck = [
+  {
+    q: "ทำไมการรัน container ในฐานะ root จึงถือเป็นความเสี่ยงด้านความปลอดภัย?",
+    options: [
+      "Root container ไม่สามารถเชื่อมต่อเครือข่ายได้",
+      "หาก application ถูก exploit ผู้โจมตีจะได้รับ root privilege ภายใน container ซึ่งอาจขยายไปถึง host",
+      "Docker ป้องกัน root container ไม่ให้เขียนไฟล์",
+      "Root user ไม่สามารถอ่าน environment variable ได้"
+    ],
+    answer: 1
+  },
+  {
+    q: "เกิดอะไรขึ้นกับ secret ที่เขียนใน `RUN` instruction แล้วถูกลบใน layer ต่อมา?",
+    options: [
+      "ถูกลบออกจาก image อย่างถาวร",
+      "ถูกเข้ารหัสโดย BuildKit อัตโนมัติ",
+      "ยังมองเห็นได้ใน image layer history และสามารถดึงออกมาได้",
+      "Docker ปฏิเสธการ build image"
+    ],
+    answer: 2
+  },
+  {
+    q: "option `--start-period` ใน HEALTHCHECK ควบคุมอะไร?",
+    options: [
+      "ความถี่ในการรัน health check command",
+      "Docker รอนานแค่ไหนให้ check command เสร็จสิ้น",
+      "ระยะเวลาผ่อนผันหลัง container start ก่อนที่การ fail จะนับต่อ retry limit",
+      "จำนวนครั้งสูงสุดที่ retry ก่อนทำเครื่องหมาย unhealthy"
+    ],
+    answer: 2
+  },
+  {
+    q: "flag ใดของ `docker scout` ที่ทำให้ command return non-zero exit code เมื่อพบ vulnerability — เหมาะสำหรับ block CI pipeline?",
+    options: [
+      "--fail",
+      "--block",
+      "--exit-code",
+      "--strict"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="optimization/security-healthcheck" questions={quizSecurityHealthcheck} />
+
+<ProgressTracker client:visible id="optimization/security-healthcheck" />

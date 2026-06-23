@@ -1,0 +1,164 @@
+---
+title: 'พอร์ตและตัวแปร Environment'
+description: 'เผยแพร่พอร์ตของ container ด้วย -p, ส่ง configuration ผ่าน -e และ --env-file, และตั้งชื่อ container ด้วย --name'
+sidebar:
+  order: 4
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## การเผยแพร่พอร์ตด้วย `-p`
+
+โดยค่าเริ่มต้น container ถูกแยกออกอย่างสมบูรณ์ — พอร์ตของมันไม่สามารถเข้าถึงได้จาก host flag `-p` **เผยแพร่** พอร์ต โดยสร้าง mapping ระหว่างพอร์ต host กับพอร์ต container:
+
+```bash
+docker run -d -p 8080:80 nginx:alpine
+```
+
+รูปแบบคือ `-p <host-port>:<container-port>` หลังจากคำสั่งนี้ การเปิด `http://localhost:8080` ในเบราว์เซอร์จะเข้าถึงพอร์ต 80 ภายใน container
+
+คุณสามารถเผยแพร่หลายพอร์ตได้:
+
+```bash
+docker run -d -p 8080:80 -p 8443:443 nginx:alpine
+```
+
+### Bind กับ IP เฉพาะของ host
+
+```bash
+# เข้าถึงได้เฉพาะจาก localhost ไม่ใช่จากเครือข่าย
+docker run -d -p 127.0.0.1:8080:80 nginx:alpine
+```
+
+## การส่งตัวแปร environment ด้วย `-e`
+
+Container อ่าน configuration จากตัวแปร environment ส่งด้วย `-e`:
+
+```bash
+docker run -d \
+  -e MYSQL_ROOT_PASSWORD=secret \
+  -e MYSQL_DATABASE=myapp \
+  mysql:8
+```
+
+แต่ละ `-e` กำหนดตัวแปรหนึ่งตัวภายใน container
+
+### การใช้ env file
+
+สำหรับตัวแปรจำนวนมาก เก็บไว้ในไฟล์และใช้ `--env-file`:
+
+```bash
+# .env
+MYSQL_ROOT_PASSWORD=secret
+MYSQL_DATABASE=myapp
+MYSQL_USER=app
+MYSQL_PASSWORD=apppass
+```
+
+```bash
+docker run -d --env-file .env mysql:8
+```
+
+วิธีนี้ช่วยให้ secret ไม่ถูกบันทึกใน shell history
+
+## การตั้งชื่อ container ด้วย `--name`
+
+การตั้งชื่อที่คาดเดาได้ให้ container ทำให้ทุกคำสั่งถัดไปง่ายขึ้น:
+
+```bash
+docker run -d \
+  --name mysite \
+  -p 8080:80 \
+  nginx:alpine
+```
+
+ตอนนี้คุณสามารถใช้ `mysite` แทน random ID ในทุกคำสั่ง `docker stop`, `docker logs`, และ `docker exec`
+
+## นำมารวมกัน
+
+```bash
+docker run -d \
+  --name webserver \
+  -p 8080:80 \
+  -e NGINX_HOST=localhost \
+  nginx:alpine
+
+# ตรวจสอบ
+docker ps
+curl http://localhost:8080
+```
+
+export const portsEnvCode = `# Run nginx with a port mapping and an env var
+docker run -d \\
+  --name webserver \\
+  -p 8080:80 \\
+  -e NGINX_HOST=localhost \\
+  nginx:alpine
+
+# Confirm the mapping
+docker ps
+
+# Fetch the default page (should return HTML)
+curl -s http://localhost:8080 | head -5
+
+# Inspect the env var inside the container
+docker exec webserver env | grep NGINX
+
+# Clean up
+docker stop webserver && docker rm webserver`;
+
+<PlayWithDocker client:visible code={portsEnvCode} label="รัน nginx พร้อมพอร์ตและตัวแปร env" />
+
+<Callout title="-p 8080:80 map host 8080 ไปยัง container 80">
+หากไม่มี `-p` พอร์ต container จะอยู่เฉพาะภายในเครือข่ายภายในของ Docker — เบราว์เซอร์และ `curl` บน host ไม่สามารถเข้าถึงได้ mapping `-p 8080:80` หมายความว่า: traffic ที่มาถึงพอร์ต 8080 บน host จะถูกส่งต่อไปยังพอร์ต 80 ภายใน container
+</Callout>
+
+export const quizPortsEnv = [
+  {
+    q: "'-p 3000:8080' หมายความว่าอะไร?",
+    options: [
+      "Host port 8080 map ไปยัง container port 3000",
+      "Host port 3000 map ไปยัง container port 8080",
+      "ทั้งพอร์ต 3000 และ 8080 ถูกเปิดบน host",
+      "Container รับฟังทุกพอร์ตระหว่าง 3000 ถึง 8080"
+    ],
+    answer: 1
+  },
+  {
+    q: "flag ใดส่งไฟล์ KEY=VALUE เป็นตัวแปร environment?",
+    options: [
+      "-e",
+      "--env",
+      "--env-file",
+      "--config"
+    ],
+    answer: 2
+  },
+  {
+    q: "ถ้ารัน container โดยไม่มี -p สามารถเข้าถึงพอร์ตจาก host ได้หรือไม่?",
+    options: [
+      "ได้ — พอร์ต container ทั้งหมดเข้าถึงได้เสมอ",
+      "ได้ — แต่เฉพาะพอร์ต 80",
+      "ไม่ได้ — พอร์ตเข้าถึงได้เฉพาะภายในเครือข่ายภายในของ Docker",
+      "ได้เฉพาะเมื่อ container ใช้ EXPOSE ใน Dockerfile"
+    ],
+    answer: 2
+  },
+  {
+    q: "ประโยชน์ของการใช้ --name เมื่อรัน container คืออะไร?",
+    options: [
+      "ทำให้ container เริ่มต้นเร็วขึ้น",
+      "ให้ชื่อที่คาดเดาได้สำหรับใช้ในคำสั่งถัดไป",
+      "เผยแพร่ทุกพอร์ตอัตโนมัติ",
+      "ป้องกันไม่ให้ container ถูกลบ"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="containers/ports-env" questions={quizPortsEnv} />
+
+<ProgressTracker client:visible id="containers/ports-env" />

@@ -1,0 +1,87 @@
+---
+title: 'Intro & Concepts — Module Overview'
+description: 'Understand what problem Docker solves, run your first container, and see what this module covers.'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Why Docker?
+
+Every developer has heard it: *"It works on my machine."* The application runs perfectly in development, then breaks in staging or production because of a different OS, a mismatched library version, or a missing environment variable. Docker eliminates that gap by packaging your application together with everything it needs — the runtime, dependencies, and configuration — into a single, portable unit called a **container**.
+
+With Docker you get:
+
+- **Consistent environments** — the container runs identically on a laptop, a CI server, and a cloud VM.
+- **Isolation** — each container has its own filesystem and process space, so applications do not interfere with each other.
+- **Speed** — containers start in milliseconds, not minutes.
+- **Reproducibility** — a `Dockerfile` is a precise recipe; anyone who builds it gets the same image.
+
+## What this module covers
+
+| Lesson | What you will learn |
+|---|---|
+| This page | Problems Docker solves, first container |
+| What is Docker? | Architecture: client, daemon, images, registries |
+| Containers vs VMs | Kernel sharing, lightweight isolation, when to use which |
+| Install & Verify | Installing Docker, verifying installation |
+| Your First Container | Interactive + detached containers, docker ps, docker stop |
+
+## Your first container
+
+The fastest way to confirm Docker is working — and to see what happens when you run a container — is the official `hello-world` image. Docker will pull the image from Docker Hub if it is not already cached locally, start a container, print a confirmation message, and exit.
+
+```bash
+docker run hello-world
+```
+
+Try it now using the interactive playground below:
+
+export const helloWorldCode = `docker run hello-world`;
+
+<PlayWithDocker client:visible code={helloWorldCode} label="Run hello-world" />
+
+<Callout title="A container is not a VM">
+A container is an isolated process running directly on the host kernel — it is not a full virtual machine. There is no separate guest OS to boot. The kernel is shared between the host and all containers, which is why a container starts in milliseconds and uses a fraction of the memory a VM needs. Isolation is provided by Linux namespaces (for process, network, and filesystem visibility) and cgroups (for resource limits), not by hardware virtualisation.
+</Callout>
+
+export const quizIntroIndex = [
+  {
+    q: "What problem does Docker primarily solve?",
+    options: [
+      "It makes applications run faster by using a separate OS kernel",
+      "It ensures consistent environments across development, staging, and production",
+      "It replaces virtual machines entirely in all use cases",
+      "It provides a GUI for managing servers"
+    ],
+    answer: 1
+  },
+  {
+    q: "What is a Docker container?",
+    options: [
+      "A full virtual machine with its own kernel",
+      "A compiled binary that runs only on Linux",
+      "An isolated process sharing the host kernel, started from an image",
+      "A type of network proxy for microservices"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which Linux kernel features provide container isolation?",
+    options: [
+      "Hypervisor and BIOS virtualisation extensions",
+      "Namespaces and cgroups",
+      "SELinux policies and firewall rules only",
+      "Docker Hub certificates and TLS"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="intro/index" questions={quizIntroIndex} />
+
+<ProgressTracker client:visible id="intro/index" />

@@ -1,0 +1,156 @@
+---
+title: 'Bind Mounts'
+description: 'Mount a host directory into a container for live code editing and local development workflows.'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is a bind mount?
+
+A **bind mount** maps a specific path on your host machine directly into a container. Unlike a named volume, you choose exactly where the data lives on the host — Docker does not manage the path.
+
+```text
+Host filesystem:         /home/user/myapp/src
+                              ↕  bind mount
+Container filesystem:    /app/src
+```
+
+Any change made on the host side is immediately visible inside the container, and vice versa. This makes bind mounts ideal for development: your editor modifies files on the host, and the running process inside the container sees the updates instantly — no rebuild required.
+
+## Syntax
+
+**Short `-v` syntax:**
+
+```bash
+docker run -v /host/path:/container/path myimage
+```
+
+**Long `--mount` syntax (recommended for scripts — no ambiguity):**
+
+```bash
+docker run \
+  --mount type=bind,source=/host/path,target=/container/path \
+  myimage
+```
+
+### Using `$(pwd)` for the current directory
+
+In development you almost always want to mount the current working directory:
+
+```bash
+docker run --rm -v $(pwd):/app -w /app node:22-alpine node server.js
+```
+
+`$(pwd)` expands to the absolute host path at runtime. This is the standard pattern for running code without building a new image on every change.
+
+## A practical development workflow
+
+```bash
+# Mount your source into the container at /app
+# The -w flag sets the working directory inside the container
+docker run -d --name dev-server \
+  -v $(pwd)/src:/app/src \
+  -p 3000:3000 \
+  node:22-alpine \
+  node /app/src/server.js
+```
+
+Now edit `src/server.js` on your host. If the process inside the container watches the filesystem (e.g., with `nodemon`), it restarts automatically. No image rebuild is needed for every code change.
+
+## Read-only bind mounts
+
+Add `:ro` to make the mount read-only from the container's perspective. The container can read the files but cannot write to them:
+
+```bash
+docker run --rm \
+  -v $(pwd)/config:/etc/myapp/config:ro \
+  myimage
+```
+
+With `--mount` syntax:
+
+```bash
+docker run --rm \
+  --mount type=bind,source=$(pwd)/config,target=/etc/myapp/config,readonly \
+  myimage
+```
+
+This is useful for injecting configuration files without the container accidentally overwriting them.
+
+## Hands-on practice
+
+The snippet below creates a file on the host (simulated here with `echo` in a setup step), mounts the directory into a container, and reads the file from inside the container — demonstrating live file sharing.
+
+export const bindMountCode = `# 1. Create a directory with a file to share
+mkdir -p /tmp/bindtest && echo 'shared from host' > /tmp/bindtest/hello.txt
+
+# 2. Mount it into a container and read the file
+docker run --rm -v /tmp/bindtest:/data alpine cat /data/hello.txt
+
+# 3. Write from inside the container back to the host
+docker run --rm -v /tmp/bindtest:/data alpine sh -c "echo 'written by container' > /data/from-container.txt"
+
+# 4. Check the file now exists on the host path
+ls -la /tmp/bindtest/
+cat /tmp/bindtest/from-container.txt
+
+# 5. Clean up
+rm -rf /tmp/bindtest`
+
+<PlayWithDocker client:visible code={bindMountCode} label="Share files between host and container" />
+
+<Callout title="Bind mounts map a host path — great for dev, but tied to the host layout">
+Bind mounts are powerful for local development because changes on the host appear instantly in the container. However, the host path must exist and must be the same on every machine that runs the container. For production deployments where you need portability, prefer named volumes.
+</Callout>
+
+export const quizBindMounts = [
+  {
+    q: "What is the key difference between a bind mount and a named volume?",
+    options: [
+      "Bind mounts are faster than named volumes",
+      "With a bind mount you specify the exact host path; Docker manages the path for named volumes",
+      "Named volumes require root access; bind mounts do not",
+      "Bind mounts are only available on Linux"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which shell expression expands to the current working directory in a `docker run` command?",
+    options: [
+      "\${CWD}",
+      "\${HOST_PATH}",
+      "$(pwd)",
+      "$WORKDIR"
+    ],
+    answer: 2
+  },
+  {
+    q: "What does adding `:ro` to a bind mount do?",
+    options: [
+      "It makes the mount read-only from the container's perspective",
+      "It enables real-time file synchronization",
+      "It removes the mount after the container stops",
+      "It restricts the mount to the root user inside the container"
+    ],
+    answer: 0
+  },
+  {
+    q: "Why are bind mounts preferred for local development but not recommended for production?",
+    options: [
+      "Bind mounts are too slow for production workloads",
+      "Bind mounts require a special kernel module not available in production",
+      "The host path must exist and match on every machine, which reduces portability",
+      "Docker does not support bind mounts in Swarm mode"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="data-volumes/bind-mounts" questions={quizBindMounts} />
+
+<ProgressTracker client:visible id="data-volumes/bind-mounts" />

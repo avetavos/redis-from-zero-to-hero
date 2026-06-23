@@ -1,0 +1,231 @@
+---
+title: 'Env Vars, Volumes & Networks'
+description: 'Master environment variable injection with .env files, named volumes for persistent data, and custom networks in Docker Compose.'
+sidebar:
+  order: 4
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Environment variables in Compose
+
+There are two ways to pass environment variables into a service.
+
+### Inline environment
+
+Define variables directly in compose.yaml:
+
+```yaml
+services:
+  app:
+    image: myapp:latest
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+```
+
+### env_file
+
+Reference an external file. Compose reads each `KEY=VALUE` line from the file and injects it into the container:
+
+```yaml
+services:
+  app:
+    image: myapp:latest
+    env_file:
+      - .env
+```
+
+The `.env` file:
+
+```text
+NODE_ENV=production
+PORT=3000
+DATABASE_URL=postgres://db:5432/mydb
+```
+
+Keep `.env` out of version control — it usually contains secrets.
+
+## Variable interpolation with `${VAR}`
+
+Compose reads a `.env` file in the same directory as compose.yaml and uses it to substitute `${VAR}` placeholders inside the compose.yaml itself:
+
+```yaml
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+```
+
+With a `.env` file containing:
+
+```text
+DB_PASSWORD=supersecret
+DB_NAME=mydb
+```
+
+Compose substitutes the values before starting the container. This keeps secrets out of compose.yaml and lets different developers use their own local `.env` files.
+
+## Named volumes
+
+Containers are ephemeral — data written inside a container disappears when the container is removed. Named volumes persist data on the host and survive container restarts and recreations.
+
+Declare a named volume at the top level and mount it per-service:
+
+```yaml
+services:
+  db:
+    image: postgres:17-alpine
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=secret
+
+volumes:
+  pgdata:
+```
+
+The top-level `volumes:` key registers the volume with Compose. The per-service `volumes:` entry mounts it. You can mount the same named volume in multiple services.
+
+## Custom networks
+
+Compose creates a default network automatically. For more control — isolating services or connecting services across Compose files — define custom networks:
+
+```yaml
+services:
+  frontend:
+    image: nginx:alpine
+    networks:
+      - public
+
+  backend:
+    image: myapp:latest
+    networks:
+      - public
+      - private
+
+  db:
+    image: postgres:17-alpine
+    networks:
+      - private
+
+networks:
+  public:
+  private:
+```
+
+Here `frontend` can reach `backend`, but `frontend` cannot reach `db` directly. `backend` bridges both networks.
+
+## Hands-on practice
+
+The snippet below wires together a service with an env file and a named volume so the data survives restarts.
+
+export const envVolNetCode = `# Create .env file
+cat > .env <<'EOF'
+APP_MSG=Hello from .env interpolation!
+VOLUME_DATA_DIR=/data
+EOF
+
+# Create compose.yaml with env interpolation and a named volume
+cat > compose.yaml <<'EOF'
+services:
+  writer:
+    image: alpine
+    env_file:
+      - .env
+    volumes:
+      - mydata:\${VOLUME_DATA_DIR}
+    command: >
+      sh -c "
+        echo \${APP_MSG} &&
+        echo 'Writing to named volume...' &&
+        echo 'persistent data' > \${VOLUME_DATA_DIR}/file.txt &&
+        echo 'Wrote file to volume.'
+      "
+
+  reader:
+    image: alpine
+    volumes:
+      - mydata:/data
+    command: >
+      sh -c "
+        sleep 2 &&
+        echo 'Reading from volume:' &&
+        cat /data/file.txt
+      "
+    depends_on:
+      - writer
+
+volumes:
+  mydata:
+EOF
+
+# Run both services
+docker compose up
+
+# Verify the volume still exists after containers stop
+docker volume ls | grep mydata
+
+# Clean up (keeps the volume)
+docker compose down
+
+# Clean up including the volume
+docker compose down -v`;
+
+<PlayWithDocker client:visible code={envVolNetCode} label="Try env vars and named volumes" />
+
+<Callout title=".env values fill placeholder variables in compose.yaml">
+Compose automatically reads a `.env` file next to compose.yaml and substitutes `${VAR}` placeholders throughout the file. This is different from `env_file:` — that key injects variables *into the container*; `.env` interpolation fills placeholders *in compose.yaml itself* before any container starts.
+</Callout>
+
+export const quizEnvVol = [
+  {
+    q: "What is the difference between environment: and env_file: in a service definition?",
+    options: [
+      "environment: sets build-time variables; env_file: sets runtime variables",
+      "environment: defines variables inline in compose.yaml; env_file: reads them from an external file",
+      "They are identical — both read from a .env file",
+      "env_file: only works with Docker secrets"
+    ],
+    answer: 1
+  },
+  {
+    q: "Where does Compose look for ${VAR} interpolation values?",
+    options: [
+      "Only from the shell environment where docker compose up is run",
+      "From a .env file in the same directory as compose.yaml",
+      "From Docker secrets stored in Swarm",
+      "From the image's built-in ENV instructions"
+    ],
+    answer: 1
+  },
+  {
+    q: "What happens to a named volume when you run docker compose down (without -v)?",
+    options: [
+      "The volume is deleted along with the containers",
+      "The volume is archived to a tar file",
+      "The volume is kept — only containers and networks are removed",
+      "The volume is renamed with a _backup suffix"
+    ],
+    answer: 2
+  },
+  {
+    q: "In the networks example, why can frontend NOT reach db directly?",
+    options: [
+      "Because frontend uses a different image",
+      "Because frontend is only on the public network and db is only on the private network",
+      "Because the ports: key is not defined on db",
+      "Because depends_on is missing between frontend and db"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="compose/env-volumes-networks" questions={quizEnvVol} />
+
+<ProgressTracker client:visible id="compose/env-volumes-networks" />

@@ -1,0 +1,125 @@
+---
+title: 'ภาพรวม Docker Networking'
+description: 'เข้าใจ network driver ของ Docker — bridge, host, none และ overlay — รวมถึงสิ่งที่โมดูลนี้ครอบคลุม'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Docker Networking คืออะไร?
+
+ทุก container จะได้รับ virtual network interface (NIC) เมื่อเริ่มต้นทำงาน Docker จะเชื่อมต่อ NIC นั้นเข้ากับ **network** — ชั้น software-defined ที่ควบคุมว่า container ใดสามารถสื่อสารกันได้และสื่อสารกับโลกภายนอกได้อย่างไร
+
+หากไม่มี Docker networking container จะเป็นเกาะที่แยกตัวโดยสมบูรณ์ เมื่อมี networking คุณสามารถเชื่อมต่อ microservice เข้าด้วยกัน เปิดพอร์ตให้ host เข้าถึง และแบ่งแยก traffic ตาม environment ได้ โดยไม่ต้องแตะ network configuration จริงของ host เลย
+
+## Network Drivers
+
+Docker มี network driver ในตัว 4 ประเภท แต่ละประเภทมีการแลกเปลี่ยนระหว่าง isolation, ประสิทธิภาพ และความง่ายในการใช้งานต่างกัน
+
+| Driver | ขอบเขต | คำอธิบาย |
+|---|---|---|
+| `bridge` | Single host | Driver เริ่มต้น สร้าง virtual switch (`docker0`) บน host Container บน bridge เดียวกันสื่อสารกันได้ container บน bridge ต่างกันสื่อสารไม่ได้ |
+| `host` | Single host | ลบ network isolation — container ใช้ network stack ของ host โดยตรง ประสิทธิภาพสูงสุด ไม่ต้อง map พอร์ต แต่ไม่มี isolation |
+| `none` | Single host | ปิดใช้งาน networking ทั้งหมด container ได้รับเฉพาะ loopback interface เหมาะสำหรับ batch job ที่ไม่ต้องการ network |
+| `overlay` | Multi-host | ขยายข้าม Docker daemon หลายตัว (Docker Swarm) ใช้สำหรับ distributed service ที่ต้องสื่อสารข้าม physical machine |
+
+## เครือข่ายเริ่มต้น
+
+Docker สร้าง network สามเครือข่ายโดยอัตโนมัติเมื่อ daemon เริ่มต้น คุณสามารถดูได้ด้วย `docker network ls`:
+
+```bash
+docker network ls
+```
+
+ผลลัพธ์ที่คาดหวัง:
+
+```text
+NETWORK ID     NAME      DRIVER    SCOPE
+abc123def456   bridge    bridge    local
+def456abc789   host      host      local
+ghi789jkl012   none      null      local
+```
+
+เครือข่าย `bridge` (รองรับโดย virtual switch `docker0`) คือที่ที่ทุก container จะถูกวางเมื่อคุณละเว้น `--network` ส่วนเครือข่าย `host` และ `none` เป็นแบบพิเศษ
+
+## การตรวจสอบ Default Bridge
+
+`docker network inspect` แสดงการกำหนดค่าโดยละเอียด — subnet, gateway และ container ที่เชื่อมต่ออยู่ในขณะนั้น:
+
+```bash
+docker network inspect bridge
+```
+
+## โมดูลนี้ครอบคลุมอะไรบ้าง
+
+| บทเรียน | หัวข้อ |
+|---|---|
+| เครือข่าย Bridge เริ่มต้น | วิธีการทำงานของ `docker0`, IP ของ container และข้อจำกัดด้าน DNS |
+| DNS ของ Container และ User-Defined Networks | วิธีที่ user-defined bridge ให้ name resolution อัตโนมัติ |
+| การ Publish และ Expose พอร์ต | `-p` vs `EXPOSE`, syntax การผูกพอร์ต, ephemeral ports |
+| Custom Networks และการแยก Container | การสร้าง เชื่อมต่อ ตรวจสอบ และลบ network |
+
+## ลงมือปฏิบัติ: ตรวจสอบค่าเริ่มต้น
+
+export const networkingOverviewCode = `# List all networks
+docker network ls
+
+# Inspect the default bridge in detail
+docker network inspect bridge`;
+
+<PlayWithDocker client:visible code={networkingOverviewCode} label="ตรวจสอบ network เริ่มต้น" />
+
+<Callout title="สามเครือข่ายมีอยู่โดยค่าเริ่มต้น">
+Docker สร้างเครือข่าย bridge, host และ none โดยอัตโนมัติ ทุก container ที่ไม่ระบุ --network จะเริ่มต้นบน default bridge
+</Callout>
+
+export const quizNetworkingOverview = [
+  {
+    q: "Docker network driver ใดถูกใช้โดยค่าเริ่มต้นเมื่อรัน container โดยไม่ระบุ --network?",
+    options: [
+      "host",
+      "overlay",
+      "bridge",
+      "none"
+    ],
+    answer: 2
+  },
+  {
+    q: "network driver ชนิด 'host' ทำอะไร?",
+    options: [
+      "สร้าง virtual switch ที่แยก container จาก host",
+      "ปิดใช้งาน networking ทั้งหมดสำหรับ container",
+      "เชื่อมต่อ container ข้าม Docker daemon หลายตัว",
+      "แชร์ network stack ของ host โดยตรงกับ container โดยไม่มี isolation"
+    ],
+    answer: 3
+  },
+  {
+    q: "คำสั่งใดใช้แสดงรายการ Docker network ทั้งหมดบน host ปัจจุบัน?",
+    options: [
+      "docker network show",
+      "docker network ls",
+      "docker ps --networks",
+      "docker inspect networks"
+    ],
+    answer: 1
+  },
+  {
+    q: "ควรใช้ network driver ใดเมื่อต้องการให้ container สื่อสารข้าม physical machine หลายเครื่องใน Docker Swarm?",
+    options: [
+      "bridge",
+      "none",
+      "host",
+      "overlay"
+    ],
+    answer: 3
+  }
+];
+
+<Quiz client:visible id="networking/index" questions={quizNetworkingOverview} />
+
+<ProgressTracker client:visible id="networking/index" />

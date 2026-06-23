@@ -1,0 +1,143 @@
+---
+title: 'คอนเทนเนอร์แรกของคุณ'
+description: 'รันคอนเทนเนอร์แบบ interactive และ detached ตรวจสอบกระบวนการที่กำลังทำงานด้วย docker ps และหยุดคอนเทนเนอร์อย่างถูกต้อง'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## คอนเทนเนอร์แบบ interactive: เปิด shell ภายใน Ubuntu
+
+การรวม flag `-it` คือวิธีที่คุณเปิด session terminal แบบ interactive ภายในคอนเทนเนอร์ รันคำสั่ง:
+
+```bash
+docker run -it ubuntu bash
+```
+
+เมื่อ Docker ดึง image และเริ่มต้นคอนเทนเนอร์แล้ว prompt ของคุณจะเปลี่ยนเป็นลักษณะนี้:
+
+```text
+root@3f2e1a9b7c4d:/#
+```
+
+ตอนนี้คุณอยู่ภายในคอนเทนเนอร์แล้ว hostname ที่แสดง (`3f2e1a9b7c4d`) คือ container ID คุณมีสภาพแวดล้อม Ubuntu ที่แยกออกมาอย่างสมบูรณ์ — มี filesystem เป็นของตัวเอง มี process tree เป็นของตัวเอง เมื่อเสร็จแล้ว พิมพ์ `exit` เพื่อกลับไปยัง shell ของ host คอนเทนเนอร์จะหยุดทันทีที่ process `bash` สิ้นสุด
+
+ความหมายของ flag ต่าง ๆ:
+
+- `-i` — เปิด stdin ค้างไว้เพื่อให้คุณพิมพ์คำสั่งเข้าไปในคอนเทนเนอร์ได้
+- `-t` — จัดสรร pseudo-TTY เพื่อให้ shell prompt แสดงผลได้ถูกต้องและรองรับ terminal control sequences
+- เมื่อใช้ร่วมกัน `-it` จะให้ session shell แบบ interactive ภายในคอนเทนเนอร์
+
+## Web server แบบ detached: รัน Nginx ในพื้นหลัง
+
+ไม่ใช่ทุกคอนเทนเนอร์ที่จำเป็นต้องใช้ session แบบ interactive บริการที่ทำงานต่อเนื่อง เช่น web server และฐานข้อมูล จะถูกเริ่มต้นใน **detached mode** ด้วย `-d` เพื่อให้ทำงานในพื้นหลังโดยไม่ครอบครอง terminal ของคุณ:
+
+```bash
+docker run -d -p 8080:80 nginx
+```
+
+รายละเอียด flag:
+
+- `-d` — detached mode: คอนเทนเนอร์ทำงานในพื้นหลัง และ Docker จะพิมพ์เฉพาะ container ID เท่านั้น
+- `-p 8080:80` — publish ports: map **host port 8080** ไปยัง **container port 80** การรับส่งข้อมูลที่มาถึง `localhost:8080` บนเครื่องของคุณจะถูกส่งต่อไปยัง port 80 ภายในคอนเทนเนอร์ ซึ่งเป็นที่ที่ Nginx กำลังรับฟัง
+
+หลังจากรันคำสั่งนี้ เปิด `http://localhost:8080` ในเบราว์เซอร์ของคุณ แล้วคุณจะเห็นหน้าต้อนรับของ Nginx
+
+## แสดงรายการคอนเทนเนอร์ที่กำลังทำงานด้วย docker ps
+
+เพื่อดูว่ามีอะไรกำลังทำงานอยู่:
+
+```bash
+docker ps
+```
+
+ผลลัพธ์ที่คาดหวัง:
+
+```text
+CONTAINER ID   IMAGE   COMMAND                  CREATED         STATUS         PORTS                  NAMES
+a1b2c3d4e5f6   nginx   "/docker-entrypoint.…"   5 seconds ago   Up 4 seconds   0.0.0.0:8080->80/tcp   elegant_morse
+```
+
+คอลัมน์เหล่านี้บอกทุกอย่างในมุมมองเดียว: container ID, image ที่ใช้เริ่มต้น, คำสั่งที่ทำงานอยู่ภายใน, ระยะเวลาที่ทำงานมา, สถานะ, การ map port, และชื่อที่สร้างขึ้นโดยอัตโนมัติ
+
+## หยุดคอนเทนเนอร์
+
+ส่ง container ID (หรือชื่อ) ให้กับ `docker stop`:
+
+```bash
+docker stop a1b2c3d4e5f6
+```
+
+Docker ส่ง **SIGTERM** ไปยัง process หลักภายในคอนเทนเนอร์ โดยให้เวลาสูงสุด 10 วินาทีในการปิดตัวอย่างถูกต้อง หาก process ยังไม่สิ้นสุดภายในเวลานั้น Docker จะส่ง **SIGKILL** เพื่อบังคับหยุด
+
+## แสดงรายการคอนเทนเนอร์ทั้งหมด (รวมที่หยุดแล้ว)
+
+เมื่อหยุดแล้ว คอนเทนเนอร์จะไม่ปรากฏใน `docker ps` อีกต่อไป เพิ่ม flag `-a` เพื่อดูทั้งหมด รวมถึงคอนเทนเนอร์ที่ออกจากระบบแล้ว:
+
+```bash
+docker ps -a
+```
+
+สิ่งนี้มีประโยชน์สำหรับการตรวจสอบ exit code, การกู้คืน log, หรือการล้างคอนเทนเนอร์เก่าด้วย `docker rm`
+
+export const firstContainerCode = `docker run -d -p 8080:80 nginx
+docker ps
+docker stop \$(docker ps -q --filter ancestor=nginx)
+docker ps -a`;
+
+<PlayWithDocker client:visible code={firstContainerCode} label="รัน Nginx แบบ detached ตรวจสอบ และหยุด" />
+
+<Callout title="`-it` = interactive terminal; `-d` = detached">
+`-i` เปิด stdin ค้างไว้เพื่อให้คุณพิมพ์คำสั่งเข้าไปในคอนเทนเนอร์ได้ `-t` จัดสรร pseudo-TTY เพื่อให้ shell prompt แสดงผลได้ถูกต้อง ใช้ทั้งคู่ร่วมกันสำหรับ shell แบบ interactive ใช้ `-d` เพื่อรันคอนเทนเนอร์ในพื้นหลัง (daemon, web server, ฐานข้อมูล)
+</Callout>
+
+export const quizFirstContainer = [
+  {
+    q: "flag `-d` ทำอะไรใน `docker run -d`?",
+    options: [
+      "รันคอนเทนเนอร์ในโหมด detached (พื้นหลัง)",
+      "ลบคอนเทนเนอร์หลังจากที่มันออกจากระบบ",
+      "จัดสรร pseudo-TTY ให้กับคอนเทนเนอร์",
+      "ดาวน์โหลด image โดยไม่เริ่มต้นคอนเทนเนอร์"
+    ],
+    answer: 0
+  },
+  {
+    q: "`-p 8080:80` หมายความว่าอะไรใน `docker run -d -p 8080:80 nginx`?",
+    options: [
+      "เปิดเผย port 80 ภายในคอนเทนเนอร์และบล็อก port 8080",
+      "Map host port 80 ไปยัง container port 8080",
+      "Map host port 8080 ไปยัง container port 80",
+      "จอง port 8080 สำหรับ Docker networking ภายในเท่านั้น"
+    ],
+    answer: 2
+  },
+  {
+    q: "คำสั่งใดที่แสดงรายการเฉพาะคอนเทนเนอร์ที่กำลังทำงานอยู่?",
+    options: [
+      "docker ps -a",
+      "docker ps",
+      "docker container list --all",
+      "docker status"
+    ],
+    answer: 1
+  },
+  {
+    q: "`docker stop` ส่ง signal อะไรไปยัง process ของคอนเทนเนอร์ก่อน?",
+    options: [
+      "SIGKILL",
+      "SIGHUP",
+      "SIGINT",
+      "SIGTERM"
+    ],
+    answer: 3
+  }
+];
+
+<Quiz client:visible id="intro/first-container" questions={quizFirstContainer} />
+
+<ProgressTracker client:visible id="intro/first-container" />

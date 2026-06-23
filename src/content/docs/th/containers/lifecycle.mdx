@@ -1,0 +1,172 @@
+---
+title: 'วงจรชีวิตของ Container'
+description: 'เรียนรู้ docker run, docker ps, stop, start, restart, และ rm — รวมถึง --rm สำหรับการทำความสะอาดอัตโนมัติ'
+sidebar:
+  order: 2
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## การรัน container
+
+`docker run` เป็นคำสั่งที่ใช้บ่อยที่สุด มันจะ pull image ถ้าจำเป็น, สร้าง container, และเริ่มการทำงาน
+
+```bash
+docker run nginx:alpine
+```
+
+คำสั่งนี้รัน nginx ใน **foreground** — terminal ของคุณจะ attach กับ output ของมัน กด `Ctrl+C` เพื่อหยุด
+
+### โหมด detached ด้วย `-d`
+
+เพิ่ม `-d` เพื่อรัน container ในเบื้องหลัง:
+
+```bash
+docker run -d nginx:alpine
+```
+
+Docker จะแสดง container ID เต็มและคืน prompt ทันที
+
+### การตั้งชื่อ container ด้วย `--name`
+
+Docker จะกำหนดชื่อแบบสุ่มโดยค่าเริ่มต้น ใช้ `--name` เพื่อตั้งชื่อที่คาดเดาได้:
+
+```bash
+docker run -d --name webserver nginx:alpine
+```
+
+## การแสดงรายการ container
+
+```bash
+# เฉพาะ container ที่กำลังทำงาน
+docker ps
+
+# container ทั้งหมด — ทั้งที่กำลังทำงานและหยุดแล้ว
+docker ps -a
+```
+
+```text
+CONTAINER ID   IMAGE          STATUS                     NAMES
+a1b2c3d4e5f6   nginx:alpine   Up 2 minutes               webserver
+b7c8d9e0f1a2   alpine         Exited (0) 5 minutes ago   old-task
+```
+
+คอลัมน์ `STATUS` บอกว่า container กำลังทำงาน (`Up`) หรือหยุดแล้ว (`Exited`)
+
+## การหยุด, เริ่ม, และรีสตาร์ท
+
+```bash
+# หยุดอย่างสุภาพ — ส่ง SIGTERM, รอ 10 วินาที, แล้วจึง SIGKILL
+docker stop webserver
+
+# เริ่ม container ที่หยุดอยู่
+docker start webserver
+
+# รีสตาร์ท (หยุดแล้วเริ่มใหม่)
+docker restart webserver
+```
+
+`docker stop` **ไม่ได้** ลบ container ออก มันยังคงอยู่บนดิสก์ในสถานะหยุด
+
+## การลบ container
+
+```bash
+# ลบ container ที่หยุดอยู่
+docker rm webserver
+
+# บังคับลบ container ที่กำลังทำงาน (ส่ง SIGKILL)
+docker rm -f webserver
+```
+
+คุณไม่สามารถลบ container ที่กำลังทำงานได้โดยไม่ใช้ `-f`
+
+## การทำความสะอาดอัตโนมัติด้วย `--rm`
+
+สำหรับงานที่ทำครั้งเดียวและไม่ต้องการจัดการด้วยตนเอง ให้เพิ่ม `--rm` Container จะถูกลบอัตโนมัติทันทีที่กระบวนการสิ้นสุด
+
+```bash
+docker run --rm alpine echo "Hello, Docker!"
+```
+
+```text
+Hello, Docker!
+```
+
+Container หายไปทันทีที่ `echo` เสร็จสิ้น — ไม่ต้องรัน `docker rm` เพิ่ม
+
+export const lifecycleCode = `# 1. Run nginx detached with a name
+docker run -d --name webserver nginx:alpine
+
+# 2. List running containers
+docker ps
+
+# 3. Stop it
+docker stop webserver
+
+# 4. Show all containers — notice STATUS is Exited
+docker ps -a
+
+# 5. Start it again
+docker start webserver
+
+# 6. Remove it (stop first)
+docker stop webserver && docker rm webserver
+
+# 7. One-shot: auto-cleanup with --rm
+docker run --rm alpine echo "done — already gone"`;
+
+<PlayWithDocker client:visible code={lifecycleCode} label="สำรวจวงจรชีวิตของ container" />
+
+<Callout title="container ที่หยุดยังคงอยู่จนกว่าจะถูกลบ">
+`docker stop` หยุด container เท่านั้น — ไม่ได้ลบมัน container ที่หยุดแล้วสะสมอยู่บนดิสก์ (แต่ละตัวมี writable layer) ใช้ `docker rm` เมื่อใช้งานเสร็จ หรือส่ง `--rm` ตอนรันเพื่อให้ Docker ลบ container อัตโนมัติเมื่อออก
+</Callout>
+
+export const quizLifecycle = [
+  {
+    q: "'docker stop' ส่ง signal อะไรไปยังกระบวนการหลักของ container เป็นอันดับแรก?",
+    options: [
+      "SIGKILL",
+      "SIGTERM",
+      "SIGINT",
+      "SIGHUP"
+    ],
+    answer: 1
+  },
+  {
+    q: "คำสั่งใดแสดง container ทั้งหมด รวมถึงที่หยุดแล้วด้วย?",
+    options: [
+      "docker ps",
+      "docker ps --running",
+      "docker ps -a",
+      "docker container list"
+    ],
+    answer: 2
+  },
+  {
+    q: "flag --rm ทำหน้าที่อะไร?",
+    options: [
+      "ลบ image หลังจาก container ออก",
+      "ลบ container อัตโนมัติเมื่อกระบวนการสิ้นสุด",
+      "บังคับให้ container รีสตาร์ทเมื่อเกิดข้อผิดพลาด",
+      "ลบ container ที่หยุดทั้งหมดก่อนรันตัวใหม่"
+    ],
+    answer: 1
+  },
+  {
+    q: "สามารถลบ container ที่กำลังทำงานอยู่โดยไม่ใช้ flag -f ได้หรือไม่?",
+    options: [
+      "ได้ — docker rm ใช้งานได้เสมอ",
+      "ได้ — แต่เฉพาะเมื่อ container เริ่มต้นด้วย --rm",
+      "ไม่ได้ — ต้องหยุดก่อนหรือใช้ docker rm -f",
+      "ไม่ได้ — container ที่กำลังทำงานไม่สามารถลบได้เลย"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="containers/lifecycle" questions={quizLifecycle} />
+
+<ProgressTracker client:visible id="containers/lifecycle" />

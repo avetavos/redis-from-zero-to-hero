@@ -1,0 +1,183 @@
+---
+title: 'Multi-Service Apps'
+description: 'Wire a web app and a database together in one compose.yaml using depends_on and Compose automatic networking.'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Running a web app and a database together
+
+Almost every real application needs a database. With Docker Compose you define both services in one file and Compose handles the networking automatically — no manual `docker network create` required.
+
+Here is a web app backed by PostgreSQL:
+
+```yaml
+services:
+  app:
+    image: node:22-alpine
+    working_dir: /app
+    command: ["node", "server.js"]
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=mydb
+    depends_on:
+      - db
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_DB=mydb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=secret
+```
+
+## depends_on — start order
+
+`depends_on` tells Compose to start the `db` service before `app`. This controls container start order, not readiness — the database process inside the container may not be accepting connections the instant the container starts. For production, add a `healthcheck` to `db` and use `depends_on: condition: service_healthy` in `app`.
+
+Basic start order (sufficient for learning and development):
+
+```yaml
+depends_on:
+  - db
+```
+
+Health-checked start order (production pattern):
+
+```yaml
+services:
+  app:
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17-alpine
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d mydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    environment:
+      - POSTGRES_DB=mydb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=secret
+```
+
+## Automatic networking
+
+When you run `docker compose up`, Compose automatically creates a network for your project. Every service in the file is attached to that network. Services reach each other using their **service name** as the hostname.
+
+In the example above, `app` connects to the database at host `db` port `5432` — exactly the service name. No IP addresses, no manual network configuration.
+
+```text
+app  --[db:5432]-->  db
+     <-- myapp-network (auto-created) -->
+```
+
+## Viewing logs from multiple services
+
+Stream logs from all services at once:
+
+```bash
+docker compose logs -f
+```
+
+Follow only one service:
+
+```bash
+docker compose logs -f app
+```
+
+## Hands-on practice
+
+The snippet below starts an app container that connects to a PostgreSQL container using the service name `db`.
+
+export const multiServiceCode = `# Write a two-service compose.yaml
+cat > compose.yaml <<'EOF'
+services:
+  app:
+    image: alpine
+    command: >
+      sh -c "
+        echo 'Waiting for db...' &&
+        sleep 3 &&
+        echo 'Connecting to db:5432 (postgres service)' &&
+        nc -zv db 5432 &&
+        echo 'Connection to db succeeded via service name DNS!'
+      "
+    depends_on:
+      - db
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_PASSWORD=secret
+EOF
+
+# Start both services (app waits 3s then probes db)
+docker compose up
+
+# Clean up
+docker compose down`;
+
+<PlayWithDocker client:visible code={multiServiceCode} label="Connect app to db by service name" />
+
+<Callout title="Services reach each other by service name">
+Compose automatically creates a private network for your project. Every service is joined to it, and each service is reachable from any other service using its service name as the DNS hostname. You never need to use IP addresses or create networks manually for intra-app communication.
+</Callout>
+
+export const quizMultiService = [
+  {
+    q: "How does the app service connect to the database in a Compose app?",
+    options: [
+      "Using the container ID as the hostname",
+      "Using the service name defined in compose.yaml as the DNS hostname",
+      "Using the host machine IP address",
+      "Using a manually configured /etc/hosts entry"
+    ],
+    answer: 1
+  },
+  {
+    q: "What does depends_on: - db guarantee?",
+    options: [
+      "That the db container is fully ready and accepting connections before app starts",
+      "That the db container is started before the app container",
+      "That app and db share the same network namespace",
+      "That db is rebuilt before app on every docker compose up"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which command streams logs from all services simultaneously?",
+    options: [
+      "docker compose logs --all",
+      "docker compose logs -f",
+      "docker logs --follow",
+      "docker compose stream"
+    ],
+    answer: 1
+  },
+  {
+    q: "What creates the internal network that connects all Compose services?",
+    options: [
+      "You must define it manually under the networks: key",
+      "Docker Compose creates it automatically when you run docker compose up",
+      "The depends_on key creates the network",
+      "The ports: mapping creates the network"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="compose/multi-service" questions={quizMultiService} />
+
+<ProgressTracker client:visible id="compose/multi-service" />

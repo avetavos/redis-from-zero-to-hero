@@ -1,0 +1,136 @@
+---
+title: 'การ Publish และ Expose พอร์ต'
+description: 'วิธีทำให้พอร์ตของ container เข้าถึงได้จาก host ด้วย -p และทำไม EXPOSE เพียงอย่างเดียวจึงไม่พอ'
+sidebar:
+  order: 4
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## EXPOSE กับ -p ต่างกันอย่างไร
+
+Dockerfile ของคุณอาจมีบรรทัดเช่น `EXPOSE 80` สิ่งนี้บอกผู้อ่าน (และเครื่องมือ) ว่า application ภายใน container ฟังที่พอร์ต 80 แต่ **ไม่ได้ publish พอร์ตนั้นสู่ภายนอก**
+
+หากต้องการให้ host หรือโลกภายนอกสามารถเข้าถึงพอร์ตของ container ได้จริง คุณต้องใช้ flag `-p` (หรือ `--publish`) เมื่อรัน container
+
+## Syntax การ Publish พอร์ต
+
+รูปแบบพื้นฐานคือ `-p <host-port>:<container-port>`:
+
+```bash
+docker run -d --name webserver -p 8080:80 nginx:alpine
+```
+
+สิ่งนี้ผูก port 8080 ของ host กับ port 80 ของ container การ request ที่มาถึง `localhost:8080` จะถูกส่งต่อไปยัง port 80 ของ container โดย Docker
+
+## ดูรายการ Port Mapping
+
+ตรวจสอบว่า port ใดถูก publish สำหรับ container:
+
+```bash
+docker port webserver
+```
+
+ผลลัพธ์จะแสดง: `80/tcp -> 0.0.0.0:8080`
+
+## ทดสอบ Published Port
+
+เมื่อ publish แล้ว คุณสามารถเข้าถึงได้จาก host:
+
+```bash
+curl http://localhost:8080
+```
+
+## ผูกกับ Interface เฉพาะ
+
+โดยค่าเริ่มต้น Docker จะ bind กับทุก interface (`0.0.0.0`) หากต้องการผูกเฉพาะ loopback interface:
+
+```bash
+docker run -d --name local-only -p 127.0.0.1:9090:80 nginx:alpine
+```
+
+วิธีนี้ทำให้ service เข้าถึงได้เฉพาะจาก machine นั้นเอง ไม่สามารถเข้าถึงได้จาก network ภายนอก
+
+## Publish หลาย Port พร้อมกัน
+
+ใช้ flag `-p` หลายครั้งเพื่อ publish หลาย port:
+
+```bash
+docker run -d --name multi -p 8080:80 -p 8443:443 nginx:alpine
+```
+
+## ลงมือปฏิบัติ: Publishing Ports
+
+export const publishPortsCode = `# Publish port 80 of nginx to host port 8080
+docker run -d --name webserver -p 8080:80 nginx:alpine
+
+# List port mappings
+docker port webserver
+
+# Curl the published port
+curl http://localhost:8080
+
+# Bind to loopback only
+docker run -d --name local-only -p 127.0.0.1:9090:80 nginx:alpine
+
+# Multiple ports
+docker run -d --name multi -p 8080:80 -p 8443:443 nginx:alpine
+
+# Cleanup
+docker stop webserver local-only multi && docker rm webserver local-only multi`;
+
+<PlayWithDocker client:visible code={publishPortsCode} label="ทดสอบการ publish port" />
+
+<Callout title="EXPOSE คือเอกสาร, -p คือการผูก port จริง">
+EXPOSE ใน Dockerfile บอกผู้อ่านว่า application ใช้พอร์ตใด แต่ไม่ได้ publish จริง มีเพียง -p (หรือ ports: ใน Compose) เท่านั้นที่ทำให้พอร์ตเข้าถึงได้จากภายนอก container
+</Callout>
+
+export const quizPublishPorts = [
+  {
+    q: "คำสั่ง EXPOSE ใน Dockerfile จริงๆ แล้วทำอะไร?",
+    options: [
+      "สร้าง firewall rule บน host เพื่ออนุญาต traffic เข้า container",
+      "Bind host port กับ container port",
+      "บันทึก port ที่ application ฟังอยู่แต่ไม่ได้ publish จริง",
+      "ส่ง traffic ทั้งหมดบน port นั้นจาก host ไปยัง container โดยอัตโนมัติ"
+    ],
+    answer: 2
+  },
+  {
+    q: "คุณรัน: docker run -p 9000:3000 myapp ข้อใดต่อไปนี้อธิบาย port mapping ได้ถูกต้อง?",
+    options: [
+      "Host port 3000 map ไปยัง container port 9000",
+      "Host port 9000 map ไปยัง container port 3000",
+      "ทั้ง host และ container ใช้ port 9000",
+      "ทั้ง host และ container ใช้ port 3000"
+    ],
+    answer: 1
+  },
+  {
+    q: "จะจำกัด published port ให้เข้าถึงได้เฉพาะจาก local machine (loopback interface) ได้อย่างไร?",
+    options: [
+      "docker run -p 80 --internal myapp",
+      "docker run --restrict-external -p 80:80 myapp",
+      "docker run -p 127.0.0.1:8080:80 myapp",
+      "docker run -p localhost:8080:80 myapp"
+    ],
+    answer: 2
+  },
+  {
+    q: "คำสั่งใดแสดงรายการ port mapping ของ container ชื่อ 'webserver'?",
+    options: [
+      "docker inspect webserver --ports",
+      "docker ps -p webserver",
+      "docker network inspect webserver",
+      "docker port webserver"
+    ],
+    answer: 3
+  }
+];
+
+<Quiz client:visible id="networking/publish-ports" questions={quizPublishPorts} />
+
+<ProgressTracker client:visible id="networking/publish-ports" />

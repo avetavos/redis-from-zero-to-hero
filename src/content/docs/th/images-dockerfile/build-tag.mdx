@@ -1,0 +1,188 @@
+---
+title: 'Build, Tag และ Build Context'
+description: 'ทำความเข้าใจ docker build, build context, การ tag image ด้วย -t, docker images, docker tag และ .dockerignore'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## คำสั่ง `docker build`
+
+`docker build` อ่าน Dockerfile แล้วสร้าง image ออกมา syntax พื้นฐานคือ:
+
+```bash
+docker build [OPTIONS] PATH
+```
+
+อาร์กิวเมนต์ `PATH` (โดยทั่วไปคือ `.`) เรียกว่า **build context** — มันคือไดเรกทอรีที่ Docker ส่งไปให้ build daemon ไฟล์ที่อยู่ใน build context จะใช้ได้กับ instruction `COPY` ภายใน Dockerfile ส่วนไฟล์ที่อยู่นอก build context จะเข้าถึงไม่ได้
+
+```bash
+docker build .
+```
+
+คำสั่งนี้ส่งไดเรกทอรีปัจจุบันเป็น build context หากไม่มี `-t` image ที่ได้จะไม่มีชื่อ — มีแค่ hex digest เท่านั้น คุณจึงแทบจะเพิ่ม `-t` เสมอ
+
+## การ tag ด้วย `-t`
+
+แฟล็ก `-t` กำหนด **name:tag** ที่อ่านเข้าใจได้ให้กับ image:
+
+```bash
+docker build -t myapp:1.0 .
+```
+
+รูปแบบเต็มของ tag คือ:
+
+```text
+[registry/][owner/]name:tag
+```
+
+ตัวอย่าง:
+
+```text
+myapp:1.0
+myapp:latest
+ghcr.io/acme/myapp:1.0
+docker.io/library/node:22-alpine
+```
+
+หากคุณละส่วน tag ไว้ Docker จะใช้ค่าเริ่มต้นเป็น `:latest`
+
+## การแสดงรายการ image ด้วย `docker images`
+
+```bash
+docker images
+```
+
+ผลลัพธ์ที่คาดหวัง:
+
+```text
+REPOSITORY   TAG       IMAGE ID       CREATED         SIZE
+myapp        1.0       a3f2b1c9d4e7   2 minutes ago   145MB
+myapp        latest    a3f2b1c9d4e7   2 minutes ago   145MB
+node         22-alpine 1b2c3d4e5f60   3 weeks ago      52MB
+```
+
+## การ tag ซ้ำด้วย `docker tag`
+
+`docker tag` เพิ่มชื่อหรือ tag ใหม่ให้กับ image ที่มีอยู่แล้วโดยไม่คัดลอกตัว image ทั้งสองชื่อจะชี้ไปยัง image ID เดียวกัน
+
+```bash
+# Promote a build image to a release name
+docker tag myapp:1.0 myapp:stable
+docker tag myapp:1.0 ghcr.io/acme/myapp:1.0
+```
+
+## ความหมายของ `latest`
+
+`latest` **ไม่ใช่** tag วิเศษที่หมายถึง "ใหม่ล่าสุด" มันเป็นแค่สตริงเริ่มต้นที่ Docker ใช้เมื่อคุณละ tag ไว้ มันไม่มีความหมายเชิง semantic version ใด ๆ ถ้าคุณ push `myapp:1.0` และ `myapp:latest` แยกกัน ทั้งสองอาจชี้ไปยัง image layer ที่ต่างกันโดยสิ้นเชิงก็ได้
+
+ใน production pipeline ให้ใช้ tag ที่ชัดเจนและมีความหมายเสมอ (เลขเวอร์ชัน, git SHA, วันที่) เพื่อให้คุณรู้แน่ชัดว่าสิ่งที่ deploy ไปคืออะไร
+
+## เร่งความเร็ว context ด้วย `.dockerignore`
+
+โดยปริยาย `docker build .` จะส่งไดเรกทอรีปัจจุบันทั้งหมดของคุณไปยัง daemon — รวมถึง `node_modules/`, `.git/`, test fixtures, และ secret ภายในเครื่อง ไฟล์ `.dockerignore` (syntax เดียวกับ `.gitignore`) จะกีดกัน path ออกจาก build context ซึ่ง:
+
+- เร่งความเร็วการ build (มีข้อมูลต้องส่งน้อยลง)
+- ป้องกันการเผลอ `COPY` secret เข้าไปใน image ของคุณ
+
+```text
+# .dockerignore
+node_modules/
+.git/
+.env
+*.log
+dist/
+coverage/
+```
+
+## ประกอบทุกอย่างเข้าด้วยกัน
+
+```bash
+# Build with a version tag
+docker build -t myapp:1.0 .
+
+# Also tag as latest
+docker tag myapp:1.0 myapp:latest
+
+# Inspect the result
+docker images myapp
+```
+
+ผลลัพธ์ที่คาดหวัง:
+
+```text
+REPOSITORY   TAG     IMAGE ID       CREATED        SIZE
+myapp        1.0     a3f2b1c9d4e7   1 minute ago   145MB
+myapp        latest  a3f2b1c9d4e7   1 minute ago   145MB
+```
+
+## ฝึกลงมือทำ
+
+export const buildTagCode = `# syntax=docker/dockerfile:1
+FROM alpine:3.20
+LABEL maintainer="you@example.com"
+WORKDIR /app
+RUN echo "v1.0" > version.txt
+CMD ["cat", "version.txt"]
+# --- build, tag, and inspect ---
+# docker build -t myapp:1.0 .
+# docker tag myapp:1.0 myapp:latest
+# docker images myapp
+# docker run --rm myapp:1.0`;
+
+<PlayWithDocker client:visible code={buildTagCode} label="Build, tag, and inspect" />
+
+<Callout title="ปักหมุด tag ที่มีความหมายใน production">
+การพึ่งพา `latest` ใน production เป็นเรื่องเสี่ยง — การ push ใหม่อาจเปลี่ยนสิ่งที่ container ของคุณรันโดยเงียบ ๆ ได้ ให้ tag image ด้วยเลขเวอร์ชันหรือ git commit SHA เสมอ (เช่น `myapp:1.4.2` หรือ `myapp:abc1234`) และอ้างอิงถึง tag ที่แน่นอนนั้นใน deployment manifest และไฟล์ Compose ของคุณ
+</Callout>
+
+export const quizBuildTag = [
+  {
+    q: "build context ใน `docker build .` คืออะไร?",
+    options: [
+      "ตัว Dockerfile เอง",
+      "ไดเรกทอรีปัจจุบัน ซึ่ง Docker ส่งไปยัง build daemon และทำให้ COPY ใช้งานได้",
+      "base image ที่ระบุไว้ใน FROM",
+      "registry ของ Docker Hub"
+    ],
+    answer: 1
+  },
+  {
+    q: "`docker tag myapp:1.0 myapp:stable` ทำอะไร?",
+    options: [
+      "สร้างสำเนา image ขึ้นมาจริง ๆ พร้อมชื่อใหม่",
+      "เปลี่ยนชื่อ image โดยลบ tag 1.0 ออก",
+      "เพิ่มชื่อใหม่ที่ชี้ไปยัง image layer ชุดเดียวกับ myapp:1.0",
+      "push image ไปยัง registry"
+    ],
+    answer: 2
+  },
+  {
+    q: "จุดประสงค์หลักของไฟล์ .dockerignore คืออะไร?",
+    options: [
+      "เพื่อป้องกัน Docker ไม่ให้อ่าน Dockerfile",
+      "เพื่อระบุรายการ image ที่ไม่ควร pull จาก Docker Hub",
+      "เพื่อกีดกันไฟล์ออกจาก build context ช่วยเร่งความเร็วการ build และป้องกันไม่ให้ secret ถูกคัดลอกเข้าไป",
+      "เพื่อกำหนดว่าพอร์ตใดบ้างที่ EXPOSE จะละเว้น"
+    ],
+    answer: 2
+  },
+  {
+    q: "ข้อความใดเกี่ยวกับ tag `latest` ที่เป็นจริง?",
+    options: [
+      "Docker อัปเดต latest ให้ชี้ไปยัง image ที่ build ล่าสุดโดยอัตโนมัติ",
+      "latest เป็นแค่สตริงเริ่มต้นที่ไม่มี version semantics แบบอัตโนมัติ",
+      "latest ชี้ไปยัง release ที่เสถียรและผ่านการทดสอบแล้วเสมอ",
+      "คุณไม่สามารถกำหนด tag latest ด้วยตนเองได้"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="images-dockerfile/build-tag" questions={quizBuildTag} />
+
+<ProgressTracker client:visible id="images-dockerfile/build-tag" />

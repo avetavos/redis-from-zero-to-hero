@@ -1,0 +1,125 @@
+---
+title: 'Containers vs VMs'
+description: 'Understand how containers differ from virtual machines, when to choose each, and the distinction between an image and a running container.'
+sidebar:
+  order: 3
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The fundamental difference
+
+Both containers and virtual machines (VMs) solve the same problem — running software in an isolated environment — but they achieve isolation at different layers of the stack.
+
+A **VM** boots a full guest operating system inside a hypervisor. Every VM carries its own kernel, system libraries, and init system. This makes VMs heavy: they take seconds (sometimes minutes) to start and consume hundreds of megabytes of RAM before your application even loads.
+
+A **container** skips the guest OS entirely. It shares the host kernel and isolates only the process namespace, filesystem, and network using Linux kernel features (namespaces and cgroups). This makes containers lightweight: startup is measured in milliseconds and memory overhead is minimal.
+
+## Stack comparison
+
+```text
+Virtual Machine stack
+─────────────────────
+  Application
+  Guest OS (kernel + system libs)
+  Hypervisor (VMware, KVM, Hyper-V…)
+  Host OS Kernel
+  Hardware
+
+Container stack
+───────────────
+  Application
+  Container Runtime (containerd / runc)
+  Host OS Kernel
+  Hardware
+```
+
+The hypervisor layer and the guest OS are gone in the container model. Multiple containers on the same host share one kernel, making the per-container footprint dramatically smaller.
+
+## When to use containers
+
+- **Microservices** — each service ships as its own image, scales independently, and restarts without affecting siblings.
+- **CI/CD pipelines** — ephemeral containers give every build a clean, reproducible environment that vanishes on completion.
+- **Consistent developer environments** — the same image runs on a developer's laptop, in CI, and in production, eliminating "works on my machine" bugs.
+- **Fast horizontal scale-out** — new container instances start in milliseconds, making auto-scaling responsive.
+
+## When to use VMs
+
+- **Strong security isolation** — a compromised container can theoretically escape to the host kernel; a VM's hypervisor boundary is a much harder barrier.
+- **Different OS family** — running Windows workloads on a Linux host (or vice versa) requires a VM because containers share the host kernel.
+- **Legacy applications** — software that requires a specific kernel version, kernel module, or system-level configuration it cannot share with the host.
+
+## Images vs containers
+
+These two terms are often confused. The distinction is precise:
+
+- An **image** is a static, read-only blueprint — a layered filesystem snapshot that includes your application, its dependencies, and metadata. Images are built once and shared via registries.
+- A **container** is a running (or stopped) instance of an image. When Docker starts a container it adds a thin, writable layer on top of the read-only image layers. You can run many containers from the same image simultaneously; they all share the same image layers but each gets its own writable layer.
+
+```text
+Image (read-only layers)
+  └─ Layer 3: app binary
+  └─ Layer 2: python:3.12
+  └─ Layer 1: debian:bookworm-slim
+
+Container = Image + writable layer
+  └─ Writable layer (runtime changes)
+  └─ Layer 3: app binary       ← shared, read-only
+  └─ Layer 2: python:3.12      ← shared, read-only
+  └─ Layer 1: debian:bookworm-slim  ← shared, read-only
+```
+
+Deleting a container removes only its writable layer. The underlying image is untouched and can be used to spin up a fresh container immediately.
+
+<Callout title="Containers virtualize the OS; VMs virtualize hardware">
+A container shares the host kernel and isolates only the process namespace, filesystem, and network. A VM runs a full OS inside a hypervisor — heavier but provides stronger isolation (different kernel, different OS family).
+</Callout>
+
+export const quizContainersVsVMs = [
+  {
+    q: "What does a container share with the host that a VM does not?",
+    options: [
+      "The hypervisor",
+      "The host kernel",
+      "The guest OS libraries",
+      "The hardware BIOS"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which of the following best describes why containers start faster than VMs?",
+    options: [
+      "Containers use faster CPUs allocated by the hypervisor",
+      "Containers skip booting a guest OS kernel",
+      "Containers are compiled to native machine code",
+      "Containers bypass the host filesystem entirely"
+    ],
+    answer: 1
+  },
+  {
+    q: "You need to run a Windows workload on a Linux host. What should you use?",
+    options: [
+      "A Docker container with a Windows base image",
+      "A VM, because containers share the host kernel",
+      "Docker Compose with a windows: true flag",
+      "A container with --platform=windows"
+    ],
+    answer: 1
+  },
+  {
+    q: "What is the relationship between a Docker image and a Docker container?",
+    options: [
+      "They are the same thing — the terms are interchangeable",
+      "An image is a running instance; a container is the static blueprint",
+      "An image is the static blueprint; a container is a running instance with a writable layer on top",
+      "A container is a compressed archive of multiple images"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="intro/containers-vs-vms" questions={quizContainersVsVMs} />
+
+<ProgressTracker client:visible id="intro/containers-vs-vms" />

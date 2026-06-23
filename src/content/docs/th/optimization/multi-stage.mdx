@@ -1,0 +1,185 @@
+---
+title: 'Multi-Stage Builds'
+description: 'ใช้ multi-stage builds เพื่อแยก build environment ออกจาก runtime image และได้ container ที่เล็กกว่าและสะอาดกว่าอย่างชัดเจน'
+sidebar:
+  order: 2
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ปัญหาของ single-stage builds
+
+แอปพลิเคชันทั่วไปต้องการเครื่องมือที่แตกต่างกันมากในสองช่วง:
+
+- **ช่วง Build:** compiler, test runner, type checker, build toolchain (`tsc`, `go build`, `maven` ฯลฯ)
+- **ช่วง Runtime:** เฉพาะ output ที่ compile แล้วและ dependency ที่จำเป็นสำหรับการรัน
+
+ใน Dockerfile แบบ single-stage ทั่วไป เราติดตั้งทุกอย่างใน image เดียว compiler ที่จำเป็นในช่วง build ตอนนี้นั่งว่างอยู่ใน production โดยเพิ่มขนาดหลายร้อย MB และ attack surface ที่ไม่จำเป็น
+
+```dockerfile
+# Naive single-stage — compiler ends up in the final image
+FROM node:22
+WORKDIR /app
+COPY . .
+RUN npm ci
+RUN npm run build
+CMD ["node", "dist/server.js"]
+```
+
+ผลลัพธ์ที่พบบ่อย:
+
+```text
+myapp:naive    1.21GB
+```
+
+## Multi-stage builds
+
+Docker BuildKit รองรับ **multi-stage builds**: Dockerfile เดียวที่มี instruction `FROM` หลายอัน แต่ละ `FROM` เริ่ม stage ใหม่ คุณสามารถ copy artifact จาก stage ก่อนหน้าไปยัง stage ถัดไปโดยใช้ `COPY --from=<stage>`
+
+สิ่งสำคัญ: **เฉพาะ stage สุดท้ายเท่านั้นที่จะถูก export เป็น final image** stage กลางทั้งหมด รวมถึงทุก tool ที่ติดตั้งใน stage เหล่านั้น จะถูกทิ้งโดยอัตโนมัติ
+
+### โครงสร้างของ multi-stage Dockerfile
+
+```dockerfile
+# syntax=docker/dockerfile:1
+
+# ── Stage 1: build ─────────────────────────────────────────────
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY src/ ./src/
+RUN npm run build        # produces dist/
+
+# ── Stage 2: runtime ───────────────────────────────────────────
+FROM node:22-alpine AS runtime
+WORKDIR /app
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["node", "dist/server.js"]
+```
+
+สิ่งที่เปลี่ยนไป:
+
+| | Single-stage | Multi-stage |
+|---|---|---|
+| Final image มี | Source + devDeps + dist | เฉพาะ dist + prodDeps |
+| ขนาดโดยประมาณ (Node.js) | ~1.2 GB | ~110 MB |
+| Build tools ใน prod | มี | ไม่มี |
+
+### การตั้งชื่อ stage
+
+ตั้งชื่อที่มีความหมายให้แต่ละ stage ด้วย `AS <name>` จากนั้นสามารถ reference ได้ใน `COPY --from=<name>` และยัง build ได้เฉพาะ stage ที่ต้องการระหว่างพัฒนา:
+
+```bash
+# Build เฉพาะ build stage (เหมาะสำหรับรัน test บน CI)
+docker build --target build -t myapp:ci .
+
+# Build image เต็มสำหรับ production
+docker build -t myapp:prod .
+```
+
+### ตัวอย่าง Go
+
+Go เหมาะอย่างยิ่งสำหรับ multi-stage builds: compiler สร้าง binary เดี่ยวแบบ static ที่ไม่ต้องการ runtime ใดๆ
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM golang:1.23-alpine AS build
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o server ./cmd/server
+
+FROM scratch AS runtime
+COPY --from=build /app/server /server
+EXPOSE 8080
+ENTRYPOINT ["/server"]
+```
+
+`FROM scratch` คือ base ขั้นต่ำสุด — filesystem ว่างเปล่าสมบูรณ์ ไฟล์เดียวใน final image คือ binary ที่ compile แล้ว ผลลัพธ์มักจะ**ต่ำกว่า 10 MB**
+
+## ลงมือทำ: multi-stage Node.js build
+
+snippet ด้านล่างรัน two-stage build ใน Play with Docker และแสดงขนาดของ final image
+
+export const multiStageCode = `# syntax=docker/dockerfile:1
+
+# Stage 1 — build
+FROM node:22-alpine AS build
+WORKDIR /app
+RUN echo '{"name":"demo","version":"1.0.0","scripts":{"build":"echo built"}}' > package.json
+RUN npm run build
+RUN echo "console.log('Hello from optimized image!');" > dist/server.js
+
+# Stage 2 — runtime (only dist/ lands here)
+FROM node:22-alpine AS runtime
+WORKDIR /app
+COPY --from=build /app/dist ./dist
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["node","dist/server.js"]
+
+# --- build & run ---
+# docker build -t myapp:multi .
+# docker run --rm myapp:multi
+# docker images myapp:multi`;
+
+<PlayWithDocker client:visible code={multiStageCode} label="Run a multi-stage build" />
+
+<Callout title="Multi-stage builds ไม่ให้ build tools เข้าไปอยู่ใน final image">
+ทุก compiler, test runner หรือ dev dependency ที่ติดตั้งใน build stage จะถูกทิ้งโดยอัตโนมัติเมื่อ Docker export final stage ผลลัพธ์คือ production image ที่เล็กกว่า เร็วกว่า และปลอดภัยกว่า โดยไม่ต้องทำงานเพิ่มในช่วง runtime
+</Callout>
+
+export const quizMultiStage = [
+  {
+    q: "ใน multi-stage Dockerfile stage ใดที่จะกลายเป็น final image?",
+    options: [
+      "Stage แรก (AS build)",
+      "ทุก stage รวมกัน",
+      "เฉพาะ stage สุดท้าย",
+      "Stage ที่มี instruction RUN มากที่สุด"
+    ],
+    answer: 2
+  },
+  {
+    q: "`COPY --from=build /app/dist ./dist` ทำอะไร?",
+    options: [
+      "Copy dist/ จาก host เข้า stage ปัจจุบัน",
+      "Copy dist/ จาก stage ที่ชื่อ 'build' เข้า stage ปัจจุบัน",
+      "ย้าย dist/ และลบออกจาก build stage",
+      "ดาวน์โหลด dist/ จาก remote registry"
+    ],
+    answer: 1
+  },
+  {
+    q: "ทำไม `FROM scratch` จึงเหมาะสำหรับ compiled Go binary?",
+    options: [
+      "scratch มี Ubuntu environment ขนาดเล็ก",
+      "scratch ปิดการใช้งานเครือข่ายเพื่อความปลอดภัย",
+      "scratch คือ base ว่างเปล่าสมบูรณ์ ดังนั้น final image มีเฉพาะ binary",
+      "scratch จะ compress binary โดยอัตโนมัติ"
+    ],
+    answer: 2
+  },
+  {
+    q: "flag ใดที่ให้เราสามารถ build ได้เฉพาะถึง stage ที่กำหนด?",
+    options: [
+      "--stage",
+      "--target",
+      "--from",
+      "--stop-at"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="optimization/multi-stage" questions={quizMultiStage} />
+
+<ProgressTracker client:visible id="optimization/multi-stage" />

@@ -1,0 +1,100 @@
+---
+title: 'ข้อมูลและ Volumes'
+description: 'ทำความเข้าใจว่าทำไม filesystem ของ container ถึงเป็นแบบชั่วคราว ตัวเลือกการเก็บข้อมูลถาวรทั้งสาม (volumes, bind mounts, tmpfs) และเนื้อหาที่ครอบคลุมในโมดูลนี้'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ทำไมข้อมูลใน container ถึงหายไป
+
+Container มี **writable layer** อยู่ด้านบนของ image layer ที่เป็น read-only ทุกไฟล์ที่คุณสร้าง แก้ไข หรือลบภายใน container ที่กำลังทำงานอยู่ จะอาศัยอยู่ใน writable layer นั้นเท่านั้น ทันทีที่ container ถูกลบด้วย `docker rm` layer นั้นก็หายไปอย่างถาวร
+
+นี่เป็นการออกแบบที่ตั้งใจ Container ถูกออกแบบมาให้ไม่มี state (stateless) ใช้แล้วทิ้งได้ และสามารถสร้างขึ้นใหม่ได้เสมอ คุณควรสามารถหยุด container ทิ้งมันไป แล้วสร้างใหม่จาก image เดิมได้ตลอดเวลา ถ้าข้อมูลของคุณอยู่ภายใน container โมเดลนี้จะล้มเหลว
+
+```text
+Image layer (read-only)      ← ฐาน node:22-alpine
+Image layer (read-only)      ← COPY ไฟล์แอป
+Writable layer (container)   ← เขียนขณะ runtime (หายไปเมื่อ docker rm)
+```
+
+## ตัวเลือกการเก็บข้อมูลถาวรทั้งสาม
+
+Docker มีกลไกสามอย่างเพื่อออกจาก writable layer ชั่วคราว:
+
+| ตัวเลือก | ข้อมูลอยู่ที่ไหน | จัดการโดย |
+|---------|----------------|----------|
+| **Named volumes** | ไดเรกทอรีที่ Docker จัดการบน host | Docker |
+| **Bind mounts** | path ใดก็ได้บน filesystem ของ host | คุณ |
+| **tmpfs mounts** | RAM ของ host เท่านั้น (ไม่เขียนลงดิสก์) | Kernel |
+
+แต่ละตัวเลือกมีข้อดีข้อเสียที่แตกต่างกันในเรื่องความสามารถในการพกพา ประสิทธิภาพ และกรณีการใช้งาน โมดูลนี้จะพาคุณผ่านทีละตัวเลือก
+
+## สาธิตความชั่วคราวของข้อมูล
+
+ก่อนเรียนรู้วิธีเก็บข้อมูลถาวร ควรเห็นปัญหาด้วยตาตัวเองก่อน snippet ด้านล่างจะสร้างไฟล์ภายใน container ลบ container นั้น แล้วรัน container ใหม่ — ไฟล์หายไปแล้ว
+
+export const ephemeralCode = `# Run a container and write a file
+docker run --name ephemeral-demo alpine sh -c "echo 'hello world' > /data/message.txt && cat /data/message.txt"
+
+# Remove the container
+docker rm ephemeral-demo
+
+# Start a brand-new container from the same image
+docker run --rm alpine sh -c "cat /data/message.txt 2>/dev/null || echo 'File is gone!'"`
+
+<PlayWithDocker client:visible code={ephemeralCode} label="ดูข้อมูลหายไปเมื่อ docker rm" />
+
+<Callout title="Container เป็น stateless โดยค่าเริ่มต้น">
+ทุก container เริ่มต้นจากสภาพแวดล้อมที่สะอาดซึ่งได้จาก image ของมัน ไฟล์ที่เขียนระหว่างชีวิตของ container หนึ่งจะไม่ถ่ายทอดไปยัง container ถัดไป ใช้ named volumes หรือ bind mounts เมื่อแอปพลิเคชันของคุณต้องอ่านหรือเขียนข้อมูลถาวร — log, uploads, ไฟล์ฐานข้อมูล หรือ configuration
+</Callout>
+
+## เนื้อหาที่ครอบคลุมในโมดูลนี้
+
+| บทเรียน | หัวข้อ |
+|---------|-------|
+| **Named Volumes** | `docker volume create/ls/inspect/rm` การ mount volumes การจัดเก็บที่ Docker จัดการ |
+| **Bind Mounts** | การ map host paths เข้า container การแก้ไข source code แบบ live |
+| **Volumes vs Bind Mounts** | ตารางเปรียบเทียบ ความสามารถในการพกพา ประสิทธิภาพ read-only mounts |
+| **Backup & Restore** | การ archive volumes ด้วย throwaway container การกู้คืน การย้าย |
+
+export const quizDataVolumesIndex = [
+  {
+    q: "เกิดอะไรขึ้นกับไฟล์ที่เขียนภายใน container เมื่อคุณรัน `docker rm`?",
+    options: [
+      "ถูกบันทึกลงใน image โดยอัตโนมัติ",
+      "ถูกย้ายไปยัง volume",
+      "ถูกลบอย่างถาวรพร้อมกับ writable layer ของ container",
+      "คงอยู่จนกว่า host จะ reboot"
+    ],
+    answer: 2
+  },
+  {
+    q: "ตัวเลือกพื้นที่จัดเก็บใดที่ Docker จัดการทั้งหมดและเก็บไว้ในไดเรกทอรีที่ Docker ควบคุม?",
+    options: [
+      "tmpfs mount",
+      "Bind mount",
+      "Named volume",
+      "Host mount"
+    ],
+    answer: 2
+  },
+  {
+    q: "tmpfs mount เก็บข้อมูลไว้ที่ไหน?",
+    options: [
+      "Named Docker volume บนดิสก์",
+      "Writable layer ของ container",
+      "RAM ของ host — ไม่เขียนลงดิสก์เลย",
+      "Shared network filesystem"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="data-volumes/index" questions={quizDataVolumesIndex} />
+
+<ProgressTracker client:visible id="data-volumes/index" />

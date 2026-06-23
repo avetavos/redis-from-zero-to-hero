@@ -1,0 +1,143 @@
+---
+title: 'Your First Container'
+description: 'Run interactive and detached containers, inspect running processes with docker ps, and stop containers gracefully.'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Interactive container: getting a shell inside Ubuntu
+
+The `-it` flag combination is how you open an interactive terminal session inside a container. Run:
+
+```bash
+docker run -it ubuntu bash
+```
+
+Once Docker pulls the image and starts the container, your prompt changes to something like:
+
+```text
+root@3f2e1a9b7c4d:/#
+```
+
+You are now inside the container. The hostname shown (`3f2e1a9b7c4d`) is the container ID. You have a fully isolated Ubuntu environment — its own filesystem, its own process tree. When you are done, type `exit` to return to your host shell. The container stops the moment the `bash` process exits.
+
+What the flags mean:
+
+- `-i` — keep stdin open so you can type commands into the container.
+- `-t` — allocate a pseudo-TTY so the shell prompt renders correctly and handles terminal control sequences.
+- Together, `-it` gives you an interactive shell session inside the container.
+
+## Detached web server: running Nginx in the background
+
+Not every container needs an interactive session. Long-running services such as web servers and databases are started in **detached mode** with `-d`, so they run in the background without holding your terminal:
+
+```bash
+docker run -d -p 8080:80 nginx
+```
+
+Flag breakdown:
+
+- `-d` — detached mode: the container runs in the background and Docker prints only the container ID.
+- `-p 8080:80` — publish ports: map **host port 8080** to **container port 80**. Traffic arriving at `localhost:8080` on your machine is forwarded to port 80 inside the container, where Nginx is listening.
+
+After running this command, open `http://localhost:8080` in your browser and you will see the Nginx welcome page.
+
+## Listing running containers with docker ps
+
+To see what is currently running:
+
+```bash
+docker ps
+```
+
+Expected output:
+
+```text
+CONTAINER ID   IMAGE   COMMAND                  CREATED         STATUS         PORTS                  NAMES
+a1b2c3d4e5f6   nginx   "/docker-entrypoint.…"   5 seconds ago   Up 4 seconds   0.0.0.0:8080->80/tcp   elegant_morse
+```
+
+The columns tell you everything at a glance: the container ID, which image it was started from, the command running inside it, how long it has been up, its status, the port mapping, and an auto-generated name.
+
+## Stopping a container
+
+Pass the container ID (or name) to `docker stop`:
+
+```bash
+docker stop a1b2c3d4e5f6
+```
+
+Docker sends **SIGTERM** to the main process inside the container, giving it up to 10 seconds to shut down gracefully. If the process has not exited by then, Docker sends **SIGKILL** to force-terminate it.
+
+## Listing all containers (including stopped ones)
+
+Once stopped, a container no longer appears in `docker ps`. Add the `-a` flag to see everything, including exited containers:
+
+```bash
+docker ps -a
+```
+
+This is useful for inspecting exit codes, recovering logs, or cleaning up old containers with `docker rm`.
+
+export const firstContainerCode = `docker run -d -p 8080:80 nginx
+docker ps
+docker stop \$(docker ps -q --filter ancestor=nginx)
+docker ps -a`;
+
+<PlayWithDocker client:visible code={firstContainerCode} label="Run Nginx detached, inspect, and stop" />
+
+<Callout title="`-it` = interactive terminal; `-d` = detached">
+`-i` keeps stdin open so you can type into the container. `-t` allocates a pseudo-TTY so the shell prompt renders correctly. Use both together for interactive shells. Use `-d` to run containers in the background (daemons, web servers, databases).
+</Callout>
+
+export const quizFirstContainer = [
+  {
+    q: "What does the `-d` flag do in `docker run -d`?",
+    options: [
+      "Runs the container in detached (background) mode",
+      "Deletes the container after it exits",
+      "Allocates a pseudo-TTY for the container",
+      "Downloads the image without starting a container"
+    ],
+    answer: 0
+  },
+  {
+    q: "What does `-p 8080:80` mean in `docker run -d -p 8080:80 nginx`?",
+    options: [
+      "Expose port 80 inside the container and block port 8080",
+      "Map host port 80 to container port 8080",
+      "Map host port 8080 to container port 80",
+      "Reserve port 8080 for internal Docker networking only"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which command lists only the currently running containers?",
+    options: [
+      "docker ps -a",
+      "docker ps",
+      "docker container list --all",
+      "docker status"
+    ],
+    answer: 1
+  },
+  {
+    q: "What signal does `docker stop` send to the container process first?",
+    options: [
+      "SIGKILL",
+      "SIGHUP",
+      "SIGINT",
+      "SIGTERM"
+    ],
+    answer: 3
+  }
+];
+
+<Quiz client:visible id="intro/first-container" questions={quizFirstContainer} />
+
+<ProgressTracker client:visible id="intro/first-container" />

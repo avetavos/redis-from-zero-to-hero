@@ -1,0 +1,154 @@
+---
+title: 'Exec และ Logs'
+description: 'Debug container ที่กำลังทำงานด้วย docker exec -it, ดู log แบบ stream ด้วย docker logs -f, และตรวจสอบ process ด้วย docker top'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## การเปิด shell ใน container ที่กำลังทำงาน
+
+`docker exec` รัน **กระบวนการใหม่** ภายใน container ที่กำลังทำงานอยู่ การใช้งานที่พบบ่อยที่สุดคือการเปิด interactive shell:
+
+```bash
+docker exec -it <container> sh
+```
+
+- `-i` เปิด stdin ไว้ (interactive)
+- `-t` จัดสรร pseudo-TTY (เพื่อให้ได้ terminal prompt ที่ใช้งานได้จริง)
+- `sh` คือคำสั่งที่จะรัน (ใช้ `bash` ถ้า image มีติดตั้งมา)
+
+ภายใน shell คุณสามารถตรวจสอบไฟล์, รันคำสั่ง, และ debug ปัญหา — เหมือนกับว่าคุณอยู่บนเครื่อง host
+
+```bash
+# ตัวอย่าง session
+docker run -d --name webserver nginx:alpine
+docker exec -it webserver sh
+
+# ภายใน container:
+# / # cat /etc/os-release
+# / # ls /usr/share/nginx/html
+# / # exit
+```
+
+## การดู log ของ container
+
+container ทุกตัวเขียน stdout/stderr ไปยัง log ที่ Docker จัดการ:
+
+```bash
+# แสดง log ทั้งหมดจนถึงปัจจุบัน
+docker logs webserver
+
+# ติดตาม (stream) บรรทัด log ใหม่แบบ real time — เหมือน tail -f
+docker logs -f webserver
+
+# แสดง 20 บรรทัดล่าสุด
+docker logs --tail 20 webserver
+
+# เพิ่ม timestamp
+docker logs -t webserver
+```
+
+Log เป็นสิ่งแรกที่ควรดูเมื่อ container ทำงานผิดปกติ ถ้า container รีสตาร์ทซ้ำๆ `docker logs <name>` มักบอกสาเหตุได้ทันที
+
+## การตรวจสอบ process ด้วย `docker top`
+
+`docker top` แสดงรายการ process ที่กำลังทำงานภายใน container — โดยไม่ต้องเข้าไปข้างใน:
+
+```bash
+docker top webserver
+```
+
+```text
+UID    PID    PPID   C  STIME  TTY  TIME      CMD
+root   12345  12300  0  10:00  ?    00:00:00  nginx: master process nginx -g daemon off;
+101    12346  12345  0  10:00  ?    00:00:00  nginx: worker process
+```
+
+## การรันคำสั่งแบบ one-off
+
+ไม่จำเป็นต้องเปิด shell เต็มรูปแบบเสมอไป `docker exec` สามารถรันคำสั่งใดก็ได้โดยตรง:
+
+```bash
+# ตรวจสอบ config ของ nginx
+docker exec webserver nginx -t
+
+# ดูไฟล์
+docker exec webserver cat /etc/nginx/nginx.conf
+```
+
+export const execLogsCode = `# 1. Start nginx in the background
+docker run -d --name webserver nginx:alpine
+
+# 2. Check its logs
+docker logs webserver
+
+# 3. Run a one-off command inside it
+docker exec webserver nginx -t
+
+# 4. Open an interactive shell
+#    (type 'exit' when done)
+docker exec -it webserver sh
+
+# 5. Watch processes
+docker top webserver
+
+# 6. Follow logs in real time (Ctrl+C to stop)
+docker logs -f webserver`;
+
+<PlayWithDocker client:visible code={execLogsCode} label="Exec เข้า container และตรวจสอบ log" />
+
+<Callout title="exec รันกระบวนการใหม่ — ไม่ใช่ container ใหม่">
+`docker exec` เริ่ม **กระบวนการใหม่** ภายใน container ที่มีอยู่ซึ่งกำลังทำงานอยู่ ไม่ได้สร้าง container ที่สอง เมื่อคุณ exit จาก shell container จะยังคงทำงานต่อด้วยกระบวนการหลักเดิม
+</Callout>
+
+export const quizExecLogs = [
+  {
+    q: "flag -t ใน 'docker exec -it container sh' ทำหน้าที่อะไร?",
+    options: [
+      "กำหนด timeout สำหรับคำสั่ง",
+      "จัดสรร pseudo-TTY เพื่อให้ได้ terminal prompt ที่ใช้งานได้จริง",
+      "เปิด timestamp ใน output",
+      "รันคำสั่งในฐานะ root user"
+    ],
+    answer: 1
+  },
+  {
+    q: "คำสั่งใด stream บรรทัด log ใหม่จาก container แบบ real time?",
+    options: [
+      "docker logs --watch",
+      "docker logs -t",
+      "docker logs -f",
+      "docker attach"
+    ],
+    answer: 2
+  },
+  {
+    q: "เกิดอะไรขึ้นกับ container เมื่อคุณ 'exit' จาก shell ที่เปิดด้วย docker exec?",
+    options: [
+      "Container หยุดทำงาน",
+      "Container ถูกลบ",
+      "Container ยังทำงานต่อ — เฉพาะกระบวนการ exec สิ้นสุด",
+      "Container รีสตาร์ท"
+    ],
+    answer: 2
+  },
+  {
+    q: "คำสั่งใดแสดงรายการ process ที่ทำงานภายใน container โดยไม่ต้องเปิด shell?",
+    options: [
+      "docker ps",
+      "docker top",
+      "docker exec ps",
+      "docker inspect --processes"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="containers/exec-logs" questions={quizExecLogs} />
+
+<ProgressTracker client:visible id="containers/exec-logs" />

@@ -1,0 +1,174 @@
+---
+title: 'Tag, Push & Pull'
+description: 'Master the image naming convention, docker tag, docker push, docker pull, semantic version tags, and why pushed tags should be treated as immutable.'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The full image name
+
+Every Docker image has a fully-qualified name made of four parts:
+
+```text
+registry/namespace/repository:tag
+```
+
+| Part | Example | Default |
+|---|---|---|
+| registry | `docker.io` | `docker.io` |
+| namespace | `acme` | `library` (for official images) |
+| repository | `api-server` | — |
+| tag | `2.1.0` | `latest` |
+
+So `nginx` is shorthand for `docker.io/library/nginx:latest`, and `acme/api-server:2.1.0` means `docker.io/acme/api-server:2.1.0`.
+
+For GHCR (GitHub Container Registry) the pattern is:
+
+```text
+ghcr.io/<github-owner>/<repository>:<tag>
+```
+
+## `docker tag` — add a name to an image
+
+`docker tag` does not copy the image. It adds a new pointer to the same set of layers:
+
+```bash
+# Build the image locally
+docker build -t api-server:2.1.0 .
+
+# Add a registry-qualified name ready to push
+docker tag api-server:2.1.0 acme/api-server:2.1.0
+
+# Also tag as latest (optional)
+docker tag api-server:2.1.0 acme/api-server:latest
+```
+
+Both `acme/api-server:2.1.0` and `acme/api-server:latest` now refer to the exact same image ID — no extra storage is used.
+
+## `docker push` — upload to a registry
+
+Push requires authentication (see the Docker Hub lesson). After `docker login`:
+
+```bash
+docker push acme/api-server:2.1.0
+docker push acme/api-server:latest
+```
+
+Each layer is uploaded once and deduplicated on the registry. If another image already has the same layer, Docker skips it.
+
+Expected output:
+
+```text
+The push refers to repository [docker.io/acme/api-server]
+abc123def456: Pushed
+789ghijkl012: Layer already exists
+2.1.0: digest: sha256:deadbeef... size: 1234
+```
+
+## `docker pull` — download from a registry
+
+```bash
+# Pull a specific version
+docker pull acme/api-server:2.1.0
+
+# Pull from GHCR
+docker pull ghcr.io/acme/api-server:2.1.0
+```
+
+If the image already exists locally, Docker checks whether the remote digest has changed and only downloads updated layers.
+
+## Semantic version tags and `latest`
+
+A good tagging strategy uses **multiple tags** for the same image:
+
+```bash
+docker tag api-server:2.1.0 acme/api-server:2.1.0   # exact version
+docker tag api-server:2.1.0 acme/api-server:2.1      # minor stream
+docker tag api-server:2.1.0 acme/api-server:2        # major stream
+docker tag api-server:2.1.0 acme/api-server:latest   # latest (optional)
+```
+
+Consumers can pin to `2.1.0` for stability or follow `2` for non-breaking updates. `latest` is just a convenience alias — it has no automatic semantics.
+
+## Treat pushed tags as immutable
+
+Once a tag has been pushed and other systems have started pulling it, **never overwrite it**. Re-pushing `2.1.0` with different content breaks reproducibility — other teams' deployments may pull a different image than yours even though the tag looks the same.
+
+Instead, always create a new tag (`2.1.1`, `2.2.0`) for changed content.
+
+## Hands-on: pull and run a versioned public image
+
+You cannot push to Docker Hub from Play with Docker (no credentials), but you can practice `docker pull`, `docker tag`, and `docker run` on a public image.
+
+export const tagPullCode = `# Pull a specific nginx version
+docker pull nginx:1.27-alpine
+
+# Add a local alias tag
+docker tag nginx:1.27-alpine my-nginx:stable
+
+# Check both tags point to the same image ID
+docker images nginx
+docker images my-nginx
+
+# Run it to verify it works
+docker run --rm -d --name test-nginx -p 8080:80 my-nginx:stable
+curl http://localhost:8080
+docker stop test-nginx`;
+
+<PlayWithDocker client:visible code={tagPullCode} label="Pull, tag, and run a public image" />
+
+<Callout title="Tag with a real version AND optionally latest; treat pushed tags as immutable">
+Always push an explicit version tag (e.g., `2.1.0`) alongside `latest`. Once a tag is in a registry and consumed by other systems, never overwrite it — create a new tag for any change. This keeps deployments reproducible and avoids silent breakage when other teams pull the same tag name and get different content.
+</Callout>
+
+export const quizTagPushPull = [
+  {
+    q: "What does `docker tag acme/app:1.0 acme/app:latest` actually do to storage?",
+    options: [
+      "Copies all image layers to a new location on disk",
+      "Uploads the image to Docker Hub under a new name",
+      "Adds a new name pointer to the same existing layers — no extra storage",
+      "Creates a snapshot of the running container"
+    ],
+    answer: 2
+  },
+  {
+    q: "What is the default registry when no registry address is given in an image name?",
+    options: [
+      "ghcr.io",
+      "docker.io",
+      "quay.io",
+      "registry.local"
+    ],
+    answer: 1
+  },
+  {
+    q: "Why should you treat pushed version tags as immutable?",
+    options: [
+      "Docker Hub enforces immutability and rejects overwrites",
+      "Overwriting a tag breaks reproducibility — other teams may pull different content under the same name",
+      "Immutable tags compress better on the registry",
+      "Tags cannot be reused on the free plan"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which command uploads a locally built image to a registry?",
+    options: [
+      "docker upload",
+      "docker export",
+      "docker push",
+      "docker send"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="registry-ci-deploy/tag-push-pull" questions={quizTagPushPull} />
+
+<ProgressTracker client:visible id="registry-ci-deploy/tag-push-pull" />

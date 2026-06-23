@@ -1,0 +1,243 @@
+---
+title: 'Lifecycle และการ Scale'
+description: 'ควบคุม Compose lifecycle ครบวงจร — up, down, logs, build, ps — และ scale services แนวนอนด้วย --scale'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## คำสั่ง lifecycle หลัก
+
+เมื่อมี `compose.yaml` แล้ว คำสั่งหกตัวนี้ครอบคลุมการทำงานประจำวัน
+
+### docker compose up
+
+สตาร์ทเซอร์วิสทั้งหมดที่กำหนดใน `compose.yaml` กด `Ctrl-C` เพื่อหยุด
+
+```bash
+docker compose up
+```
+
+สตาร์ทในพื้นหลัง (detached mode):
+
+```bash
+docker compose up -d
+```
+
+Rebuild images ก่อนสตาร์ท (มีประโยชน์หลังเปลี่ยน Dockerfile):
+
+```bash
+docker compose up -d --build
+```
+
+### docker compose down
+
+หยุดและลบ containers และ default network Named volumes ถูกเก็บไว้
+
+```bash
+docker compose down
+```
+
+ลบ named volumes ด้วย:
+
+```bash
+docker compose down -v
+```
+
+### docker compose logs
+
+Stream logs จากทุกเซอร์วิส:
+
+```bash
+docker compose logs -f
+```
+
+Stream logs จากเซอร์วิสเฉพาะ:
+
+```bash
+docker compose logs -f app
+```
+
+### docker compose ps
+
+แสดง containers ที่กำลังรันสำหรับโปรเจกต์ปัจจุบัน:
+
+```bash
+docker compose ps
+```
+
+### docker compose build
+
+Build หรือ rebuild images สำหรับเซอร์วิสที่ใช้ `build:`:
+
+```bash
+docker compose build
+```
+
+Build เซอร์วิสเฉพาะ:
+
+```bash
+docker compose build app
+```
+
+### docker compose exec
+
+รันคำสั่งภายใน service container ที่กำลังรัน:
+
+```bash
+docker compose exec app sh
+```
+
+## การ scale เซอร์วิส
+
+รัน replicas หลายตัวของ stateless service ด้วย `--scale`:
+
+```bash
+docker compose up -d --scale worker=3
+```
+
+นี่สตาร์ทสามคอนเทนเนอร์สำหรับเซอร์วิส `worker` แต่ละ replica ได้ชื่อเฉพาะเช่น `project-worker-1`, `project-worker-2`, `project-worker-3`
+
+ข้อจำกัดสำคัญของเซอร์วิสที่ scale:
+
+- อย่าใช้ `container_name:` แบบตายตัว — Compose ไม่สามารถตั้งชื่อเดียวกันให้สามคอนเทนเนอร์
+- อย่าใช้ host-port mappings บนเซอร์วิสที่ scale — ไม่สามารถ bind host port เดิมกับสามคอนเทนเนอร์
+
+นิยามเซอร์วิสที่ scale ได้:
+
+```yaml
+services:
+  worker:
+    image: myapp:latest
+    # ไม่มี container_name — Compose ตั้งชื่อ replicas อัตโนมัติ
+    # ไม่มี ports — ไม่ bind host-port บนเซอร์วิสที่ scale
+    environment:
+      - QUEUE_URL=amqp://rabbit
+```
+
+## เข้าใจ down กับ down -v
+
+```text
+docker compose down        หยุด containers + ลบ containers + ลบ networks
+docker compose down -v     เหมือนด้านบน + ลบ named volumes
+```
+
+Named volumes เก็บข้อมูลฐานข้อมูล ไฟล์ที่อัปโหลด และ caches ส่ง `-v` เฉพาะเมื่อต้องการล้างข้อมูลนั้นจริงๆ — เช่น เมื่อ reset ฐานข้อมูล development ให้เริ่มต้นใหม่
+
+## Lifecycle ครบวงจรในทางปฏิบัติ
+
+```bash
+# Build images
+docker compose build
+
+# สตาร์ททุกอย่างแบบ detached
+docker compose up -d
+
+# ดู logs
+docker compose logs -f
+
+# ตรวจสอบสถานะ
+docker compose ps
+
+# Scale worker ขึ้น
+docker compose up -d --scale worker=3
+
+# ปิด (เก็บ volumes)
+docker compose down
+
+# Reset เต็มรูปแบบ — ทำลาย volumes ด้วย
+docker compose down -v
+```
+
+## ลองปฏิบัติจริง
+
+export const lifecycleCode = `# Create a compose.yaml with a scalable worker
+cat > compose.yaml <<'EOF'
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+
+  worker:
+    image: alpine
+    command: >
+      sh -c "echo Worker \$HOSTNAME started && sleep 20"
+EOF
+
+# Start in detached mode
+docker compose up -d
+
+# Show running containers
+docker compose ps
+
+# Scale workers to 3
+docker compose up -d --scale worker=3
+
+# Show all containers (1 web + 3 workers)
+docker compose ps
+
+# Stream logs from all workers
+docker compose logs worker
+
+# Tear down (containers + network, volumes kept)
+docker compose down
+
+echo "All containers removed. Named volumes (if any) are still intact."`;
+
+<PlayWithDocker client:visible code={lifecycleCode} label="Scale workers และจัดการ lifecycle" />
+
+<Callout title="docker compose down ลบ containers และ networks — เพิ่ม -v สำหรับ volumes">
+การรัน `docker compose down` หยุดและลบ containers และ network ที่สร้างอัตโนมัติ Named volumes ถูกเก็บไว้โดยเจตนาเพื่อให้ข้อมูลอยู่รอดได้หลัง restart เพิ่ม flag `-v` เฉพาะเมื่อต้องการทำลาย volumes ด้วย (เช่น reset ฐานข้อมูล dev) ไม่มีการ undo สำหรับ `-v`
+</Callout>
+
+export const quizLifecycle = [
+  {
+    q: "คำสั่งใดสตาร์ทเซอร์วิสในโหมด detached (พื้นหลัง)?",
+    options: [
+      "docker compose start -d",
+      "docker compose up -d",
+      "docker compose run --detach",
+      "docker compose up --background"
+    ],
+    answer: 1
+  },
+  {
+    q: "docker compose down -v ทำอะไรเพิ่มเติมจาก docker compose down ธรรมดา?",
+    options: [
+      "หยุดเซอร์วิสอย่างนุ่มนวลกว่าโดยใช้ SIGTERM",
+      "ลบ named volumes ด้วย",
+      "ลบไฟล์ compose.yaml",
+      "บังคับลบ containers ที่ค้างอยู่"
+    ],
+    answer: 1
+  },
+  {
+    q: "flag ใด rebuild images ก่อนสตาร์ทเซอร์วิส?",
+    options: [
+      "docker compose up --rebuild",
+      "docker compose up --refresh",
+      "docker compose up --build",
+      "docker compose build && docker compose up"
+    ],
+    answer: 2
+  },
+  {
+    q: "ทำไมเซอร์วิสที่ scale ไม่สามารถใช้ host-port mapping แบบ ports: - '8080:80'?",
+    options: [
+      "เซอร์วิสที่ scale ใช้ key ports: ไม่ได้เลย",
+      "สาม replicas ไม่สามารถ bind กับ host port เดียวกันพร้อมกันได้",
+      "flag --scale ปิดการใช้งาน port forwarding",
+      "เฉพาะ replica แรกเท่านั้นที่ได้ port; ที่เหลือข้ามไปเงียบๆ"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="compose/lifecycle-scale" questions={quizLifecycle} />
+
+<ProgressTracker client:visible id="compose/lifecycle-scale" />

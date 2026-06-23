@@ -1,0 +1,181 @@
+---
+title: 'GitHub Actions CI'
+description: 'Automate การ build และ push image ด้วย GitHub Actions workflow โดยใช้ Docker actions อย่างเป็นทางการ: login, setup-buildx, metadata, และ build-push'
+sidebar:
+  order: 4
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ทำไมต้อง automate การ build image ใน CI?
+
+การ build และ push image ด้วยมือเป็นสิ่งที่ผิดพลาดได้ง่าย CI pipeline ช่วยให้ทุก merge ไปยัง main branch สร้าง image ที่ผ่านการทดสอบ, มี tag, และเผยแพร่แล้ว — โดยไม่ต้องทำขั้นตอนด้วยมือ
+
+GitHub Actions เป็นตัวเลือกที่นิยมที่สุดสำหรับโปรเจกต์บน GitHub ทีม Docker เผยแพร่ action อย่างเป็นทางการสี่ตัวที่ทำให้เรื่องนี้ง่ายขึ้นมาก:
+
+| Action | จุดประสงค์ |
+|---|---|
+| `docker/login-action` | Authenticate กับ registry ใด ๆ |
+| `docker/setup-buildx-action` | เปิดใช้ BuildKit (multi-platform, cache mounts) |
+| `docker/metadata-action` | สร้าง tag และ label จาก Git metadata |
+| `docker/build-push-action` | Build และ push ในขั้นตอนเดียว |
+
+## การตั้งค่า secrets
+
+Credentials ของ registry ต้องไม่ปรากฏใน repository เด็ดขาด เก็บไว้เป็น **encrypted repository secrets**:
+
+1. ไปที่ repository → **Settings → Secrets and variables → Actions → New repository secret**
+2. เพิ่ม `DOCKERHUB_USERNAME` และ `DOCKERHUB_TOKEN` (ใช้ Docker Hub access token ไม่ใช่รหัสผ่าน)
+
+Workflow ด้านล่างอ้างอิงค่าเหล่านี้ผ่าน `${{ secrets.DOCKERHUB_USERNAME }}` และ `${{ secrets.DOCKERHUB_TOKEN }}` — GitHub Actions จะแทนที่ค่าจริงตอน runtime และซ่อนไว้ใน log
+
+## Workflow file
+
+สร้าง `.github/workflows/docker.yml` ใน repository ของคุณ:
+
+```yaml
+name: Build and push Docker image
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # needed if pushing to GHCR
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: acme/api-server
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+```
+
+## การ push ไปยัง GHCR แทน Docker Hub
+
+หากต้องการ push ไป GitHub Container Registry ให้เปลี่ยน login step และชื่อ image:
+
+```yaml
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+```
+
+และอัปเดตค่า `images:` ใน `metadata-action`:
+
+```yaml
+          images: ghcr.io/${{ github.repository }}
+```
+
+`GITHUB_TOKEN` ถูกจัดเตรียมโดย GitHub Actions โดยอัตโนมัติ — ไม่ต้องสร้าง secret ด้วยมือ
+
+## สิ่งที่ `metadata-action` สร้างออกมา
+
+สำหรับ git tag `v2.1.0` metadata action จะสร้าง:
+
+```text
+acme/api-server:2.1.0
+acme/api-server:2.1
+acme/api-server:latest
+acme/api-server:sha-abc1234
+```
+
+เมื่อ push บน branch ธรรมดา (ไม่มี semver tag) จะมีเฉพาะ `sha-` tag และชื่อ branch — `latest` จะถูกตั้งค่าเฉพาะเมื่อมี tagged release เท่านั้น
+
+## BuildKit cache
+
+บรรทัด `cache-from: type=gha` และ `cache-to: type=gha,mode=max` ใช้ GitHub Actions cache เก็บ BuildKit layer ระหว่าง run ซึ่งสามารถลดเวลา build ได้ 70-90% สำหรับ layer ที่ไม่เปลี่ยนแปลง
+
+## ประเด็นสำคัญ
+
+- `push: ${{ github.event_name != 'pull_request' }}` — build ทุก PR เพื่อตรวจสอบ แต่ push เฉพาะเมื่อ merge เข้า main
+- `setup-buildx-action` เปิดใช้ BuildKit (layer cache, multi-platform, `--mount` ใน `RUN`)
+- ห้ามใส่ credentials ตรง ๆ ใน YAML file ใช้ `secrets.*` เสมอ
+
+<Callout title="เก็บ registry credentials เป็น encrypted CI secrets ห้ามใส่ใน repo">
+เพิ่ม `DOCKERHUB_TOKEN` (หรือเทียบเท่า) เป็น encrypted Actions secret แล้วอ้างอิงผ่าน `${{ secrets.DOCKERHUB_TOKEN }}` ใน workflow YAML GitHub จะซ่อนค่านี้ใน log ทั้งหมด การ commit credentials โดยตรงใน workflow file หรือ Dockerfile เปิดเผยให้ทุกคนที่เข้าถึง repository ได้เห็น และเป็นเหตุการณ์ security ร้ายแรง
+</Callout>
+
+export const quizGithubActions = [
+  {
+    q: "เหตุใดจึงใช้ `push: ${{ github.event_name != 'pull_request' }}` ใน build-push-action?",
+    options: [
+      "เพื่อข้าม build step บน pull request",
+      "เพื่อ build และตรวจสอบบน PR แต่ push image เฉพาะเมื่อ merge เข้า main",
+      "เพื่อป้องกัน workflow ไม่ให้รันบน fork",
+      "เพื่อ cache layer จาก pull request ก่อนหน้า"
+    ],
+    answer: 1
+  },
+  {
+    q: "docker/metadata-action สร้างอะไรจาก git tag เช่น v2.1.0?",
+    options: [
+      "เฉพาะ tag แน่นอน 2.1.0",
+      "เฉพาะ SHA digest tag",
+      "หลาย tag: 2.1.0, 2.1, latest, และ short SHA tag",
+      "YAML manifest พร้อม image labels"
+    ],
+    answer: 2
+  },
+  {
+    q: "ควรเก็บ Docker Hub credentials ไว้ที่ใดใน GitHub Actions workflow?",
+    options: [
+      "Hardcode ใน workflow YAML file",
+      "ใน .env file ที่ commit เข้า repository",
+      "เป็น encrypted repository secrets อ้างอิงผ่าน secrets.*",
+      "ใน Dockerfile เป็น ARG instructions"
+    ],
+    answer: 2
+  },
+  {
+    q: "docker/setup-buildx-action มีจุดประสงค์อะไรใน CI workflow?",
+    options: [
+      "ติดตั้ง Docker Engine บน runner",
+      "เปิดใช้ BuildKit รวมถึง layer caching และ multi-platform builds",
+      "สร้าง Docker Hub repository โดยอัตโนมัติ",
+      "สแกน image หา security vulnerabilities"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="registry-ci-deploy/github-actions" questions={quizGithubActions} />
+
+<ProgressTracker client:visible id="registry-ci-deploy/github-actions" />

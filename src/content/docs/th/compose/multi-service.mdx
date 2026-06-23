@@ -1,0 +1,183 @@
+---
+title: 'แอปหลายเซอร์วิส'
+description: 'เชื่อมต่อเว็บแอปและฐานข้อมูลใน compose.yaml เดียวกันด้วย depends_on และ networking อัตโนมัติของ Compose'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## รันเว็บแอปและฐานข้อมูลพร้อมกัน
+
+แอปพลิเคชันจริงแทบทุกตัวต้องการฐานข้อมูล ด้วย Docker Compose คุณกำหนดทั้งสองเซอร์วิสในไฟล์เดียว และ Compose จัดการ networking ให้อัตโนมัติ — ไม่ต้อง `docker network create` เองเลย
+
+นี่คือเว็บแอปที่ใช้ PostgreSQL เป็น backend:
+
+```yaml
+services:
+  app:
+    image: node:22-alpine
+    working_dir: /app
+    command: ["node", "server.js"]
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=mydb
+    depends_on:
+      - db
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_DB=mydb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=secret
+```
+
+## depends_on — ลำดับการเริ่มต้น
+
+`depends_on` บอก Compose ให้สตาร์ท `db` ก่อน `app` นี่ควบคุมลำดับการสตาร์ทคอนเทนเนอร์ ไม่ใช่ความพร้อม — database process ภายในคอนเทนเนอร์อาจยังไม่รับ connection ในทันทีที่คอนเทนเนอร์สตาร์ท สำหรับ production ให้เพิ่ม `healthcheck` ใน `db` และใช้ `depends_on: condition: service_healthy` ใน `app`
+
+ลำดับการสตาร์ทแบบพื้นฐาน (เพียงพอสำหรับการเรียนรู้และการพัฒนา):
+
+```yaml
+depends_on:
+  - db
+```
+
+ลำดับการสตาร์ทแบบ health-checked (pattern สำหรับ production):
+
+```yaml
+services:
+  app:
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17-alpine
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d mydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    environment:
+      - POSTGRES_DB=mydb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=secret
+```
+
+## Networking อัตโนมัติ
+
+เมื่อรัน `docker compose up` Compose จะสร้าง network สำหรับโปรเจกต์ของคุณโดยอัตโนมัติ ทุกเซอร์วิสในไฟล์ถูก attach เข้า network นั้น เซอร์วิสเข้าถึงกันโดยใช้ **ชื่อเซอร์วิส** เป็น hostname
+
+ในตัวอย่างด้านบน `app` เชื่อมต่อฐานข้อมูลที่ host `db` port `5432` — ตรงกับชื่อเซอร์วิส ไม่มี IP address ไม่มีการกำหนดค่า network เอง
+
+```text
+app  --[db:5432]-->  db
+     <-- myapp-network (auto-created) -->
+```
+
+## ดู logs จากหลายเซอร์วิส
+
+stream logs จากทุกเซอร์วิสพร้อมกัน:
+
+```bash
+docker compose logs -f
+```
+
+ติดตามเฉพาะเซอร์วิสเดียว:
+
+```bash
+docker compose logs -f app
+```
+
+## ลองปฏิบัติจริง
+
+snippet ด้านล่างสตาร์ท app container ที่เชื่อมต่อ PostgreSQL container โดยใช้ชื่อเซอร์วิส `db`
+
+export const multiServiceCode = `# Write a two-service compose.yaml
+cat > compose.yaml <<'EOF'
+services:
+  app:
+    image: alpine
+    command: >
+      sh -c "
+        echo 'Waiting for db...' &&
+        sleep 3 &&
+        echo 'Connecting to db:5432 (postgres service)' &&
+        nc -zv db 5432 &&
+        echo 'Connection to db succeeded via service name DNS!'
+      "
+    depends_on:
+      - db
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_PASSWORD=secret
+EOF
+
+# Start both services (app waits 3s then probes db)
+docker compose up
+
+# Clean up
+docker compose down`;
+
+<PlayWithDocker client:visible code={multiServiceCode} label="เชื่อมต่อ app กับ db ด้วยชื่อเซอร์วิส" />
+
+<Callout title="เซอร์วิสเข้าถึงกันด้วยชื่อเซอร์วิส">
+Compose สร้าง network ส่วนตัวสำหรับโปรเจกต์ของคุณโดยอัตโนมัติ ทุกเซอร์วิสเข้าร่วม network นั้น และแต่ละเซอร์วิสสามารถเข้าถึงได้จากเซอร์วิสอื่นโดยใช้ชื่อเซอร์วิสเป็น DNS hostname คุณไม่จำเป็นต้องใช้ IP address หรือสร้าง network เองสำหรับการสื่อสารภายในแอป
+</Callout>
+
+export const quizMultiService = [
+  {
+    q: "เซอร์วิส app เชื่อมต่อฐานข้อมูลใน Compose app อย่างไร?",
+    options: [
+      "ใช้ container ID เป็น hostname",
+      "ใช้ชื่อเซอร์วิสที่กำหนดใน compose.yaml เป็น DNS hostname",
+      "ใช้ IP address ของเครื่อง host",
+      "ใช้ /etc/hosts ที่กำหนดค่าเอง"
+    ],
+    answer: 1
+  },
+  {
+    q: "depends_on: - db รับประกันอะไร?",
+    options: [
+      "ว่า db container พร้อมรับ connection สมบูรณ์ก่อน app สตาร์ท",
+      "ว่า db container สตาร์ทก่อน app container",
+      "ว่า app และ db แชร์ network namespace เดียวกัน",
+      "ว่า db ถูก rebuild ก่อน app ทุกครั้งที่รัน docker compose up"
+    ],
+    answer: 1
+  },
+  {
+    q: "คำสั่งใด stream logs จากทุกเซอร์วิสพร้อมกัน?",
+    options: [
+      "docker compose logs --all",
+      "docker compose logs -f",
+      "docker logs --follow",
+      "docker compose stream"
+    ],
+    answer: 1
+  },
+  {
+    q: "อะไรสร้าง internal network ที่เชื่อมต่อ Compose services ทั้งหมด?",
+    options: [
+      "คุณต้องกำหนดมันเองภายใต้ key networks:",
+      "Docker Compose สร้างมันอัตโนมัติเมื่อรัน docker compose up",
+      "key depends_on สร้าง network",
+      "การ map ports: สร้าง network"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="compose/multi-service" questions={quizMultiService} />
+
+<ProgressTracker client:visible id="compose/multi-service" />

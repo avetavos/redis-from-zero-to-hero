@@ -1,0 +1,152 @@
+---
+title: 'Custom Networks และการแยก Container'
+description: 'สร้าง เชื่อมต่อ ตรวจสอบ และลบ Docker network เพื่อแยกกลุ่ม container ออกจากกัน'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ทำไมต้องแยก Network
+
+การใส่ container ทั้งหมดไว้บน network เดียวกันหมายความว่าพวกเขาสามารถสื่อสารกันได้ทั้งหมด — ไม่ว่าจะเป็น frontend กับ database หรือ microservice กับ microservice อื่นที่ไม่ควรรู้จักกัน
+
+การสร้าง network แยกสำหรับแต่ละ tier ของ application ช่วยให้คุณ:
+- จำกัดการสื่อสารเฉพาะที่จำเป็น
+- ลดพื้นที่การโจมตีหากมี container ถูก compromise
+- สร้างสถาปัตยกรรมที่ชัดเจนและ document ตัวเองได้
+
+## สร้าง Network ที่แยกกัน
+
+สร้าง network สองเครือข่ายสำหรับ frontend และ backend:
+
+```bash
+docker network create frontend-net
+docker network create backend-net
+```
+
+## รัน Container บน Network ที่ต่างกัน
+
+```bash
+docker run -d --name frontend --network frontend-net nginx:alpine
+docker run -d --name database --network backend-net postgres:alpine
+```
+
+`frontend` และ `database` อยู่คนละ network จึงสื่อสารกันไม่ได้โดยค่าเริ่มต้น
+
+## ตรวจสอบว่า Container ไม่สามารถสื่อสารกันได้
+
+```bash
+docker exec frontend ping -c 2 database || echo "Cannot reach database"
+```
+
+การ ping ล้มเหลวตามที่คาดหวัง เพราะ `frontend` อยู่บน `frontend-net` และ `database` อยู่บน `backend-net`
+
+## เชื่อมต่อ Container กับ Network เพิ่มเติม
+
+หากต้องการให้ `frontend` เข้าถึง `database` ได้ ให้เชื่อมต่อมันกับ `backend-net`:
+
+```bash
+docker network connect backend-net frontend
+```
+
+ตอนนี้ `frontend` อยู่บนทั้งสอง network และสามารถ ping `database` ได้
+
+## ตัดการเชื่อมต่อ Container จาก Network
+
+```bash
+docker network disconnect backend-net frontend
+```
+
+## ล้างข้อมูล
+
+```bash
+docker stop frontend database
+docker rm frontend database
+docker network rm frontend-net backend-net
+```
+
+## ลงมือปฏิบัติ: Custom Networks
+
+export const customNetworksCode = `# Create two isolated networks
+docker network create frontend-net
+docker network create backend-net
+
+# Run containers on separate networks
+docker run -d --name frontend --network frontend-net nginx:alpine
+docker run -d --name database --network backend-net postgres:alpine
+
+# frontend cannot reach database (different networks)
+docker exec frontend ping -c 2 database || echo "Cannot reach database"
+
+# Connect frontend to backend-net so it can reach the database
+docker network connect backend-net frontend
+
+# Now frontend can reach database
+docker exec frontend ping -c 2 database
+
+# Inspect a network
+docker network inspect frontend-net
+
+# Disconnect
+docker network disconnect backend-net frontend
+
+# Cleanup
+docker stop frontend database && docker rm frontend database
+docker network rm frontend-net backend-net`;
+
+<PlayWithDocker client:visible code={customNetworksCode} label="ทดสอบการแยก network" />
+
+<Callout title="แยก service ด้วย network ที่แตกต่างกัน">
+วาง application แต่ละชั้น (frontend, backend, database) บน network ของตัวเอง เชื่อมต่อเฉพาะ container ที่ต้องสื่อสารกัน วิธีนี้จำกัดผลกระทบหากเกิดการละเมิดและเป็นการปรับปรุงความปลอดภัยที่ไม่มีค่าใช้จ่าย
+</Callout>
+
+export const quizCustomNetworks = [
+  {
+    q: "Container สองตัวอยู่บน user-defined bridge network ที่ต่างกัน สามารถสื่อสารกันได้โดยค่าเริ่มต้นหรือไม่?",
+    options: [
+      "ได้ container ทุกตัวบน host เดียวกันสื่อสารกันได้เสมอ",
+      "ได้ แต่เฉพาะผ่าน IP address เท่านั้น — ไม่ใช่ชื่อ",
+      "ไม่ได้ container บน network ต่างกันถูกแยกออกจากกัน",
+      "ไม่ได้ เว้นแต่จะตั้งค่า firewall ของ host"
+    ],
+    answer: 2
+  },
+  {
+    q: "คุณมี container ชื่อ 'api' ที่กำลังรันอยู่และต้องการเชื่อมต่อกับ network ชื่อ 'data-net' โดยไม่รีสตาร์ท คำสั่งใดที่ใช้?",
+    options: [
+      "docker run --network data-net api",
+      "docker network attach data-net api",
+      "docker network connect data-net api",
+      "docker container connect api data-net"
+    ],
+    answer: 2
+  },
+  {
+    q: "คุณลอง docker network rm mynet แต่ได้รับ error ว่า network มี active endpoints สิ่งที่ต้องทำก่อนคืออะไร?",
+    options: [
+      "ใช้ docker network rm --force mynet เพื่อข้ามการตรวจสอบ",
+      "หยุดและลบ container ทั้งหมดที่เชื่อมต่อกับ mynet แล้วจึงลบ network",
+      "ตัดการเชื่อมต่อ network จาก Docker daemon ด้วย docker network disable",
+      "รีสตาร์ท Docker daemon เพื่อปลดปล่อย endpoint ทั้งหมด"
+    ],
+    answer: 1
+  },
+  {
+    q: "ใน three-tier app คุณต้องการให้ database container เข้าถึงได้โดย API server แต่ไม่ใช่ frontend proxy การออกแบบ network ที่ถูกต้องคืออะไร?",
+    options: [
+      "วาง service ทั้งสามบน network เดียวและใช้ firewall rule บล็อก frontend",
+      "วาง database บน data-net แยกต่างหากและเชื่อมต่อเฉพาะ API server กับ data-net",
+      "ใช้ host network driver สำหรับ database เพื่อไม่ให้ container อื่นเข้าถึงได้",
+      "วาง database บน default bridge network ซึ่งถูกแยกโดยอัตโนมัติ"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="networking/custom-networks" questions={quizCustomNetworks} />
+
+<ProgressTracker client:visible id="networking/custom-networks" />

@@ -1,0 +1,161 @@
+---
+title: 'Docker Compose'
+description: 'กำหนดและรันแอปพลิเคชัน Docker หลายคอนเทนเนอร์แบบ declarative ในไฟล์ compose.yaml ไฟล์เดียว'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Docker Compose คืออะไร?
+
+การรันแอปพลิเคชันจริงแทบทุกครั้งต้องใช้มากกว่าหนึ่งคอนเทนเนอร์ — เว็บเซิร์ฟเวอร์ ฐานข้อมูล อาจจะมีแคชด้วย หากไม่มี Compose คุณต้องเปิดหลาย terminal พิมพ์คำสั่ง `docker run` ยาวๆ สำหรับแต่ละเซอร์วิส และจำทุกอย่างที่ต้องเชื่อมต่อกัน กระบวนการนั้นเสียหายง่ายและแชร์กับทีมได้ยาก
+
+Docker Compose ให้คุณอธิบายแอปพลิเคชันหลายคอนเทนเนอร์ทั้งหมดในไฟล์เดียวชื่อ `compose.yaml` คำสั่งเดียวก็สตาร์ทได้ทุกอย่าง:
+
+```bash
+docker compose up
+```
+
+คำสั่งเดียวก็หยุดทุกอย่าง:
+
+```bash
+docker compose down
+```
+
+## compose.yaml เทียบกับคำสั่ง docker run ยาวๆ
+
+เปรียบเทียบการรันเว็บแอปง่ายๆ สองแบบ
+
+แบบไม่มี Compose:
+
+```bash
+docker network create myapp-net
+docker run -d \
+  --name web \
+  --network myapp-net \
+  -p 8080:8080 \
+  -e APP_ENV=production \
+  myapp:latest
+```
+
+แบบมี Compose:
+
+```yaml
+services:
+  web:
+    image: myapp:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - APP_ENV=production
+```
+
+เวอร์ชัน Compose อ่านง่าย เก็บใน version control ได้ และทีมทุกคนสามารถรันได้เหมือนกันทุกครั้ง
+
+## โมดูลนี้ครอบคลุมอะไรบ้าง
+
+โมดูลนี้จะพาคุณผ่านทุกชั้นของ Docker Compose:
+
+| บทเรียน | หัวข้อ |
+|---------|--------|
+| 1 (หน้านี้) | ทำไมต้อง Compose — แอปแบบ declarative ไฟล์เดียว |
+| 2 | โครงสร้าง compose.yaml เชิงลึก |
+| 3 | แอปหลายเซอร์วิสพร้อม networking |
+| 4 | Environment variables, volumes และ networks |
+| 5 | Lifecycle commands และการ scale |
+
+## แอป Compose แรกแบบเรียบง่าย
+
+นี่คือ `compose.yaml` ที่เล็กที่สุดที่ใช้งานได้จริง — เซอร์วิส Nginx หนึ่งตัว:
+
+```yaml
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+```
+
+สตาร์ทด้วย `docker compose up` (เพิ่ม `-d` เพื่อรันในพื้นหลัง) เข้า `http://localhost:8080` แล้วจะเห็นหน้า Nginx welcome หยุดด้วย `Ctrl-C` หรือ `docker compose down` ถ้าใช้ `-d`
+
+## ลองปฏิบัติจริง
+
+snippet ด้านล่างเขียน `compose.yaml` สตาร์ท และตรวจสอบเซอร์วิสที่กำลังรัน — ทั้งหมดภายใน Play with Docker
+
+export const composeIndexCode = `# Write a minimal compose.yaml
+cat > compose.yaml <<'EOF'
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+EOF
+
+# Start in detached mode
+docker compose up -d
+
+# Check running services
+docker compose ps
+
+# Fetch the Nginx welcome page
+curl -s http://localhost:8080 | head -5
+
+# Tear it down
+docker compose down`;
+
+<PlayWithDocker client:visible code={composeIndexCode} label="รันแอป Compose แรกของคุณ" />
+
+<Callout title="Compose v2 ใช้ docker compose (ไม่มียัติภังค์)">
+Docker รุ่นใหม่มาพร้อม Compose เป็น plugin ในตัว คำสั่งคือ `docker compose` (เว้นวรรค) ไม่ใช่ `docker-compose` แบบ binary แยกที่เก่าแล้ว ใช้ `docker compose` เสมอในโปรเจกต์ใหม่
+</Callout>
+
+export const quizIndex = [
+  {
+    q: "ประโยชน์หลักของการใช้ Docker Compose แทนคำสั่ง docker run ธรรมดาคืออะไร?",
+    options: [
+      "มันสร้าง image เร็วกว่าโดยใช้ parallel layers",
+      "ให้คุณกำหนดและจัดการแอปหลายคอนเทนเนอร์ในไฟล์ declarative ไฟล์เดียว",
+      "มัน push image ไปยัง registry โดยอัตโนมัติ",
+      "ไม่จำเป็นต้องมี Dockerfile อีกต่อไป"
+    ],
+    answer: 1
+  },
+  {
+    q: "คำสั่งใดสตาร์ทเซอร์วิสทั้งหมดใน compose.yaml แบบ foreground?",
+    options: [
+      "docker compose start",
+      "docker compose run",
+      "docker compose up",
+      "docker compose launch"
+    ],
+    answer: 2
+  },
+  {
+    q: "คำสั่งใดถูกต้องสำหรับ Compose v2?",
+    options: [
+      "docker-compose up",
+      "docker compose up",
+      "compose up",
+      "dockerd compose up"
+    ],
+    answer: 1
+  },
+  {
+    q: "ชื่อไฟล์มาตรฐานสำหรับการกำหนดค่า Compose คืออะไร?",
+    options: [
+      "docker-compose.yml",
+      "Composefile",
+      "compose.yaml",
+      "docker.yaml"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="compose/index" questions={quizIndex} />
+
+<ProgressTracker client:visible id="compose/index" />

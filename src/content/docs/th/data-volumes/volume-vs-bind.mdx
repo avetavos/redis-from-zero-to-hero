@@ -1,0 +1,145 @@
+---
+title: 'Volumes vs Bind Mounts'
+description: 'เปรียบเทียบ named volumes และ bind mounts — ความสามารถในการพกพา ประสิทธิภาพ กรณีการใช้งาน และ read-only mounts'
+sidebar:
+  order: 4
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## เปรียบเทียบอย่างรวดเร็ว
+
+| คุณสมบัติ | Named Volume | Bind Mount |
+|---------|-------------|------------|
+| **Path จัดการโดย** | Docker | คุณ |
+| **ต้องการ host path** | ไม่ต้อง | ต้องการ |
+| **ความสามารถพกพา** | สูง — ทำงานได้บน host ทุกเครื่อง | ต่ำ — path ต้องมีอยู่ในทุก host |
+| **ประสิทธิภาพ** | ปรับแต่งโดย Docker storage driver | ใช้ host filesystem โดยตรง (เร็วบน Linux ช้ากว่าบน macOS/Windows) |
+| **การสำรองข้อมูล** | `docker volume inspect` + tar container | คัดลอกไฟล์โดยตรงจาก host path |
+| **กรณีใช้งานทั่วไป** | ไฟล์ฐานข้อมูล state ของแอป uploads | Source code ไฟล์ config ในการพัฒนา |
+| **ใช้ใน production ได้** | ได้ | ไม่ค่อยได้ (ขึ้นอยู่กับ layout ของ host) |
+
+## เมื่อไรควรใช้แต่ละอย่าง
+
+### ใช้ named volumes เมื่อ:
+
+- คุณต้องการให้ข้อมูลรอดชีวิตจากการสร้าง container ใหม่ (ฐานข้อมูล object storage cache)
+- คุณ deploy ไปยัง remote host หรือสภาพแวดล้อม CI/CD ที่ host path อาจแตกต่างกัน
+- คุณต้องการให้ Docker เป็นเจ้าของ lifecycle ของพื้นที่จัดเก็บ
+
+### ใช้ bind mounts เมื่อ:
+
+- คุณกำลังพัฒนาในเครื่องและต้องการ live code reload โดยไม่ต้อง rebuild image
+- คุณต้องการ inject ไฟล์ config จาก host เข้า container ณ เวลา runtime
+- คุณกำลังรัน tools (linters, compilers) ที่ผลิต output ที่คุณต้องการโดยตรงบน host
+
+## Read-only mounts
+
+ทั้งสองประเภทรองรับ read-only mounts container สามารถอ่านข้อมูลได้แต่เขียนไปยัง mount target ไม่ได้
+
+**Named volume แบบ read-only:**
+
+```bash
+docker run --rm -v mydata:/app/data:ro alpine ls /app/data
+```
+
+**Bind mount แบบ read-only:**
+
+```bash
+docker run --rm -v $(pwd)/config:/etc/app/config:ro myimage
+```
+
+ด้วย `--mount` syntax (ทั้งสองประเภท):
+
+```bash
+# Volume
+docker run --rm --mount type=volume,source=mydata,target=/app/data,readonly myimage
+
+# Bind
+docker run --rm --mount type=bind,source=$(pwd)/config,target=/etc/app/config,readonly myimage
+```
+
+Read-only mounts เป็น security best practice เมื่อ container ต้องการเพียงแค่อ่านข้อมูล — ป้องกันกระบวนการที่ถูก compromise หรือมีข้อบกพร่องจากการเขียนทับไฟล์สำคัญ
+
+## ฝึกปฏิบัติ
+
+snippet ด้านล่างสาธิต mount ทั้งสองประเภทเคียงข้างกัน เพื่อให้คุณสังเกตความแตกต่างในเซสชันเดียว
+
+export const vsCode = `# --- Named volume ---
+docker volume create compare-vol
+
+# Write via container
+docker run --rm -v compare-vol:/data alpine sh -c "echo 'from named volume' > /data/note.txt"
+
+# Read from a new container (data persists)
+docker run --rm -v compare-vol:/data alpine cat /data/note.txt
+
+# --- Bind mount ---
+mkdir -p /tmp/compare-bind
+echo 'from bind mount' > /tmp/compare-bind/note.txt
+
+# Read from container via bind mount
+docker run --rm -v /tmp/compare-bind:/data alpine cat /data/note.txt
+
+# --- Read-only mount ---
+docker run --rm -v /tmp/compare-bind:/data:ro alpine sh -c "cat /data/note.txt && echo 'trying to write...' && echo 'blocked' > /data/note.txt || echo 'Write blocked as expected'"
+
+# Clean up
+docker volume rm compare-vol
+rm -rf /tmp/compare-bind`
+
+<PlayWithDocker client:visible code={vsCode} label="เปรียบเทียบ volumes และ bind mounts แบบ side by side" />
+
+<Callout title="Volumes สำหรับข้อมูลที่เก็บไว้ Bind mounts สำหรับ code ที่แก้ไข">
+mental model ง่ายๆ: ถ้าต้องการให้ข้อมูลรอดชีวิตจาก container และย้ายระหว่างสภาพแวดล้อม ใช้ named volume ถ้าต้องการให้ host และ container แชร์ view ของไฟล์เดิมแบบ live ระหว่างการพัฒนา ใช้ bind mount ใน production ให้เลือก named volumes เพราะพกพาได้ Docker จัดการให้ และสำรองข้อมูลได้ง่ายกว่า
+</Callout>
+
+export const quizVsbind = [
+  {
+    q: "ตัวเลือกพื้นที่จัดเก็บใดมีความสามารถพกพาสูงกว่าข้ามเครื่อง host ต่างๆ?",
+    options: [
+      "Bind mount เพราะใช้ host path โดยตรง",
+      "Named volume เพราะ Docker จัดการตำแหน่งที่จัดเก็บ",
+      "tmpfs เพราะอยู่ใน RAM",
+      "ทั้งสองมีความสามารถพกพาเท่ากัน"
+    ],
+    answer: 1
+  },
+  {
+    q: "ตำแหน่งที่ถูกต้องของ flag `:ro` สำหรับ read-only bind mount ด้วย syntax `-v` คืออะไร?",
+    options: [
+      "docker run --ro -v /host:/container myimage",
+      "docker run -v /host:/container myimage --readonly",
+      "docker run -v /host:/container:ro myimage",
+      "docker run -v ro:/host:/container myimage"
+    ],
+    answer: 2
+  },
+  {
+    q: "ทำไม bind mounts ถึงทำงานช้ากว่าบน macOS และ Windows เมื่อเทียบกับ Linux?",
+    options: [
+      "Docker ใช้การเข้ารหัสเพิ่มเติมบน host ที่ไม่ใช่ Linux",
+      "Bind mounts ใช้ network layer บน macOS และ Windows เพื่อเชื่อม host filesystem เข้ากับ Linux VM ที่รัน Docker",
+      "macOS และ Windows จำกัดจำนวน file descriptor สำหรับ Docker",
+      "Docker บีบอัดข้อมูล bind mount บน host ที่ไม่ใช่ Linux"
+    ],
+    answer: 1
+  },
+  {
+    q: "Read-only mount เป็น security best practice เพราะป้องกันอะไร?",
+    options: [
+      "ป้องกัน container อื่นจากการอ่าน volume",
+      "ป้องกัน container process จากการเขียนทับไฟล์ที่ mount",
+      "ป้องกันไม่ให้ volume ถูกลบด้วย docker volume rm",
+      "ป้องกัน Docker จากการบันทึก log การเข้าถึง mount"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="data-volumes/volume-vs-bind" questions={quizVsbind} />
+
+<ProgressTracker client:visible id="data-volumes/volume-vs-bind" />

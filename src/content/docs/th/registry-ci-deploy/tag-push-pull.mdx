@@ -1,0 +1,174 @@
+---
+title: 'Tag, Push & Pull'
+description: 'เรียนรู้รูปแบบการตั้งชื่อ image, docker tag, docker push, docker pull, semantic version tags, และเหตุผลที่ควรถือว่า pushed tag เป็น immutable'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ชื่อ image แบบเต็ม
+
+Docker image ทุกตัวมีชื่อแบบ fully-qualified ประกอบด้วยสี่ส่วน:
+
+```text
+registry/namespace/repository:tag
+```
+
+| ส่วน | ตัวอย่าง | ค่าเริ่มต้น |
+|---|---|---|
+| registry | `docker.io` | `docker.io` |
+| namespace | `acme` | `library` (สำหรับ official image) |
+| repository | `api-server` | — |
+| tag | `2.1.0` | `latest` |
+
+ดังนั้น `nginx` เป็นชื่อย่อของ `docker.io/library/nginx:latest` และ `acme/api-server:2.1.0` หมายถึง `docker.io/acme/api-server:2.1.0`
+
+สำหรับ GHCR (GitHub Container Registry) รูปแบบคือ:
+
+```text
+ghcr.io/<github-owner>/<repository>:<tag>
+```
+
+## `docker tag` — เพิ่มชื่อให้ image
+
+`docker tag` ไม่ได้คัดลอก image แต่เพิ่ม pointer ใหม่ที่ชี้ไปยัง layer ชุดเดิม:
+
+```bash
+# Build image ใน local
+docker build -t api-server:2.1.0 .
+
+# เพิ่มชื่อแบบ registry-qualified พร้อม push
+docker tag api-server:2.1.0 acme/api-server:2.1.0
+
+# tag เป็น latest ด้วย (optional)
+docker tag api-server:2.1.0 acme/api-server:latest
+```
+
+ทั้ง `acme/api-server:2.1.0` และ `acme/api-server:latest` ชี้ไปยัง image ID เดียวกัน — ไม่ใช้พื้นที่เพิ่ม
+
+## `docker push` — อัปโหลดไปยัง registry
+
+การ push ต้องผ่านการ authenticate (ดูบทเรียน Docker Hub) หลัง `docker login`:
+
+```bash
+docker push acme/api-server:2.1.0
+docker push acme/api-server:latest
+```
+
+แต่ละ layer จะถูกอัปโหลดครั้งเดียวและ deduplicate บน registry หาก image อื่นมี layer เดียวกันอยู่แล้ว Docker จะข้ามมัน
+
+ตัวอย่าง output:
+
+```text
+The push refers to repository [docker.io/acme/api-server]
+abc123def456: Pushed
+789ghijkl012: Layer already exists
+2.1.0: digest: sha256:deadbeef... size: 1234
+```
+
+## `docker pull` — ดาวน์โหลดจาก registry
+
+```bash
+# Pull version ที่ระบุ
+docker pull acme/api-server:2.1.0
+
+# Pull จาก GHCR
+docker pull ghcr.io/acme/api-server:2.1.0
+```
+
+หาก image มีอยู่ใน local แล้ว Docker จะตรวจสอบว่า digest ของ remote เปลี่ยนไปหรือไม่ และดาวน์โหลดเฉพาะ layer ที่อัปเดต
+
+## Semantic version tags และ `latest`
+
+กลยุทธ์การ tag ที่ดีใช้ **หลาย tag** สำหรับ image เดียวกัน:
+
+```bash
+docker tag api-server:2.1.0 acme/api-server:2.1.0   # version แน่นอน
+docker tag api-server:2.1.0 acme/api-server:2.1      # minor stream
+docker tag api-server:2.1.0 acme/api-server:2        # major stream
+docker tag api-server:2.1.0 acme/api-server:latest   # latest (optional)
+```
+
+ผู้ใช้สามารถ pin ที่ `2.1.0` เพื่อความเสถียร หรือติดตาม `2` สำหรับ update ที่ไม่ทำลาย backward compatibility `latest` เป็นแค่ alias สะดวก ไม่มี semantic อัตโนมัติ
+
+## ถือว่า pushed tag เป็น immutable
+
+เมื่อ tag ถูก push และระบบอื่นเริ่ม pull แล้ว **ห้าม overwrite** การ push `2.1.0` ซ้ำด้วย content ที่ต่างออกไปจะทำลาย reproducibility — ทีมอื่นอาจ pull image ที่ต่างจากของคุณแม้ชื่อ tag จะเหมือนกัน
+
+แทนที่นั้น ให้สร้าง tag ใหม่เสมอ (`2.1.1`, `2.2.0`) สำหรับ content ที่เปลี่ยนแปลง
+
+## ลองทำ: pull และรัน versioned public image
+
+ไม่สามารถ push ไป Docker Hub จาก Play with Docker ได้ (ไม่มี credentials) แต่สามารถฝึก `docker pull`, `docker tag`, และ `docker run` กับ public image ได้
+
+export const tagPullCode = `# Pull a specific nginx version
+docker pull nginx:1.27-alpine
+
+# Add a local alias tag
+docker tag nginx:1.27-alpine my-nginx:stable
+
+# Check both tags point to the same image ID
+docker images nginx
+docker images my-nginx
+
+# Run it to verify it works
+docker run --rm -d --name test-nginx -p 8080:80 my-nginx:stable
+curl http://localhost:8080
+docker stop test-nginx`;
+
+<PlayWithDocker client:visible code={tagPullCode} label="Pull, tag, and run a public image" />
+
+<Callout title="Tag ด้วย version จริงและ latest ถ้าต้องการ; ถือว่า pushed tag เป็น immutable">
+Push version tag แน่นอน (เช่น `2.1.0`) ควบคู่กับ `latest` เสมอ เมื่อ tag อยู่ใน registry และถูกใช้โดยระบบอื่นแล้ว ห้าม overwrite — สร้าง tag ใหม่สำหรับการเปลี่ยนแปลงใด ๆ วิธีนี้รักษา reproducibility ของการ deploy และป้องกันการ breakage แบบไม่รู้ตัว
+</Callout>
+
+export const quizTagPushPull = [
+  {
+    q: "`docker tag acme/app:1.0 acme/app:latest` ทำอะไรกับ storage จริง ๆ?",
+    options: [
+      "คัดลอก image layer ทั้งหมดไปยังตำแหน่งใหม่บน disk",
+      "อัปโหลด image ไป Docker Hub ภายใต้ชื่อใหม่",
+      "เพิ่ม pointer ชื่อใหม่ชี้ไปยัง layer เดิม — ไม่ใช้พื้นที่เพิ่ม",
+      "สร้าง snapshot ของ container ที่กำลังรัน"
+    ],
+    answer: 2
+  },
+  {
+    q: "Registry เริ่มต้นเมื่อไม่ระบุที่อยู่ใน image name คืออะไร?",
+    options: [
+      "ghcr.io",
+      "docker.io",
+      "quay.io",
+      "registry.local"
+    ],
+    answer: 1
+  },
+  {
+    q: "เหตุใดจึงควรถือว่า pushed version tag เป็น immutable?",
+    options: [
+      "Docker Hub บังคับ immutability และปฏิเสธการ overwrite",
+      "การ overwrite tag ทำลาย reproducibility — ทีมอื่นอาจ pull content ที่ต่างออกไปภายใต้ชื่อเดิม",
+      "Immutable tag บีบอัดได้ดีกว่าบน registry",
+      "ใช้ tag ซ้ำไม่ได้บน free plan"
+    ],
+    answer: 1
+  },
+  {
+    q: "คำสั่งใดอัปโหลด image ที่ build ใน local ไปยัง registry?",
+    options: [
+      "docker upload",
+      "docker export",
+      "docker push",
+      "docker send"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="registry-ci-deploy/tag-push-pull" questions={quizTagPushPull} />
+
+<ProgressTracker client:visible id="registry-ci-deploy/tag-push-pull" />

@@ -1,0 +1,145 @@
+---
+title: 'เครือข่าย Bridge เริ่มต้น'
+description: 'วิธีการทำงานของ default bridge network, IP ของ container, การแยกเครือข่าย และเหตุใดจึงไม่มี DNS'
+sidebar:
+  order: 2
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Default Bridge ทำงานอย่างไร
+
+เมื่อ Docker daemon เริ่มต้น มันจะสร้าง virtual Ethernet switch ชื่อ `docker0` บน host นี่คือ default bridge network ทุก container ที่คุณเริ่มต้นโดยไม่ระบุ `--network` จะถูกเชื่อมต่อกับ `docker0` โดยอัตโนมัติ
+
+Container บน default bridge จะได้รับ IP address จาก subnet `172.17.0.0/16` โดย gateway — และ host เอง — อยู่ที่ `172.17.0.1`
+
+```text
+Host
+  └── docker0 (172.17.0.1)
+        ├── container c1  (172.17.0.2)
+        └── container c2  (172.17.0.3)
+```
+
+## รัน Container สองตัวและตรวจสอบ IP
+
+เริ่มต้น nginx container ชื่อ `c1` และ Alpine container ชื่อ `c2`:
+
+```bash
+docker run -d --name c1 nginx:alpine
+docker run -d --name c2 alpine sleep 300
+```
+
+ตรวจสอบ IP address ที่ถูกกำหนดให้แต่ละ container:
+
+```bash
+docker inspect c1 --format '{{.NetworkSettings.IPAddress}}'
+docker inspect c2 --format '{{.NetworkSettings.IPAddress}}'
+```
+
+คุณจะเห็น address เช่น `172.17.0.2` และ `172.17.0.3`
+
+## Container สามารถ Ping กันผ่าน IP ได้
+
+เนื่องจากทั้งสอง container อยู่บน bridge `docker0` เดียวกัน การ routing layer-3 ระหว่างพวกเขาจึงทำงานได้ จาก `c2` ให้ ping `c1` ด้วย IP address:
+
+```bash
+docker exec c2 ping -c 3 172.17.0.2
+```
+
+การ ping สำเร็จ traffic ไหลผ่าน `docker0` บน host
+
+## การ Resolve ชื่อ Container ไม่ทำงานบน Default Bridge
+
+ลองทำ ping เดิมโดยใช้ชื่อ container แทน IP:
+
+```bash
+docker exec c2 ping c1
+```
+
+คำสั่งนี้จะล้มเหลวด้วยข้อความ `bad address 'c1'` หรือ DNS error ที่คล้ายกัน Default bridge network **ไม่มี** embedded DNS resolver ดังนั้นจึงไม่สามารถ resolve ชื่อ container ได้ เฉพาะ user-defined network (ครอบคลุมในบทเรียนถัดไป) เท่านั้นที่ให้ DNS อัตโนมัติ
+
+## ล้างข้อมูล
+
+หยุดและลบทั้งสอง container เมื่อเสร็จสิ้น:
+
+```bash
+docker stop c1 c2
+docker rm c1 c2
+```
+
+## ลงมือปฏิบัติ: ตรวจสอบ IP บน Bridge
+
+export const bridgeNetworkCode = `# Start two containers on the default bridge
+docker run -d --name c1 alpine sleep 300
+docker run -d --name c2 alpine sleep 300
+
+# Find their IPs
+C1_IP=\$(docker inspect c1 --format '{{.NetworkSettings.IPAddress}}')
+C2_IP=\$(docker inspect c2 --format '{{.NetworkSettings.IPAddress}}')
+echo "c1 IP: \$C1_IP"
+echo "c2 IP: \$C2_IP"
+
+# Ping c2 from c1 by IP (succeeds)
+docker exec c1 ping -c 3 \$C2_IP
+
+# Try to ping by name (fails — no DNS on default bridge)
+docker exec c1 ping -c 1 c2 || echo "Name resolution failed as expected"
+
+# Cleanup
+docker stop c1 c2 && docker rm c1 c2`;
+
+<PlayWithDocker client:visible code={bridgeNetworkCode} label="สำรวจ default bridge" />
+
+<Callout title="IP ใช้ได้ แต่ชื่อใช้ไม่ได้">
+บน default bridge container สามารถเชื่อมต่อกันผ่าน IP address ได้ การ resolve ชื่อ container ต้องใช้ user-defined network (บทเรียนถัดไป)
+</Callout>
+
+export const quizBridgeNetwork = [
+  {
+    q: "Default bridge network ของ Docker ใช้ subnet ใดสำหรับ IP address ของ container?",
+    options: [
+      "192.168.0.0/16",
+      "10.0.0.0/8",
+      "172.17.0.0/16",
+      "172.16.0.0/12"
+    ],
+    answer: 2
+  },
+  {
+    q: "ทำไมการ ping container ด้วยชื่อถึงล้มเหลวบน default bridge network?",
+    options: [
+      "Container บน default bridge ถูกแยกออกจากกันโดยสมบูรณ์และสื่อสารไม่ได้เลย",
+      "Default bridge ไม่มี embedded DNS resolver",
+      "Docker บล็อก ICMP (ping) traffic บน default bridge เพื่อความปลอดภัย",
+      "ชื่อ container resolve ได้เฉพาะจาก host เท่านั้น ไม่ใช่จาก container อื่น"
+    ],
+    answer: 1
+  },
+  {
+    q: "virtual Ethernet switch ที่ Docker สร้างขึ้นสำหรับ default bridge network มีชื่อว่าอะไร?",
+    options: [
+      "eth0",
+      "veth0",
+      "docker0",
+      "bridge0"
+    ],
+    answer: 2
+  },
+  {
+    q: "Container สองตัวอยู่บน default bridge network ข้อใดต่อไปนี้ถูกต้อง?",
+    options: [
+      "สื่อสารกันด้วยชื่อ container ได้ แต่ไม่ได้ด้วย IP address",
+      "สื่อสารกันไม่ได้เลยโดยไม่ publish port",
+      "สื่อสารกันด้วย IP address ได้ แต่ไม่ได้ด้วยชื่อ container",
+      "แชร์ IP address และ network namespace เดียวกัน"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="networking/bridge-network" questions={quizBridgeNetwork} />
+
+<ProgressTracker client:visible id="networking/bridge-network" />

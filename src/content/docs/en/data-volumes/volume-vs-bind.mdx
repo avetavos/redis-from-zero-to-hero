@@ -1,0 +1,145 @@
+---
+title: 'Volumes vs Bind Mounts'
+description: 'Compare named volumes and bind mounts — portability, performance, use cases, and read-only mounts.'
+sidebar:
+  order: 4
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Comparison at a glance
+
+| Property | Named Volume | Bind Mount |
+|----------|-------------|------------|
+| **Path managed by** | Docker | You |
+| **Host path required** | No | Yes |
+| **Portability** | High — works on any host | Low — path must exist on every host |
+| **Performance** | Optimised by Docker storage driver | Direct host filesystem (fast on Linux, slower on macOS/Windows) |
+| **Backup** | `docker volume inspect` + tar container | Copy files directly from the host path |
+| **Typical use case** | Database files, app state, uploads | Source code, config files in development |
+| **Works in production** | Yes | Rarely (depends on host layout) |
+
+## When to use each
+
+### Use named volumes when:
+
+- You need data to survive container replacements (databases, object storage, cache).
+- You are deploying to a remote host or CI/CD environment where the host path may differ.
+- You want Docker to own the lifecycle of the storage.
+
+### Use bind mounts when:
+
+- You are developing locally and want live code reload without rebuilding the image.
+- You need to inject a config file from the host into the container at runtime.
+- You are running tools (linters, compilers) that produce output you want directly on the host.
+
+## Read-only mounts
+
+Both volume types support read-only mounts. The container can read data but cannot write to the mount target.
+
+**Named volume, read-only:**
+
+```bash
+docker run --rm -v mydata:/app/data:ro alpine ls /app/data
+```
+
+**Bind mount, read-only:**
+
+```bash
+docker run --rm -v $(pwd)/config:/etc/app/config:ro myimage
+```
+
+With `--mount` syntax (both types):
+
+```bash
+# Volume
+docker run --rm --mount type=volume,source=mydata,target=/app/data,readonly myimage
+
+# Bind
+docker run --rm --mount type=bind,source=$(pwd)/config,target=/etc/app/config,readonly myimage
+```
+
+Read-only mounts are a security best practice when the container only needs to read the data — they prevent a compromised or buggy process from overwriting important files.
+
+## Hands-on practice
+
+The snippet below demonstrates both mount types side by side so you can observe the difference in a single session.
+
+export const vsCode = `# --- Named volume ---
+docker volume create compare-vol
+
+# Write via container
+docker run --rm -v compare-vol:/data alpine sh -c "echo 'from named volume' > /data/note.txt"
+
+# Read from a new container (data persists)
+docker run --rm -v compare-vol:/data alpine cat /data/note.txt
+
+# --- Bind mount ---
+mkdir -p /tmp/compare-bind
+echo 'from bind mount' > /tmp/compare-bind/note.txt
+
+# Read from container via bind mount
+docker run --rm -v /tmp/compare-bind:/data alpine cat /data/note.txt
+
+# --- Read-only mount ---
+docker run --rm -v /tmp/compare-bind:/data:ro alpine sh -c "cat /data/note.txt && echo 'trying to write...' && echo 'blocked' > /data/note.txt || echo 'Write blocked as expected'"
+
+# Clean up
+docker volume rm compare-vol
+rm -rf /tmp/compare-bind`
+
+<PlayWithDocker client:visible code={vsCode} label="Compare volumes and bind mounts side by side" />
+
+<Callout title="Volumes for data you keep; bind mounts for code you edit">
+A simple mental model: if you need the data to outlive the container and move between environments, use a named volume. If you need the host and container to share a live view of the same files during development, use a bind mount. In production, prefer named volumes — they are portable, Docker-managed, and easier to back up.
+</Callout>
+
+export const quizVsbind = [
+  {
+    q: "Which storage option has higher portability across different host machines?",
+    options: [
+      "Bind mount, because it uses the host path directly",
+      "Named volume, because Docker manages the storage location",
+      "tmpfs, because it lives in RAM",
+      "Both are equally portable"
+    ],
+    answer: 1
+  },
+  {
+    q: "What is the correct `:ro` flag position for a read-only bind mount using `-v` syntax?",
+    options: [
+      "docker run --ro -v /host:/container myimage",
+      "docker run -v /host:/container myimage --readonly",
+      "docker run -v /host:/container:ro myimage",
+      "docker run -v ro:/host:/container myimage"
+    ],
+    answer: 2
+  },
+  {
+    q: "Why might bind mounts perform slower on macOS and Windows compared to Linux?",
+    options: [
+      "Docker applies extra encryption on non-Linux hosts",
+      "Bind mounts use a network layer on macOS and Windows to bridge the host filesystem into the Linux VM where Docker runs",
+      "macOS and Windows limit file descriptor count for Docker",
+      "Docker compresses bind mount data on non-Linux hosts"
+    ],
+    answer: 1
+  },
+  {
+    q: "A read-only mount is a security best practice because it prevents what?",
+    options: [
+      "Prevents other containers from reading the volume",
+      "Prevents the container process from overwriting the mounted files",
+      "Prevents the volume from being deleted with docker volume rm",
+      "Prevents Docker from logging access to the mount"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="data-volumes/volume-vs-bind" questions={quizVsbind} />
+
+<ProgressTracker client:visible id="data-volumes/volume-vs-bind" />

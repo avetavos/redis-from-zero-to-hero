@@ -1,0 +1,161 @@
+---
+title: 'Restart Policies and Inspection'
+description: 'Configure restart policies, inspect container details with docker inspect, monitor live stats, and set resource limits.'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Restart policies
+
+By default a container that stops or crashes stays stopped. Restart policies tell Docker when to restart it automatically.
+
+| Policy | Behaviour |
+|--------|-----------|
+| `no` | Never restart (default). |
+| `always` | Always restart, even on manual `docker stop`. Starts on Docker daemon boot. |
+| `unless-stopped` | Restart automatically, but not if you stopped it manually. Starts on daemon boot unless it was stopped. |
+| `on-failure[:N]` | Restart only when the exit code is non-zero. Optional max retry count. |
+
+```bash
+# Recommended for long-running services
+docker run -d --restart unless-stopped nginx:alpine
+
+# Restart up to 5 times on failure
+docker run -d --restart on-failure:5 myworker:latest
+```
+
+## Inspecting a container
+
+`docker inspect` returns the full JSON configuration of a container — network settings, mounts, environment variables, restart policy, and more:
+
+```bash
+docker inspect webserver
+```
+
+To pull out a single field use `--format` with Go template syntax:
+
+```bash
+# Get the container's IP address
+docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' webserver
+
+# Get the restart policy
+docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' webserver
+```
+
+## Live resource monitoring with `docker stats`
+
+`docker stats` shows a live, updating table of CPU, memory, network I/O, and disk I/O for running containers:
+
+```bash
+# All running containers
+docker stats
+
+# Specific container, one snapshot (no live update)
+docker stats --no-stream webserver
+```
+
+```text
+CONTAINER ID   NAME        CPU %  MEM USAGE / LIMIT   MEM %   NET I/O       BLOCK I/O
+a1b2c3d4e5f6   webserver   0.1%   5.2MiB / 7.62GiB    0.07%   1.2kB / 648B  0B / 0B
+```
+
+## Resource limits
+
+Containers can consume all available memory and CPU if left unconstrained. Set limits at run time:
+
+```bash
+docker run -d \
+  --name limited \
+  --memory 256m \
+  --cpus 0.5 \
+  nginx:alpine
+```
+
+- `--memory 256m` — hard memory cap (container is OOM-killed if it exceeds this)
+- `--cpus 0.5` — allow the container to use at most half a CPU core
+
+Verify the limits are applied:
+
+```bash
+docker inspect --format '{{.HostConfig.Memory}}' limited
+# 268435456  (256 * 1024 * 1024 bytes)
+```
+
+export const restartInspectCode = `# 1. Run nginx with a restart policy
+docker run -d --name webserver --restart unless-stopped nginx:alpine
+
+# 2. Inspect the full config (JSON)
+docker inspect webserver | head -60
+
+# 3. Extract just the restart policy
+docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' webserver
+
+# 4. Live stats (one snapshot)
+docker stats --no-stream webserver
+
+# 5. Run a memory-limited container
+docker run -d --name limited --memory 128m --cpus 0.25 nginx:alpine
+
+# 6. Confirm the memory limit
+docker inspect --format '{{.HostConfig.Memory}}' limited
+
+# 7. Clean up
+docker stop webserver limited && docker rm webserver limited`;
+
+<PlayWithDocker client:visible code={restartInspectCode} label="Restart policies, inspect, and resource limits" />
+
+<Callout title="Use --restart unless-stopped for long-running services">
+`unless-stopped` is the recommended restart policy for services like web servers, databases, and background workers. The container survives host reboots and unexpected crashes automatically, but respects a deliberate `docker stop` — so you can take it offline for maintenance without it fighting you.
+</Callout>
+
+export const quizRestartInspect = [
+  {
+    q: "Which restart policy starts the container automatically after a host reboot but respects a manual 'docker stop'?",
+    options: [
+      "always",
+      "on-failure",
+      "unless-stopped",
+      "no"
+    ],
+    answer: 2
+  },
+  {
+    q: "What does 'docker stats --no-stream' do?",
+    options: [
+      "Disables network stats collection",
+      "Prints a single snapshot of resource usage and exits",
+      "Shows stats only for stopped containers",
+      "Outputs stats to a file instead of the terminal"
+    ],
+    answer: 1
+  },
+  {
+    q: "What happens when a container exceeds its --memory limit?",
+    options: [
+      "Docker pauses the container until memory is available",
+      "Docker logs a warning but takes no action",
+      "The container's process is OOM-killed by the kernel",
+      "Docker automatically increases the limit"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which command shows the full JSON configuration of a running container?",
+    options: [
+      "docker info",
+      "docker top",
+      "docker inspect",
+      "docker stats"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="containers/restart-inspect" questions={quizRestartInspect} />
+
+<ProgressTracker client:visible id="containers/restart-inspect" />

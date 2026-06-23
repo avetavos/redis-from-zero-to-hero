@@ -1,0 +1,188 @@
+---
+title: 'Small Base Images & .dockerignore'
+description: 'Choose minimal base images (Alpine, distroless, -slim) and use .dockerignore to exclude noise from the build context — two cheap wins with big payoffs.'
+sidebar:
+  order: 4
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The build context
+
+When you run `docker build .`, Docker packages everything in the current directory into a **build context** and sends it to the build daemon. Large contexts slow down every build, even if most files are never used by a `COPY` instruction.
+
+```text
+Sending build context to Docker daemon  823.4MB   ← node_modules included!
+```
+
+A `.dockerignore` file tells Docker which paths to exclude from the build context — exactly like `.gitignore` does for Git.
+
+## Writing a .dockerignore file
+
+Create `.dockerignore` in the same directory as your `Dockerfile`:
+
+```text
+# Dependencies — reinstalled inside the image
+node_modules/
+vendor/
+
+# Version control
+.git/
+.gitignore
+
+# Editor and OS noise
+.DS_Store
+*.log
+.env
+.env.*
+
+# Test and CI files not needed at runtime
+__tests__/
+coverage/
+.github/
+*.test.ts
+*.spec.ts
+```
+
+After adding this file the build context drops from hundreds of MB to a few KB for a typical Node.js project. As an added bonus, excluding `.env` files prevents secrets from accidentally leaking into the image.
+
+## Choosing a small base image
+
+The base image is often the largest single contributor to image size. Here are the common options, from largest to smallest:
+
+| Base | Approximate size | Notes |
+|---|---|---|
+| `ubuntu:24.04` | ~78 MB | Full apt ecosystem; large |
+| `debian:bookworm` | ~117 MB | Debian full; common |
+| `node:22` | ~1.1 GB | Includes full Debian + devtools |
+| `node:22-slim` | ~235 MB | Debian slim; no devtools |
+| `node:22-alpine` | ~55 MB | Alpine Linux; smallest with shell |
+| `cgr.dev/chainguard/node` | ~50 MB | Distroless; minimal, no shell |
+| `scratch` | 0 MB | Truly empty; for static binaries |
+
+### Alpine Linux
+
+Alpine is based on musl libc and BusyBox. It is the most popular small base for containers because:
+
+- The base image is under 5 MB.
+- `apk` package manager covers most common tools.
+- Official images for Node.js, Python, Go, Ruby, and others all publish `-alpine` variants.
+
+```dockerfile
+FROM node:22-alpine
+```
+
+One caveat: Alpine uses `musl` instead of `glibc`. Some packages compiled against `glibc` (e.g., certain native Node addons) need extra work. For pure-JS applications it is nearly always drop-in.
+
+### Distroless images
+
+Google's **distroless** images contain only the language runtime — no shell, no package manager, no `ls` or `cat`. They are smaller and present a much smaller attack surface because there is no tooling for an attacker to abuse.
+
+```dockerfile
+FROM gcr.io/distroless/nodejs22-debian12
+```
+
+Because there is no shell, `CMD` and `ENTRYPOINT` must use exec form (JSON array):
+
+```dockerfile
+CMD ["dist/server.js"]
+```
+
+### Remove apt caches after installing
+
+When you must install packages with `apt-get`, always clean up the package lists in the same `RUN` layer:
+
+```dockerfile
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+`--no-install-recommends` skips optional recommended packages. `rm -rf /var/lib/apt/lists/*` removes the downloaded package index from the layer — if you put it in a separate `RUN` instruction the size is already committed and the cleanup has no effect.
+
+## Hands-on: compare build contexts and base images
+
+The snippet below demonstrates the `.dockerignore` pattern and an Alpine base image.
+
+export const dockerignoreSmallCode = `# syntax=docker/dockerfile:1
+
+# .dockerignore (create alongside this Dockerfile):
+# node_modules/
+# .git/
+# .env
+# coverage/
+
+FROM node:22-alpine
+WORKDIR /app
+
+# Only manifests first for cache efficiency
+COPY package.json ./
+RUN echo '{}' > package-lock.json
+
+# Application source (node_modules excluded by .dockerignore)
+COPY src/ ./src/ 2>/dev/null || true
+RUN echo "console.log('Running on Alpine, image is tiny!');" > src/index.js 2>/dev/null || true
+
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["node","src/index.js"]
+
+# --- Build and check the size ---
+# docker build -t myapp:alpine .
+# docker images myapp:alpine`;
+
+<PlayWithDocker client:visible code={dockerignoreSmallCode} label="Build with Alpine and check size" />
+
+<Callout title="A good .dockerignore shrinks the build context and avoids cache busting">
+Excluding `node_modules/` from the build context prevents accidentally copying host dependencies into the image (which would overwrite the correctly-installed ones). Excluding `.git/` stops Git history from being sent to the daemon on every build. Both exclusions also prevent stale host files from invalidating cache layers unexpectedly.
+</Callout>
+
+export const quizDockerignoreSmall = [
+  {
+    q: "What is the primary purpose of a .dockerignore file?",
+    options: [
+      "It prevents the Docker daemon from starting",
+      "It excludes files and directories from the build context sent to the Docker daemon",
+      "It lists the environment variables available inside the container",
+      "It defines which ports to expose"
+    ],
+    answer: 1
+  },
+  {
+    q: "Why must `rm -rf /var/lib/apt/lists/*` be in the SAME RUN instruction as `apt-get install`?",
+    options: [
+      "apt-get refuses to run if the cleanup command is separate",
+      "Docker only allows one RUN per Dockerfile",
+      "If it runs in a separate RUN, the package lists are already committed to the previous layer and cannot be removed",
+      "It is only a convention; placement has no effect on image size"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which of the following base images is the smallest and most commonly used for Node.js production images?",
+    options: [
+      "node:22",
+      "ubuntu:24.04",
+      "node:22-alpine",
+      "debian:bookworm"
+    ],
+    answer: 2
+  },
+  {
+    q: "What is a key limitation of distroless images?",
+    options: [
+      "They cannot run Node.js applications",
+      "They contain no shell, so debugging inside a running container is not possible",
+      "They are only available for Go applications",
+      "They always require root privileges"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="optimization/dockerignore-small" questions={quizDockerignoreSmall} />
+
+<ProgressTracker client:visible id="optimization/dockerignore-small" />

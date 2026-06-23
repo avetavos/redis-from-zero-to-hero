@@ -1,0 +1,188 @@
+---
+title: 'Build, Tag & the Build Context'
+description: 'Understand docker build, the build context, tagging images with -t, docker images, docker tag, and .dockerignore.'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The `docker build` command
+
+`docker build` reads a Dockerfile and produces an image. The basic syntax is:
+
+```bash
+docker build [OPTIONS] PATH
+```
+
+The `PATH` argument (usually `.`) is called the **build context** — it is the directory that Docker sends to the build daemon. Files in the build context are available to `COPY` instructions inside the Dockerfile. Files outside the build context are not accessible.
+
+```bash
+docker build .
+```
+
+This sends the current directory as the build context. Without `-t`, the resulting image has no name — only a hex digest. You will almost always add `-t`.
+
+## Tagging with `-t`
+
+The `-t` flag assigns a human-readable **name:tag** to the image:
+
+```bash
+docker build -t myapp:1.0 .
+```
+
+The full form of a tag is:
+
+```text
+[registry/][owner/]name:tag
+```
+
+Examples:
+
+```text
+myapp:1.0
+myapp:latest
+ghcr.io/acme/myapp:1.0
+docker.io/library/node:22-alpine
+```
+
+If you omit the tag part, Docker defaults to `:latest`.
+
+## Listing images with `docker images`
+
+```bash
+docker images
+```
+
+Expected output:
+
+```text
+REPOSITORY   TAG       IMAGE ID       CREATED         SIZE
+myapp        1.0       a3f2b1c9d4e7   2 minutes ago   145MB
+myapp        latest    a3f2b1c9d4e7   2 minutes ago   145MB
+node         22-alpine 1b2c3d4e5f60   3 weeks ago      52MB
+```
+
+## Retagging with `docker tag`
+
+`docker tag` adds a new name or tag to an existing image without copying it. Both names point to the same image ID.
+
+```bash
+# Promote a build image to a release name
+docker tag myapp:1.0 myapp:stable
+docker tag myapp:1.0 ghcr.io/acme/myapp:1.0
+```
+
+## The meaning of `latest`
+
+`latest` is **not** a magic "newest" tag. It is just a default string that Docker uses when you omit the tag. It has no semantic version meaning. If you push `myapp:1.0` and `myapp:latest` independently, they can point to completely different image layers.
+
+In production pipelines, always use an explicit, meaningful tag (version number, git SHA, date) so you know exactly what is deployed.
+
+## Speeding up the context with `.dockerignore`
+
+By default, `docker build .` sends your entire current directory to the daemon — including `node_modules/`, `.git/`, test fixtures, and local secrets. A `.dockerignore` file (same syntax as `.gitignore`) excludes paths from the build context, which:
+
+- Speeds up the build (less data to transfer)
+- Prevents accidentally `COPY`-ing secrets into your image
+
+```text
+# .dockerignore
+node_modules/
+.git/
+.env
+*.log
+dist/
+coverage/
+```
+
+## Putting it together
+
+```bash
+# Build with a version tag
+docker build -t myapp:1.0 .
+
+# Also tag as latest
+docker tag myapp:1.0 myapp:latest
+
+# Inspect the result
+docker images myapp
+```
+
+Expected output:
+
+```text
+REPOSITORY   TAG     IMAGE ID       CREATED        SIZE
+myapp        1.0     a3f2b1c9d4e7   1 minute ago   145MB
+myapp        latest  a3f2b1c9d4e7   1 minute ago   145MB
+```
+
+## Hands-on practice
+
+export const buildTagCode = `# syntax=docker/dockerfile:1
+FROM alpine:3.20
+LABEL maintainer="you@example.com"
+WORKDIR /app
+RUN echo "v1.0" > version.txt
+CMD ["cat", "version.txt"]
+# --- build, tag, and inspect ---
+# docker build -t myapp:1.0 .
+# docker tag myapp:1.0 myapp:latest
+# docker images myapp
+# docker run --rm myapp:1.0`;
+
+<PlayWithDocker client:visible code={buildTagCode} label="Build, tag, and inspect" />
+
+<Callout title="Pin meaningful tags in production">
+Relying on `latest` in production is risky — a new push can silently change what your containers run. Always tag images with a version number or git commit SHA (e.g., `myapp:1.4.2` or `myapp:abc1234`) and refer to that exact tag in your deployment manifests and Compose files.
+</Callout>
+
+export const quizBuildTag = [
+  {
+    q: "What is the build context in `docker build .`?",
+    options: [
+      "The Dockerfile itself",
+      "The current directory, which Docker sends to the build daemon and makes available to COPY",
+      "The base image specified in FROM",
+      "The Docker Hub registry"
+    ],
+    answer: 1
+  },
+  {
+    q: "What does `docker tag myapp:1.0 myapp:stable` do?",
+    options: [
+      "Creates a physical copy of the image with a new name",
+      "Renames the image, removing the 1.0 tag",
+      "Adds a new name pointing to the same image layers as myapp:1.0",
+      "Pushes the image to a registry"
+    ],
+    answer: 2
+  },
+  {
+    q: "What is the main purpose of a .dockerignore file?",
+    options: [
+      "To prevent Docker from reading the Dockerfile",
+      "To list images that should not be pulled from Docker Hub",
+      "To exclude files from the build context, speeding up builds and preventing secrets from being copied in",
+      "To configure which ports are ignored by EXPOSE"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which statement about the `latest` tag is true?",
+    options: [
+      "Docker automatically updates latest to point to the most recently built image",
+      "latest is just a default string with no automatic version semantics",
+      "latest always points to a stable, tested release",
+      "You cannot manually assign the latest tag"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="images-dockerfile/build-tag" questions={quizBuildTag} />
+
+<ProgressTracker client:visible id="images-dockerfile/build-tag" />

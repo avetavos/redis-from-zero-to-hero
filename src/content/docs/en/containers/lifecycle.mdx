@@ -1,0 +1,172 @@
+---
+title: 'Container Lifecycle'
+description: 'Master docker run, docker ps, stop, start, restart, and rm — plus the --rm flag for automatic cleanup.'
+sidebar:
+  order: 2
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Running a container
+
+`docker run` is the most common command you will use. It pulls the image if needed, creates a container, and starts it.
+
+```bash
+docker run nginx:alpine
+```
+
+This runs nginx in the **foreground** — your terminal attaches to its output. Press `Ctrl+C` to stop it.
+
+### Detached mode with `-d`
+
+Add `-d` to run the container in the background:
+
+```bash
+docker run -d nginx:alpine
+```
+
+Docker prints the full container ID and returns your prompt immediately.
+
+### Naming a container with `--name`
+
+By default Docker assigns a random name. Use `--name` to give it a predictable one:
+
+```bash
+docker run -d --name webserver nginx:alpine
+```
+
+## Listing containers
+
+```bash
+# Only running containers
+docker ps
+
+# All containers — running AND stopped
+docker ps -a
+```
+
+```text
+CONTAINER ID   IMAGE          STATUS                     NAMES
+a1b2c3d4e5f6   nginx:alpine   Up 2 minutes               webserver
+b7c8d9e0f1a2   alpine         Exited (0) 5 minutes ago   old-task
+```
+
+The `STATUS` column tells you whether the container is running (`Up`) or stopped (`Exited`).
+
+## Stopping, starting, and restarting
+
+```bash
+# Graceful stop — sends SIGTERM, waits 10 s, then SIGKILL
+docker stop webserver
+
+# Start a stopped container
+docker start webserver
+
+# Restart (stop then start)
+docker restart webserver
+```
+
+`docker stop` does **not** remove the container. It remains on disk in the stopped state.
+
+## Removing a container
+
+```bash
+# Remove a stopped container
+docker rm webserver
+
+# Force-remove a running container (sends SIGKILL)
+docker rm -f webserver
+```
+
+You cannot remove a running container without `-f`.
+
+## Auto-cleanup with `--rm`
+
+For one-shot tasks you never want to manage manually, add `--rm`. The container is removed automatically the moment its process exits.
+
+```bash
+docker run --rm alpine echo "Hello, Docker!"
+```
+
+```text
+Hello, Docker!
+```
+
+The container is gone as soon as the `echo` finishes — no `docker rm` needed.
+
+export const lifecycleCode = `# 1. Run nginx detached with a name
+docker run -d --name webserver nginx:alpine
+
+# 2. List running containers
+docker ps
+
+# 3. Stop it
+docker stop webserver
+
+# 4. Show all containers — notice STATUS is Exited
+docker ps -a
+
+# 5. Start it again
+docker start webserver
+
+# 6. Remove it (stop first)
+docker stop webserver && docker rm webserver
+
+# 7. One-shot: auto-cleanup with --rm
+docker run --rm alpine echo "done — already gone"`;
+
+<PlayWithDocker client:visible code={lifecycleCode} label="Explore the container lifecycle" />
+
+<Callout title="Stopped containers still exist until removed">
+`docker stop` pauses the container — it does not delete it. Stopped containers accumulate on disk (each holds a writable layer). Use `docker rm` when you are done, or pass `--rm` at run time so Docker removes the container automatically on exit.
+</Callout>
+
+export const quizLifecycle = [
+  {
+    q: "What does 'docker stop' send to the container's main process first?",
+    options: [
+      "SIGKILL",
+      "SIGTERM",
+      "SIGINT",
+      "SIGHUP"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which command shows ALL containers, including stopped ones?",
+    options: [
+      "docker ps",
+      "docker ps --running",
+      "docker ps -a",
+      "docker container list"
+    ],
+    answer: 2
+  },
+  {
+    q: "What does the --rm flag do?",
+    options: [
+      "Removes the image after the container exits",
+      "Removes the container automatically when its process exits",
+      "Forces the container to restart on failure",
+      "Removes all stopped containers before running a new one"
+    ],
+    answer: 1
+  },
+  {
+    q: "Can you remove a running container without the -f flag?",
+    options: [
+      "Yes — docker rm always works",
+      "Yes — but only if the container was started with --rm",
+      "No — you must stop it first or use docker rm -f",
+      "No — running containers can never be removed"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="containers/lifecycle" questions={quizLifecycle} />
+
+<ProgressTracker client:visible id="containers/lifecycle" />

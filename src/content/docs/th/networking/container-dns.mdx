@@ -1,0 +1,135 @@
+---
+title: 'DNS ของ Container และ User-Defined Networks'
+description: 'User-defined bridge network มอบ DNS อัตโนมัติให้ container สามารถ resolve ชื่อกันเองได้'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ทำไม Default Bridge ถึงไม่มี DNS
+
+อย่างที่เห็นในบทเรียนก่อนหน้า container บน default bridge สามารถสื่อสารกันผ่าน IP address ได้ แต่ไม่สามารถ resolve ชื่อกันได้ นั่นเป็นเพราะ default bridge (`docker0`) เป็น legacy network ที่ Docker สร้างขึ้นก่อนที่จะมี embedded DNS
+
+เมื่อคุณสร้าง **user-defined bridge network** Docker จะเพิ่ม DNS resolver อัตโนมัติให้ container ทุกตัวบน network นั้นสามารถ resolve ชื่อกันได้ทันที
+
+## สร้าง User-Defined Network
+
+ใช้ `docker network create` เพื่อสร้าง bridge network ของคุณเอง:
+
+```bash
+docker network create appnet
+```
+
+Docker จะสร้าง bridge network ชื่อ `appnet` และกำหนด subnet ให้โดยอัตโนมัติ
+
+## รัน Container บน Network ที่กำหนดเอง
+
+ใช้ flag `--network` เพื่อแนบ container เข้ากับ `appnet` เมื่อรัน:
+
+```bash
+docker run -d --name web --network appnet nginx:alpine
+docker run -d --name client --network appnet alpine sleep 300
+```
+
+ทั้งสอง container ตอนนี้อยู่บน `appnet` และมี DNS resolver ของ Docker ให้บริการ
+
+## Ping ด้วยชื่อ Container
+
+จาก `client` ลอง ping `web` ด้วยชื่อ:
+
+```bash
+docker exec client ping -c 3 web
+```
+
+การ ping สำเร็จ! DNS resolver ของ Docker แปลชื่อ `web` เป็น IP address ของ container นั้นโดยอัตโนมัติ
+
+## ตรวจสอบ Network
+
+ดูรายละเอียด network รวมถึง container ที่เชื่อมต่ออยู่:
+
+```bash
+docker network inspect appnet
+```
+
+## ล้างข้อมูล
+
+```bash
+docker stop web client
+docker rm web client
+docker network rm appnet
+```
+
+## ลงมือปฏิบัติ: DNS บน User-Defined Network
+
+export const containerDNSCode = `# Create a user-defined bridge network
+docker network create appnet
+
+# Start an nginx container on appnet
+docker run -d --name web --network appnet nginx:alpine
+
+# Start a client container on appnet and ping web by name
+docker run --rm --name client --network appnet alpine ping -c 3 web
+
+# Inspect the network to see attached containers
+docker network inspect appnet
+
+# Cleanup
+docker stop web && docker rm web
+docker network rm appnet`;
+
+<PlayWithDocker client:visible code={containerDNSCode} label="ทดสอบ DNS บน user-defined network" />
+
+<Callout title="User-defined network มอบ DNS ให้คุณ">
+สร้างเครือข่ายด้วย `docker network create` และเชื่อมต่อ container ด้วย `--network` Container ที่อยู่บน user-defined bridge เดียวกันจะ resolve ชื่อ container ของกันและกันได้โดยอัตโนมัติ
+</Callout>
+
+export const quizContainerDNS = [
+  {
+    q: "คุณสมบัติใดที่ user-defined bridge network มีแต่ default bridge ไม่มี?",
+    options: [
+      "throughput ที่เร็วขึ้นระหว่าง container",
+      "ความสามารถในการ publish port ไปยัง host",
+      "embedded DNS resolver สำหรับการ resolve ชื่อ container",
+      "การเข้ารหัส traffic ระหว่าง container ทั้งหมด"
+    ],
+    answer: 2
+  },
+  {
+    q: "คำสั่งใดสร้าง user-defined bridge network ชื่อ 'appnet'?",
+    options: [
+      "docker network init appnet",
+      "docker network create appnet",
+      "docker network add --driver bridge appnet",
+      "docker bridge create appnet"
+    ],
+    answer: 1
+  },
+  {
+    q: "คุณรัน container สองตัวบน user-defined bridge network เดียวกัน container A ชื่อ 'api' และ container B ชื่อ 'db' container A จะเชื่อมต่อ container B ได้อย่างไร?",
+    options: [
+      "เฉพาะผ่าน IP address เท่านั้น — ชื่อไม่ทำงานบน bridge network ใดๆ",
+      "โดยใช้ 'db.local' เป็น hostname",
+      "ด้วยชื่อ container 'db' — embedded DNS resolver จัดการให้",
+      "เฉพาะหลังจากรัน docker network connect สำหรับแต่ละ container"
+    ],
+    answer: 2
+  },
+  {
+    q: "เกิดอะไรขึ้นกับการ resolve ชื่อ container ถ้าคุณย้าย container กลับไปที่ default bridge หลังจากใช้ user-defined network?",
+    options: [
+      "การ resolve ชื่อยังทำงานได้เพราะถูก cache ไว้",
+      "การ resolve ชื่อหยุดทำงาน — default bridge ไม่มี embedded DNS",
+      "การ resolve ชื่อทำงานได้เฉพาะ container ที่เริ่มต้นหลังจากย้าย",
+      "Docker ย้าย DNS resolver ไปยัง default bridge โดยอัตโนมัติ"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="networking/container-dns" questions={quizContainerDNS} />
+
+<ProgressTracker client:visible id="networking/container-dns" />

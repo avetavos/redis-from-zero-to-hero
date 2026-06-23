@@ -1,0 +1,133 @@
+---
+title: 'What is Docker?'
+description: 'Understand the Docker architecture: the client, the daemon, images, and registries, and how they interact.'
+sidebar:
+  order: 2
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The four pieces of Docker
+
+Docker is not a single program — it is an ecosystem of components that work together. Understanding each piece makes it much easier to reason about what happens when you run a `docker` command.
+
+### The Docker client (`docker` CLI)
+
+The `docker` CLI is the program you interact with directly. When you type a command such as `docker run`, `docker build`, or `docker pull`, the CLI translates that instruction into a REST API request and forwards it to the Docker daemon. The client itself does no heavy lifting — it is a thin API client.
+
+The client communicates with the daemon over a **Unix socket** at `/var/run/docker.sock` by default. For remote daemons (for example, a Docker host running on a cloud VM), the client can connect over TCP with TLS.
+
+### The Docker daemon (`dockerd`)
+
+The daemon is the long-running background process that does the actual work. It listens on the Unix socket (or TCP port) and handles every API call the client sends. The daemon is responsible for:
+
+- **Pulling and caching images** from registries.
+- **Creating and running containers** from those images.
+- **Managing networks** so containers can communicate with each other and with the outside world.
+- **Managing volumes** for persistent data that outlives a container's lifetime.
+
+### Images
+
+An image is a **read-only, layered package** that contains everything needed to run a process: the application code, a base OS filesystem, runtime libraries, environment variables, and the default command to execute. Images are built from a `Dockerfile` and are identified by a name and tag such as `nginx:1.27-alpine`.
+
+Each layer in an image represents a single instruction in the `Dockerfile`. Layers are cached and shared across images, which keeps disk usage low and rebuilds fast.
+
+### Registries
+
+A registry is a server that stores and distributes images. The default public registry is **Docker Hub** (`docker.io`). When you run `docker pull nginx`, the daemon contacts `docker.io`, finds the `nginx` repository, and downloads the image to the local cache.
+
+Registries organise images into **repositories**. A repository can hold many versions of the same image, distinguished by **tags**:
+
+```text
+docker.io/library/nginx:1.27-alpine
+│          │       │     └─ tag
+│          │       └─ repository name
+│          └─ namespace (library = official images)
+└─ registry host
+```
+
+Private registries (Amazon ECR, GitHub Container Registry, a self-hosted registry) work the same way — you just `docker login` to authenticate before pushing or pulling.
+
+## How the pieces interact
+
+The flow every `docker run` command follows:
+
+```text
+You (terminal)
+    │
+    ▼
+docker CLI  ──REST API──►  dockerd  ──────────────────────────────────────────────┐
+                               │                                                  │
+                               │  Image not in local cache?                       │
+                               ▼                                                  │
+                         Docker Hub (or other registry)                           │
+                               │                                                  │
+                               │  Pull image layers to local cache                │
+                               ▼                                                  │
+                         Local image cache  ◄──────────────────────────────────────┘
+                               │
+                               │  Create container from image
+                               ▼
+                         Running container (isolated process on host kernel)
+```
+
+1. You type `docker run nginx`.
+2. The CLI sends a `POST /containers/create` request to `dockerd` over the Unix socket.
+3. `dockerd` checks the local image cache for `nginx:latest`.
+4. If the image is absent, `dockerd` contacts Docker Hub, authenticates if needed, and pulls the image layers.
+5. The layers are stored in the local cache (typically under `/var/lib/docker`).
+6. `dockerd` creates a new container from the image and starts the process.
+7. Standard output from the container is streamed back through `dockerd` to your terminal via the CLI.
+
+<Callout title="CLI talks to the daemon">
+Every `docker` command you type is sent as a REST API call to `dockerd`. The daemon does the real work — pulling images, creating containers, managing networks. The CLI is just a convenience wrapper. This separation also means you can point the CLI at a remote daemon by setting the `DOCKER_HOST` environment variable, without changing any of your commands.
+</Callout>
+
+export const quizWhatIsDocker = [
+  {
+    q: "What is the role of the Docker daemon (`dockerd`)?",
+    options: [
+      "It is the CLI tool you type commands into",
+      "It is a long-running background process that manages images, containers, networks, and volumes",
+      "It is the server that stores and distributes images publicly",
+      "It compiles Dockerfiles into binary executables"
+    ],
+    answer: 1
+  },
+  {
+    q: "Where does the Docker CLI send its commands by default?",
+    options: [
+      "Directly to Docker Hub over HTTPS",
+      "To a Kubernetes API server",
+      "To the Docker daemon over a Unix socket at `/var/run/docker.sock`",
+      "To a local SQLite database that queues tasks"
+    ],
+    answer: 2
+  },
+  {
+    q: "What is a Docker image?",
+    options: [
+      "A running instance of an application with its own kernel",
+      "A read-only, layered package containing everything needed to run a process",
+      "A network namespace shared between containers",
+      "A compressed archive of a virtual machine disk"
+    ],
+    answer: 1
+  },
+  {
+    q: "In the image reference `docker.io/library/nginx:1.27-alpine`, what does `1.27-alpine` represent?",
+    options: [
+      "The registry host",
+      "The namespace",
+      "The repository name",
+      "The tag that identifies a specific version of the image"
+    ],
+    answer: 3
+  }
+];
+
+<Quiz client:visible id="intro/what-is-docker" questions={quizWhatIsDocker} />
+
+<ProgressTracker client:visible id="intro/what-is-docker" />

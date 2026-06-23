@@ -1,0 +1,154 @@
+---
+title: 'Exec and Logs'
+description: 'Debug running containers with docker exec -it, stream logs with docker logs -f, and inspect processes with docker top.'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Opening a shell in a running container
+
+`docker exec` runs a **new process** inside an already-running container. The most common use is opening an interactive shell:
+
+```bash
+docker exec -it <container> sh
+```
+
+- `-i` keeps stdin open (interactive)
+- `-t` allocates a pseudo-TTY (so you get a proper terminal prompt)
+- `sh` is the command to run (use `bash` if the image has it)
+
+Inside the shell you can inspect files, run commands, and debug problems — exactly as if you were on the host machine.
+
+```bash
+# Example session
+docker run -d --name webserver nginx:alpine
+docker exec -it webserver sh
+
+# Inside the container:
+# / # cat /etc/os-release
+# / # ls /usr/share/nginx/html
+# / # exit
+```
+
+## Viewing container logs
+
+Every container writes its stdout/stderr to a log managed by Docker:
+
+```bash
+# Print all logs so far
+docker logs webserver
+
+# Follow (stream) new log lines in real time — like tail -f
+docker logs -f webserver
+
+# Show the last 20 lines
+docker logs --tail 20 webserver
+
+# Add timestamps
+docker logs -t webserver
+```
+
+Logs are the first place to look when a container misbehaves. If a container keeps restarting, `docker logs <name>` usually tells you exactly why.
+
+## Inspecting processes with `docker top`
+
+`docker top` lists the processes running inside a container — without entering it:
+
+```bash
+docker top webserver
+```
+
+```text
+UID    PID    PPID   C  STIME  TTY  TIME      CMD
+root   12345  12300  0  10:00  ?    00:00:00  nginx: master process nginx -g daemon off;
+101    12346  12345  0  10:00  ?    00:00:00  nginx: worker process
+```
+
+## Running one-off commands
+
+You do not always need a full shell. `docker exec` can run any command directly:
+
+```bash
+# Check nginx config
+docker exec webserver nginx -t
+
+# View a file
+docker exec webserver cat /etc/nginx/nginx.conf
+```
+
+export const execLogsCode = `# 1. Start nginx in the background
+docker run -d --name webserver nginx:alpine
+
+# 2. Check its logs
+docker logs webserver
+
+# 3. Run a one-off command inside it
+docker exec webserver nginx -t
+
+# 4. Open an interactive shell
+#    (type 'exit' when done)
+docker exec -it webserver sh
+
+# 5. Watch processes
+docker top webserver
+
+# 6. Follow logs in real time (Ctrl+C to stop)
+docker logs -f webserver`;
+
+<PlayWithDocker client:visible code={execLogsCode} label="Exec into a container and inspect logs" />
+
+<Callout title="exec runs a new process — not a new container">
+`docker exec` starts a **fresh process** inside the existing running container. It does not create a second container. When you exit the shell, the container keeps running with its original main process intact.
+</Callout>
+
+export const quizExecLogs = [
+  {
+    q: "What does the -t flag do in 'docker exec -it container sh'?",
+    options: [
+      "Sets a timeout for the command",
+      "Allocates a pseudo-TTY so you get a proper terminal prompt",
+      "Enables timestamps in the output",
+      "Runs the command as the root user"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which command streams new log lines from a container in real time?",
+    options: [
+      "docker logs --watch",
+      "docker logs -t",
+      "docker logs -f",
+      "docker attach"
+    ],
+    answer: 2
+  },
+  {
+    q: "What happens to the container when you 'exit' the shell opened by docker exec?",
+    options: [
+      "The container stops",
+      "The container is removed",
+      "The container keeps running — only the exec process ends",
+      "The container restarts"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which command lists the processes running inside a container without opening a shell?",
+    options: [
+      "docker ps",
+      "docker top",
+      "docker exec ps",
+      "docker inspect --processes"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="containers/exec-logs" questions={quizExecLogs} />
+
+<ProgressTracker client:visible id="containers/exec-logs" />

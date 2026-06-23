@@ -1,0 +1,120 @@
+---
+title: 'การรัน Containers'
+description: 'ภาพรวมของวงจรชีวิต container — created, running, stopped, และ removed — พร้อมสิ่งที่จะเรียนในโมดูลนี้'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Container คืออะไร?
+
+Image คือพิมพ์เขียว ส่วน **container** คือ instance ที่กำลังทำงานอยู่จริงของพิมพ์เขียวนั้น — เป็นกระบวนการที่ถูกแยกออกมา มีระบบไฟล์, เครือข่าย, และ process space เป็นของตัวเอง โดยทั้งหมดใช้ host kernel ร่วมกัน
+
+คุณสามารถรัน container หลายตัวจาก image เดียวกัน, หยุดและรีสตาร์ทได้, ดู log, และลบทิ้งเมื่อใช้งานเสร็จ การเข้าใจวงจรชีวิตนี้เป็นพื้นฐานสำคัญของการทำงานกับ Docker ในชีวิตประจำวัน
+
+## วงจรชีวิตของ container
+
+Container ผ่านสถานะทั้งสี่นี้:
+
+| สถานะ | ความหมาย |
+|-------|----------|
+| **Created** | `docker create` จัดสรร container ไว้แล้ว แต่ยังไม่เริ่มทำงาน |
+| **Running** | กระบวนการหลักของ container กำลังทำงานอยู่ |
+| **Stopped** | กระบวนการหลักสิ้นสุดแล้ว (หรือคุณเรียก `docker stop`) — container ยังอยู่บนดิสก์ |
+| **Removed** | `docker rm` ลบ container และคืนพื้นที่ writable layer |
+
+```text
+docker run   →  Created + Running
+docker stop  →  Stopped
+docker start →  Running again
+docker rm    →  Removed (gone)
+```
+
+## สิ่งที่จะเรียนในโมดูลนี้
+
+| บทเรียน | หัวข้อ |
+|---------|--------|
+| **Lifecycle** | `docker run`, `docker ps`, `docker stop/start/restart`, `docker rm`, `--rm` |
+| **Exec & Logs** | `docker exec -it`, `docker logs`, `docker top`, การ attach |
+| **Ports & Env** | เผยแพร่พอร์ตด้วย `-p`, ตัวแปร environment ด้วย `-e`, การตั้งชื่อด้วย `--name` |
+| **Restart & Inspect** | นโยบาย restart, `docker inspect`, `docker stats`, การจำกัด resource |
+
+## ตัวอย่างด่วน — รัน, แสดงรายการ, และหยุด
+
+สามคำสั่งที่คุณจะใช้บ่อยที่สุดในโมดูลนี้:
+
+```bash
+# Pull และรัน nginx ในเบื้องหลัง
+docker run -d --name demo nginx:alpine
+
+# แสดงรายการ container ที่กำลังทำงาน
+docker ps
+
+# หยุดมัน
+docker stop demo
+
+# ลบทิ้ง
+docker rm demo
+```
+
+```text
+CONTAINER ID   IMAGE          COMMAND                  CREATED        STATUS        PORTS     NAMES
+a1b2c3d4e5f6   nginx:alpine   "/docker-entrypoint.…"   3 seconds ago  Up 2 seconds  80/tcp    demo
+```
+
+export const containerOverviewCode = `# Pull and run nginx detached
+docker run -d --name demo nginx:alpine
+
+# Confirm it is running
+docker ps
+
+# Stop the container
+docker stop demo
+
+# Remove it
+docker rm demo
+
+# Confirm it is gone
+docker ps -a`;
+
+<PlayWithDocker client:visible code={containerOverviewCode} label="รัน container ตัวแรกของคุณ" />
+
+export const quizContainersIndex = [
+  {
+    q: "Container จะเข้าสู่สถานะใดทันทีหลังจาก 'docker stop'?",
+    options: [
+      "Removed",
+      "Paused",
+      "Stopped",
+      "Created"
+    ],
+    answer: 2
+  },
+  {
+    q: "ความแตกต่างระหว่าง image กับ container คืออะไร?",
+    options: [
+      "Image คือกระบวนการที่กำลังทำงาน; container คือไฟล์แบบ static",
+      "Image คือพิมพ์เขียว; container คือ instance ที่กำลังทำงานของพิมพ์เขียวนั้น",
+      "ทั้งสองเหมือนกันแค่ชื่อต่างกัน",
+      "Container สร้างด้วย docker build; image เริ่มต้นด้วย docker run"
+    ],
+    answer: 1
+  },
+  {
+    q: "หลังจาก 'docker stop' คุณสามารถเริ่ม container อีกครั้งได้หรือไม่?",
+    options: [
+      "ไม่ได้ — container ที่หยุดแล้วจะถูกลบอัตโนมัติ",
+      "ได้เฉพาะเมื่อใช้ --rm ตอนสร้าง",
+      "ได้ — ใช้ 'docker start <name>'",
+      "ได้เฉพาะเมื่อ build image ใหม่เท่านั้น"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="containers/index" questions={quizContainersIndex} />
+
+<ProgressTracker client:visible id="containers/index" />

@@ -1,0 +1,100 @@
+---
+title: 'Data & Volumes'
+description: 'Why container filesystems are ephemeral, the three persistence options (volumes, bind mounts, tmpfs), and what this module covers.'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Why container data disappears
+
+A container has a **writable layer** on top of its read-only image layers. Every file you create, modify, or delete inside a running container lives only in that writable layer. The moment the container is removed with `docker rm`, that layer is gone — permanently.
+
+This is by design. Containers are meant to be stateless, disposable, and reproducible. You should be able to stop a container, throw it away, and start a fresh one from the same image at any time. If your data lived inside the container, that model breaks down.
+
+```text
+Image layer (read-only)      ← node:22-alpine base
+Image layer (read-only)      ← COPY app files
+Writable layer (container)   ← runtime writes (gone on docker rm)
+```
+
+## The three persistence options
+
+Docker gives you three mechanisms to break out of the ephemeral writable layer:
+
+| Option | Where data lives | Managed by |
+|--------|-----------------|------------|
+| **Named volumes** | Docker-managed directory on the host | Docker |
+| **Bind mounts** | Any path on the host filesystem | You |
+| **tmpfs mounts** | Host RAM only (never written to disk) | Kernel |
+
+Each option has different trade-offs around portability, performance, and use case. This module walks through them one by one.
+
+## Demonstrating ephemerality
+
+Before learning how to persist data, it is worth seeing the problem first-hand. The snippet below creates a file inside a container, removes the container, and runs a fresh one — the file is gone.
+
+export const ephemeralCode = `# Run a container and write a file
+docker run --name ephemeral-demo alpine sh -c "echo 'hello world' > /data/message.txt && cat /data/message.txt"
+
+# Remove the container
+docker rm ephemeral-demo
+
+# Start a brand-new container from the same image
+docker run --rm alpine sh -c "cat /data/message.txt 2>/dev/null || echo 'File is gone!'"`
+
+<PlayWithDocker client:visible code={ephemeralCode} label="See data vanish on docker rm" />
+
+<Callout title="Containers are stateless by default">
+Every container starts from a clean slate derived from its image. Files written during one container's life do not carry over to the next. Use named volumes or bind mounts whenever your application needs to read or write persistent data — logs, uploads, database files, or configuration.
+</Callout>
+
+## What this module covers
+
+| Lesson | Topic |
+|--------|-------|
+| **Named Volumes** | `docker volume create/ls/inspect/rm`, mounting volumes, Docker-managed storage |
+| **Bind Mounts** | Mapping host paths into containers, live-editing source code |
+| **Volumes vs Bind Mounts** | Comparison table, portability, performance, read-only mounts |
+| **Backup & Restore** | Archiving volumes with a throwaway container, restoring, migrating |
+
+export const quizDataVolumesIndex = [
+  {
+    q: "What happens to files written inside a container when you run `docker rm`?",
+    options: [
+      "They are saved to the image automatically",
+      "They are moved to a volume",
+      "They are permanently deleted with the container's writable layer",
+      "They persist until the host reboots"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which storage option is managed entirely by Docker and stored in a Docker-controlled directory?",
+    options: [
+      "tmpfs mount",
+      "Bind mount",
+      "Named volume",
+      "Host mount"
+    ],
+    answer: 2
+  },
+  {
+    q: "A tmpfs mount stores data in which location?",
+    options: [
+      "A named Docker volume on disk",
+      "The container writable layer",
+      "Host RAM — never written to disk",
+      "A shared network filesystem"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="data-volumes/index" questions={quizDataVolumesIndex} />
+
+<ProgressTracker client:visible id="data-volumes/index" />

@@ -1,0 +1,227 @@
+---
+title: 'The compose.yaml File'
+description: 'Learn the structure of compose.yaml: services, image, build, ports, environment, and command — and why the version key is gone.'
+sidebar:
+  order: 2
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## compose.yaml at a glance
+
+Every Compose file has one required top-level key: `services`. Everything else — networks, volumes, configs — is optional.
+
+```yaml
+services:
+  service-name:
+    image: some-image:tag
+    build: .
+    ports:
+      - "hostPort:containerPort"
+    environment:
+      - KEY=value
+    command: ["executable", "arg"]
+```
+
+Each key under `services` is a service name you choose. Compose starts one container per service by default.
+
+## The services key
+
+`services` is a map. Each entry is a named service. The name becomes both the container identifier and the DNS hostname other services can use to reach it on the internal network.
+
+```yaml
+services:
+  api:
+    image: node:22-alpine
+  db:
+    image: postgres:17-alpine
+```
+
+Here `api` and `db` are two services. Compose creates one container for each.
+
+## image vs build
+
+Use `image` to pull a pre-built image from a registry:
+
+```yaml
+services:
+  web:
+    image: nginx:alpine
+```
+
+Use `build` to build an image from a local Dockerfile at build time:
+
+```yaml
+services:
+  app:
+    build: .
+```
+
+You can combine them — `build` says where to find the Dockerfile, and `image` names the resulting image:
+
+```yaml
+services:
+  app:
+    build: .
+    image: myapp:dev
+```
+
+## ports
+
+`ports` maps a host port to a container port in `"host:container"` format. Always quote the mapping to avoid YAML interpreting the colon:
+
+```yaml
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+      - "8443:443"
+```
+
+## environment
+
+Pass environment variables into the container either as a list or a mapping:
+
+```yaml
+# list form
+environment:
+  - NODE_ENV=production
+  - PORT=3000
+
+# mapping form
+environment:
+  NODE_ENV: production
+  PORT: "3000"
+```
+
+Both forms are equivalent. The list form mirrors shell export syntax and is most common.
+
+## command
+
+Override the default `CMD` from the image:
+
+```yaml
+services:
+  worker:
+    image: myapp:latest
+    command: ["node", "worker.js"]
+```
+
+Pass a plain string for a shell-interpreted command:
+
+```yaml
+services:
+  worker:
+    image: myapp:latest
+    command: node worker.js
+```
+
+## No version key needed
+
+Older tutorials show a `version: "3.9"` key at the top of the file. This is obsolete. The Compose Specification no longer requires or recommends the `version` key. Modern tooling ignores it. Omit it from all new files.
+
+## A complete example
+
+```yaml
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://db:5432/mydb
+    command: ["node", "src/server.js"]
+  db:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_PASSWORD=secret
+```
+
+## Hands-on practice
+
+The snippet below writes a complete `compose.yaml` and starts it so you can inspect each field in action.
+
+export const composeFileCode = `# Write a compose.yaml with two services
+cat > compose.yaml <<'EOF'
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    environment:
+      - NGINX_HOST=localhost
+    command: ["nginx", "-g", "daemon off;"]
+  echo:
+    image: alpine
+    command: ["sh", "-c", "echo 'compose.yaml works!' && sleep 30"]
+EOF
+
+# Start both services
+docker compose up -d
+
+# Show running containers
+docker compose ps
+
+# Read echo output
+docker compose logs echo
+
+# Clean up
+docker compose down`;
+
+<PlayWithDocker client:visible code={composeFileCode} label="Explore compose.yaml fields" />
+
+<Callout title="One service = one container (by default)">
+Each entry under `services` starts exactly one container unless you use `--scale`. The service name doubles as the hostname on the internal Compose network. The obsolete `version:` key at the top of the file is no longer needed — omit it from all new compose.yaml files.
+</Callout>
+
+export const quizComposeFile = [
+  {
+    q: "Which top-level key is required in every compose.yaml?",
+    options: [
+      "version",
+      "networks",
+      "services",
+      "volumes"
+    ],
+    answer: 2
+  },
+  {
+    q: "What is the correct way to map host port 9000 to container port 80 in compose.yaml?",
+    options: [
+      "ports: 9000-80",
+      'ports:\n  - "9000:80"',
+      "expose: 9000:80",
+      "bind: 9000:80"
+    ],
+    answer: 1
+  },
+  {
+    q: "Why should you omit the version: key from new compose.yaml files?",
+    options: [
+      "It causes a build error in Docker 24+",
+      "It is obsolete — the Compose Specification no longer requires or uses it",
+      "It conflicts with the services key",
+      "It only works with docker-compose v1"
+    ],
+    answer: 1
+  },
+  {
+    q: "What does the build: . key do in a service definition?",
+    options: [
+      "Pulls an image tagged with a dot",
+      "Builds an image from the Dockerfile in the current directory",
+      "Sets the working directory inside the container",
+      "Copies the current directory into the container"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="compose/compose-file" questions={quizComposeFile} />
+
+<ProgressTracker client:visible id="compose/compose-file" />

@@ -1,0 +1,179 @@
+---
+title: 'Layer Cache & Build Ordering'
+description: 'Maximize Docker build cache hits by ordering instructions from least- to most-frequently-changing, combining RUN steps, and pinning versions.'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## How Docker's layer cache works
+
+Every Dockerfile instruction produces a **layer**. Docker stores each layer in a local cache keyed by the instruction text and all layers beneath it. When you run `docker build` again, Docker checks each instruction from top to bottom:
+
+- If nothing upstream has changed, it prints `CACHED` and reuses the stored layer — instantly.
+- The moment any layer changes, Docker **invalidates every layer below it** and rebuilds from that point on.
+
+This means instruction order has a direct impact on how often you wait for a full rebuild.
+
+## The golden rule: order from stable to volatile
+
+Place instructions that change **rarely** near the top of the Dockerfile and instructions that change **often** near the bottom. Dependencies change far less frequently than application code.
+
+### Bad ordering — cache busts on every code change
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+COPY . .                     # ← copies everything including source
+RUN npm ci                   # ← reinstalls ALL deps on every code change
+CMD ["node", "src/index.js"]
+```
+
+Every time you edit a `.js` file, `COPY . .` changes, which invalidates the `RUN npm ci` layer. `npm ci` runs from scratch on every build — even though `package.json` did not change.
+
+### Good ordering — dependencies cached independently
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json package-lock.json ./   # ← only manifests
+RUN npm ci                               # ← cached unless manifests change
+COPY src/ ./src/                         # ← source copied AFTER install
+CMD ["node", "src/index.js"]
+```
+
+Now `npm ci` is only re-executed when `package.json` or `package-lock.json` actually change. A code-only edit skips straight to `COPY src/` and finishes in seconds.
+
+## Combine RUN steps to reduce layers
+
+Each `RUN` instruction is a layer. Splitting related commands across multiple `RUN` lines means more layers and more intermediate filesystems to store.
+
+```dockerfile
+# Inefficient — three layers for one logical operation
+RUN apt-get update
+RUN apt-get install -y curl git
+RUN rm -rf /var/lib/apt/lists/*
+```
+
+```dockerfile
+# Efficient — one layer, one cache entry
+RUN apt-get update \
+    && apt-get install -y curl git \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+The combined form also ensures `rm -rf /var/lib/apt/lists/*` runs in the same layer as the install, actually removing the cache bytes from the image.
+
+## Pin package versions
+
+Unpinned versions break build reproducibility and can cause unexpected cache busts when a new version is published.
+
+```dockerfile
+# Unpinned — different installs on different days
+RUN apt-get install -y curl
+
+# Pinned — reproducible and explicit
+RUN apt-get install -y curl=8.5.0-2
+```
+
+For npm, `package-lock.json` (used by `npm ci`) already pins all transitive versions — always commit it.
+
+## BuildKit mount cache (advanced)
+
+BuildKit supports `--mount=type=cache` to share a persistent cache directory across builds without baking it into a layer. This is especially effective for package managers.
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+COPY src/ ./src/
+CMD ["node", "src/index.js"]
+```
+
+The npm cache at `/root/.npm` is preserved between builds in a separate BuildKit cache, not inside the image layer. Subsequent installs resolve packages from the local cache rather than the network — significantly faster on slow connections.
+
+## Hands-on: cache comparison
+
+The snippet below builds a simple image twice. The first build downloads the dependency; the second build hits the cache. Watch the timing difference.
+
+export const cacheOrderingCode = `# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+
+# GOOD ordering: manifests before source
+COPY package.json ./
+RUN echo '{}' > package-lock.json && npm install --prefer-offline || true
+
+# Source comes last — cache survives source-only edits
+COPY . .
+CMD ["node","-e","console.log('Cache-friendly build complete!')"]
+
+# --- First build (cold) ---
+# docker build -t myapp:cache .
+#
+# --- Edit a source file, then rebuild (warm cache) ---
+# echo "// change" >> index.js
+# docker build -t myapp:cache .
+# Notice: "npm install" step shows CACHED on the second run`;
+
+<PlayWithDocker client:visible code={cacheOrderingCode} label="See cache hits in action" />
+
+<Callout title="Order from least- to most-frequently-changing">
+Copy dependency manifests (`package.json`, `go.mod`, `requirements.txt`) and install dependencies before copying application source code. This single change makes the dependency-install layer cacheable across the vast majority of your iterative builds — saving minutes per day on active projects.
+</Callout>
+
+export const quizCacheOrdering = [
+  {
+    q: "What happens to all layers below a changed layer in a Docker build?",
+    options: [
+      "They are reused from the cache unchanged",
+      "They are merged into one layer",
+      "They are invalidated and rebuilt from that point",
+      "They are skipped entirely"
+    ],
+    answer: 2
+  },
+  {
+    q: "Why should you COPY package.json before COPY src/ in a Node.js Dockerfile?",
+    options: [
+      "Docker requires dependency files to appear before source files",
+      "So that npm ci is cached and only re-runs when dependencies change, not on every code edit",
+      "To reduce the total number of COPY instructions",
+      "Because package.json must be in the image root"
+    ],
+    answer: 1
+  },
+  {
+    q: "What is the benefit of combining multiple RUN commands with && instead of writing separate RUN lines?",
+    options: [
+      "It runs commands in parallel",
+      "It skips the build cache entirely",
+      "It creates fewer layers and ensures cleanup commands run in the same layer as installs",
+      "It removes the need for a base image"
+    ],
+    answer: 2
+  },
+  {
+    q: "What does `--mount=type=cache` do in a BuildKit RUN instruction?",
+    options: [
+      "It mounts a volume from the host into the final image",
+      "It shares a persistent cache directory across builds without adding it to the image layer",
+      "It disables layer caching for that instruction",
+      "It copies the BuildKit cache into the image"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="optimization/cache-ordering" questions={quizCacheOrdering} />
+
+<ProgressTracker client:visible id="optimization/cache-ordering" />

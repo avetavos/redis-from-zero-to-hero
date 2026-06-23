@@ -1,0 +1,125 @@
+---
+title: 'Docker Networking Overview'
+description: 'Understand Docker network drivers — bridge, host, none, and overlay — and what this module covers.'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is Docker networking?
+
+Every container gets a virtual network interface (NIC) when it starts. Docker connects that NIC to a **network** — a software-defined layer that controls which containers can talk to each other and to the outside world.
+
+Without Docker networking, containers would be completely isolated islands. With it, you can wire together microservices, expose ports to the host, and segment traffic by environment — all without touching the host's physical network configuration.
+
+## Network drivers
+
+Docker ships with four built-in network drivers. Each one trades off isolation, performance, and ease of use differently.
+
+| Driver | Scope | Description |
+|---|---|---|
+| `bridge` | Single host | Default driver. Creates a virtual switch (`docker0`) on the host. Containers on the same bridge can communicate; containers on different bridges cannot. |
+| `host` | Single host | Removes network isolation — the container shares the host's network stack directly. Highest performance, zero port mapping needed, but no isolation. |
+| `none` | Single host | Disables all networking. The container gets only a loopback interface. Useful for batch jobs that need no network access. |
+| `overlay` | Multi-host | Spans multiple Docker daemons (Docker Swarm). Used for distributed services that need to communicate across physical machines. |
+
+## Default networks
+
+Docker creates three networks automatically when the daemon starts. You can see them with `docker network ls`:
+
+```bash
+docker network ls
+```
+
+Expected output:
+
+```text
+NETWORK ID     NAME      DRIVER    SCOPE
+abc123def456   bridge    bridge    local
+def456abc789   host      host      local
+ghi789jkl012   none      null      local
+```
+
+The `bridge` network (backed by the `docker0` virtual switch) is where every container lands by default when you omit `--network`. The `host` and `none` networks are special-purpose.
+
+## Inspecting the default bridge
+
+`docker network inspect` shows detailed configuration — subnet, gateway, and which containers are currently attached:
+
+```bash
+docker network inspect bridge
+```
+
+## What this module covers
+
+| Lesson | Topic |
+|---|---|
+| The Default Bridge Network | How `docker0` works, container IPs, and the DNS limitation |
+| Container DNS and User-Defined Networks | How user-defined bridges provide automatic name resolution |
+| Publishing and Exposing Ports | `-p` vs `EXPOSE`, port binding syntax, ephemeral ports |
+| Custom Networks and Container Isolation | Creating, connecting, inspecting, and removing networks |
+
+## Hands-on: inspect the defaults
+
+export const networkingOverviewCode = `# List all networks
+docker network ls
+
+# Inspect the default bridge in detail
+docker network inspect bridge`;
+
+<PlayWithDocker client:visible code={networkingOverviewCode} label="Inspect default networks" />
+
+<Callout title="Three networks exist by default">
+Docker creates bridge, host, and none networks automatically. Every container that omits --network starts on the default bridge.
+</Callout>
+
+export const quizNetworkingOverview = [
+  {
+    q: "Which Docker network driver is used by default when you run a container without specifying --network?",
+    options: [
+      "host",
+      "overlay",
+      "bridge",
+      "none"
+    ],
+    answer: 2
+  },
+  {
+    q: "What does the 'host' network driver do?",
+    options: [
+      "Creates a virtual switch that isolates containers from the host",
+      "Disables all networking for the container",
+      "Spans containers across multiple Docker daemons",
+      "Shares the host's network stack directly with the container, removing isolation"
+    ],
+    answer: 3
+  },
+  {
+    q: "Which command lists all Docker networks on the current host?",
+    options: [
+      "docker network show",
+      "docker network ls",
+      "docker ps --networks",
+      "docker inspect networks"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which network driver should you use when you need containers to communicate across multiple physical machines in a Docker Swarm?",
+    options: [
+      "bridge",
+      "none",
+      "host",
+      "overlay"
+    ],
+    answer: 3
+  }
+];
+
+<Quiz client:visible id="networking/index" questions={quizNetworkingOverview} />
+
+<ProgressTracker client:visible id="networking/index" />

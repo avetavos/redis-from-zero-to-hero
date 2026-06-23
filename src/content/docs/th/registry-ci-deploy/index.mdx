@@ -1,0 +1,115 @@
+---
+title: 'Registry, CI & Deploy — ภาพรวมโมดูล'
+description: 'เรียนรู้การเดินทางของ Docker image ตั้งแต่เครื่องของคุณไปยัง registry และสู่เซิร์ฟเวอร์จริง: build, tag, push, pull, และ deploy'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Container registry คืออะไร?
+
+เมื่อคุณ build Docker image แล้ว image นั้นจะอยู่แค่บนเครื่องของคุณเท่านั้น **Registry** คือเซิร์ฟเวอร์ที่ทำหน้าที่จัดเก็บและแจกจ่าย image เพื่อให้เครื่องอื่น ๆ — CI runner, cloud server, หรือเครื่องของเพื่อนร่วมทีม — สามารถ pull และรัน image เดียวกันได้
+
+ขั้นตอนมีอยู่เสมอสามขั้นตอนเดิม:
+
+```text
+Build → Tag → Push          (เครื่องของคุณ / CI runner)
+                  ↓
+              Registry
+                  ↓
+         Pull → Run          (เซิร์ฟเวอร์ deploy)
+```
+
+แต่ละขั้นตอนตรงกับ Docker command ที่คุณรู้จักแล้ว (หรือจะได้เรียนในโมดูลนี้):
+
+```bash
+docker build -t myapp:1.0 .
+docker tag  myapp:1.0 docker.io/acme/myapp:1.0
+docker push docker.io/acme/myapp:1.0
+# --- บนเซิร์ฟเวอร์ ---
+docker pull docker.io/acme/myapp:1.0
+docker run -d docker.io/acme/myapp:1.0
+```
+
+## Docker Hub เทียบกับ registry อื่น ๆ
+
+| Registry | ที่อยู่ | หมายเหตุ |
+|---|---|---|
+| **Docker Hub** | `docker.io` (ค่าเริ่มต้น) | Registry สาธารณะที่ใหญ่ที่สุด; repo สาธารณะฟรี |
+| **GHCR** | `ghcr.io` | GitHub Container Registry; รวมกับ GitHub Actions |
+| **ECR** | `*.dkr.ecr.*.amazonaws.com` | ของ AWS; ใช้ IAM auth |
+| **GAR** | `*.pkg.dev` | Google Artifact Registry |
+| **Self-hosted** | ทุก host | รัน `registry:2` เอง |
+
+เมื่อไม่ระบุที่อยู่ registry Docker จะใช้ `docker.io` เป็นค่าเริ่มต้น เช่น `FROM node:22-alpine` เป็นชื่อย่อของ `FROM docker.io/library/node:22-alpine`
+
+## สิ่งที่โมดูลนี้ครอบคลุม
+
+| บทเรียน | สิ่งที่คุณจะเรียนรู้ |
+|---|---|
+| หน้านี้ | Registry, workflow การแจกจ่าย image, Docker Hub เทียบกับตัวเลือกอื่น |
+| Docker Hub | บัญชี, repo, สาธารณะ vs ส่วนตัว, `docker login`, rate limits |
+| Tag, Push & Pull | รูปแบบการตั้งชื่อ, `docker tag`, `docker push`, `docker pull`, version tags |
+| GitHub Actions CI | Build & push อัตโนมัติด้วย `docker/build-push-action` |
+| Deploy basics | `docker run -d`, `--restart`, rolling updates, secrets บน host |
+
+## ลองทำ: pull และรัน public image
+
+ไม่ต้องใช้ credentials — image สาธารณะบน Docker Hub สามารถ pull ได้โดยตรงจาก Play with Docker ลองเลยตอนนี้
+
+export const registryPullCode = `# Pull a public image from Docker Hub
+docker pull docker.io/library/hello-world:latest
+
+# Run it
+docker run --rm hello-world
+
+# Pull an nginx image and check the tag
+docker pull nginx:1.27-alpine
+docker images nginx`;
+
+<PlayWithDocker client:visible code={registryPullCode} label="Pull a public image" />
+
+<Callout title="Registry ทำหน้าที่จัดเก็บและแจกจ่าย image">
+ให้นึกถึง registry เหมือน Git hosting service แต่สำหรับ Docker image คุณ push image จากเครื่อง build แล้ว pull ลงบนเซิร์ฟเวอร์ใด ๆ ที่ต้องการรัน Docker Hub คือ registry สาธารณะค่าเริ่มต้น ส่วน GHCR, ECR, และ GAR เป็นตัวเลือกยอดนิยมสำหรับงาน private หรือ cloud-native
+</Callout>
+
+export const quizIndex = [
+  {
+    q: "จุดประสงค์หลักของ container registry คืออะไร?",
+    options: [
+      "Build Docker image จาก Dockerfile",
+      "จัดเก็บและแจกจ่าย Docker image ข้ามเครื่องต่าง ๆ",
+      "รัน container บน cloud",
+      "จัดการ container networking"
+    ],
+    answer: 1
+  },
+  {
+    q: "Docker ใช้ registry ใดเป็นค่าเริ่มต้นเมื่อไม่ระบุที่อยู่ registry?",
+    options: [
+      "ghcr.io",
+      "gcr.io",
+      "docker.io",
+      "registry.hub.docker.com"
+    ],
+    answer: 2
+  },
+  {
+    q: "ลำดับขั้นตอนที่ถูกต้องในกระบวนการแจกจ่าย image คืออะไร?",
+    options: [
+      "Pull → Push → Build → Run",
+      "Build → Push → Pull → Run",
+      "Build → Pull → Push → Run",
+      "Tag → Build → Push → Pull"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="registry-ci-deploy/index" questions={quizIndex} />
+
+<ProgressTracker client:visible id="registry-ci-deploy/index" />

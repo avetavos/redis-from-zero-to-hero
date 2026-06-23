@@ -1,0 +1,179 @@
+---
+title: 'Layer Cache และการเรียงลำดับ Build'
+description: 'เพิ่มประสิทธิภาพ Docker build cache ด้วยการเรียงลำดับ instruction จากที่เปลี่ยนแปลงน้อยที่สุดไปมากที่สุด รวม RUN step และ pin versions'
+sidebar:
+  order: 3
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Docker layer cache ทำงานอย่างไร
+
+ทุก instruction ใน Dockerfile สร้าง **layer** หนึ่งอัน Docker เก็บแต่ละ layer ใน cache โดยใช้ข้อความ instruction และทุก layer ที่อยู่ก่อนหน้าเป็น key เมื่อรัน `docker build` อีกครั้ง Docker จะตรวจสอบแต่ละ instruction จากบนลงล่าง:
+
+- หากไม่มีอะไรเปลี่ยนแปลง Docker จะแสดง `CACHED` และนำ layer ที่เก็บไว้มาใช้ทันที
+- ทันทีที่ layer ใด layer หนึ่งเปลี่ยนแปลง Docker จะ **invalidate ทุก layer ที่อยู่ต่ำกว่า** และ rebuild จากจุดนั้น
+
+ดังนั้น ลำดับของ instruction จึงส่งผลโดยตรงต่อความถี่ที่ต้องรอ rebuild เต็มรูปแบบ
+
+## กฎทอง: เรียงจาก stable ไป volatile
+
+วาง instruction ที่เปลี่ยนแปลง **น้อย** ไว้บนสุดของ Dockerfile และ instruction ที่เปลี่ยนแปลง **บ่อย** ไว้ล่างสุด Dependencies เปลี่ยนแปลงน้อยกว่า code แอปพลิเคชันมาก
+
+### การเรียงลำดับที่ไม่ดี — cache bust ทุกครั้งที่ code เปลี่ยน
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+COPY . .                     # ← copy ทุกอย่างรวม source
+RUN npm ci                   # ← ติดตั้ง deps ใหม่ทั้งหมดทุกครั้งที่ code เปลี่ยน
+CMD ["node", "src/index.js"]
+```
+
+ทุกครั้งที่แก้ไขไฟล์ `.js` คำสั่ง `COPY . .` จะเปลี่ยน ทำให้ layer `RUN npm ci` ถูก invalidate `npm ci` จะรันตั้งแต่ต้นทุก build แม้ว่า `package.json` จะไม่ได้เปลี่ยนก็ตาม
+
+### การเรียงลำดับที่ดี — dependencies cached แยกกัน
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json package-lock.json ./   # ← เฉพาะ manifest
+RUN npm ci                               # ← cached ยกเว้น manifest เปลี่ยน
+COPY src/ ./src/                         # ← copy source หลัง install
+CMD ["node", "src/index.js"]
+```
+
+ตอนนี้ `npm ci` จะ re-execute เฉพาะเมื่อ `package.json` หรือ `package-lock.json` เปลี่ยนแปลงจริงๆ การแก้ไข code เพียงอย่างเดียวจะข้ามไปที่ `COPY src/` ทันทีและเสร็จภายในไม่กี่วินาที
+
+## รวม RUN step เพื่อลด layer
+
+แต่ละ instruction `RUN` คือ layer หนึ่งอัน การแยก command ที่เกี่ยวข้องออกเป็น `RUN` หลายบรรทัดหมายถึง layer มากขึ้นและ intermediate filesystem ที่ต้องเก็บมากขึ้น
+
+```dockerfile
+# ไม่มีประสิทธิภาพ — สาม layer สำหรับการดำเนินการเดียว
+RUN apt-get update
+RUN apt-get install -y curl git
+RUN rm -rf /var/lib/apt/lists/*
+```
+
+```dockerfile
+# มีประสิทธิภาพ — layer เดียว, cache entry เดียว
+RUN apt-get update \
+    && apt-get install -y curl git \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+รูปแบบที่รวมกันยังทำให้ `rm -rf /var/lib/apt/lists/*` รันใน layer เดียวกับการ install ซึ่งจะลบ cache bytes ออกจาก image ได้จริง
+
+## Pin version ของ package
+
+Version ที่ไม่ได้ pin ทำให้ build ไม่ reproducible และอาจทำให้เกิด cache bust ที่ไม่คาดคิดเมื่อมี version ใหม่ถูก publish
+
+```dockerfile
+# ไม่ได้ pin — อาจได้ installation ที่ต่างกันในแต่ละวัน
+RUN apt-get install -y curl
+
+# Pin แล้ว — reproducible และชัดเจน
+RUN apt-get install -y curl=8.5.0-2
+```
+
+สำหรับ npm นั้น `package-lock.json` (ที่ใช้โดย `npm ci`) จะ pin version ของทุก transitive dependency ไว้แล้ว — ควร commit ไว้เสมอ
+
+## BuildKit mount cache (ขั้นสูง)
+
+BuildKit รองรับ `--mount=type=cache` เพื่อแชร์ cache directory ที่คงอยู่ระหว่าง build โดยไม่ต้องเก็บไว้ใน layer เหมาะสำหรับ package manager เป็นพิเศษ
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+COPY src/ ./src/
+CMD ["node", "src/index.js"]
+```
+
+npm cache ที่ `/root/.npm` จะถูกเก็บไว้ระหว่าง build ใน BuildKit cache แยกต่างหาก ไม่ใช่ใน image layer การ install ครั้งต่อไปจะ resolve package จาก local cache แทนการดาวน์โหลดจาก network ซึ่งเร็วกว่ามากในการเชื่อมต่อที่ช้า
+
+## ลงมือทำ: เปรียบเทียบ cache
+
+snippet ด้านล่าง build image อย่างง่ายสองครั้ง ครั้งแรก build จะดาวน์โหลด dependency ครั้งที่สองจะ hit cache สังเกตความแตกต่างของเวลา
+
+export const cacheOrderingCode = `# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+
+# GOOD ordering: manifests before source
+COPY package.json ./
+RUN echo '{}' > package-lock.json && npm install --prefer-offline || true
+
+# Source comes last — cache survives source-only edits
+COPY . .
+CMD ["node","-e","console.log('Cache-friendly build complete!')"]
+
+# --- First build (cold) ---
+# docker build -t myapp:cache .
+#
+# --- Edit a source file, then rebuild (warm cache) ---
+# echo "// change" >> index.js
+# docker build -t myapp:cache .
+# Notice: "npm install" step shows CACHED on the second run`;
+
+<PlayWithDocker client:visible code={cacheOrderingCode} label="See cache hits in action" />
+
+<Callout title="เรียงลำดับจากที่เปลี่ยนแปลงน้อยที่สุดไปมากที่สุด">
+Copy dependency manifest (`package.json`, `go.mod`, `requirements.txt`) และ install dependencies ก่อนที่จะ copy source code ของแอปพลิเคชัน การเปลี่ยนแปลงเพียงอย่างเดียวนี้ทำให้ layer การ install dependency สามารถ cache ได้สำหรับ build ส่วนใหญ่ในการพัฒนาแบบ iterative ซึ่งประหยัดเวลาได้มากในโปรเจกต์ที่มีการพัฒนาต่อเนื่อง
+</Callout>
+
+export const quizCacheOrdering = [
+  {
+    q: "เกิดอะไรขึ้นกับทุก layer ที่อยู่ต่ำกว่า layer ที่เปลี่ยนแปลงใน Docker build?",
+    options: [
+      "ถูกนำมาใช้จาก cache โดยไม่มีการเปลี่ยนแปลง",
+      "ถูก merge เป็น layer เดียว",
+      "ถูก invalidate และ rebuild จากจุดนั้น",
+      "ถูกข้ามทั้งหมด"
+    ],
+    answer: 2
+  },
+  {
+    q: "ทำไมจึงควร COPY package.json ก่อน COPY src/ ใน Node.js Dockerfile?",
+    options: [
+      "Docker กำหนดให้ dependency files ต้องอยู่ก่อน source files",
+      "เพื่อให้ npm ci ถูก cache และรันใหม่เฉพาะเมื่อ dependency เปลี่ยน ไม่ใช่ทุกครั้งที่แก้ code",
+      "เพื่อลดจำนวน COPY instruction ทั้งหมด",
+      "เพราะ package.json ต้องอยู่ใน image root"
+    ],
+    answer: 1
+  },
+  {
+    q: "ประโยชน์ของการรวม RUN หลาย command ด้วย && แทนที่จะเขียน RUN แยกกันคืออะไร?",
+    options: [
+      "รัน command แบบ parallel",
+      "ข้าม build cache ทั้งหมด",
+      "สร้าง layer น้อยลงและทำให้ cleanup command รันใน layer เดียวกับการ install",
+      "ไม่ต้องการ base image"
+    ],
+    answer: 2
+  },
+  {
+    q: "`--mount=type=cache` ใน BuildKit RUN instruction ทำอะไร?",
+    options: [
+      "Mount volume จาก host เข้าไปใน final image",
+      "แชร์ cache directory ที่คงอยู่ระหว่าง build โดยไม่เพิ่มเข้าไปใน image layer",
+      "ปิดการใช้งาน layer caching สำหรับ instruction นั้น",
+      "Copy BuildKit cache เข้าไปใน image"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="optimization/cache-ordering" questions={quizCacheOrdering} />
+
+<ProgressTracker client:visible id="optimization/cache-ordering" />

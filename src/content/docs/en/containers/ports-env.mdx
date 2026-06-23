@@ -1,0 +1,164 @@
+---
+title: 'Ports and Environment Variables'
+description: 'Publish container ports with -p, pass configuration via -e and --env-file, and name containers with --name.'
+sidebar:
+  order: 4
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Publishing ports with `-p`
+
+By default a container is fully isolated — its ports are not reachable from the host. The `-p` flag **publishes** a port, creating a mapping between a host port and a container port:
+
+```bash
+docker run -d -p 8080:80 nginx:alpine
+```
+
+The format is `-p <host-port>:<container-port>`. After this command, opening `http://localhost:8080` in your browser reaches port 80 inside the container.
+
+You can publish multiple ports:
+
+```bash
+docker run -d -p 8080:80 -p 8443:443 nginx:alpine
+```
+
+### Bind to a specific host IP
+
+```bash
+# Only accessible from localhost, not the network
+docker run -d -p 127.0.0.1:8080:80 nginx:alpine
+```
+
+## Passing environment variables with `-e`
+
+Containers read configuration from environment variables. Pass them with `-e`:
+
+```bash
+docker run -d \
+  -e MYSQL_ROOT_PASSWORD=secret \
+  -e MYSQL_DATABASE=myapp \
+  mysql:8
+```
+
+Each `-e` sets one variable inside the container.
+
+### Using an env file
+
+For more than a few variables, keep them in a file and use `--env-file`:
+
+```bash
+# .env
+MYSQL_ROOT_PASSWORD=secret
+MYSQL_DATABASE=myapp
+MYSQL_USER=app
+MYSQL_PASSWORD=apppass
+```
+
+```bash
+docker run -d --env-file .env mysql:8
+```
+
+This keeps secrets out of your shell history.
+
+## Naming containers with `--name`
+
+Giving a container a predictable name makes every subsequent command easier:
+
+```bash
+docker run -d \
+  --name mysite \
+  -p 8080:80 \
+  nginx:alpine
+```
+
+Now you can use `mysite` instead of a random ID in every `docker stop`, `docker logs`, and `docker exec` command.
+
+## Putting it together
+
+```bash
+docker run -d \
+  --name webserver \
+  -p 8080:80 \
+  -e NGINX_HOST=localhost \
+  nginx:alpine
+
+# Verify
+docker ps
+curl http://localhost:8080
+```
+
+export const portsEnvCode = `# Run nginx with a port mapping and an env var
+docker run -d \\
+  --name webserver \\
+  -p 8080:80 \\
+  -e NGINX_HOST=localhost \\
+  nginx:alpine
+
+# Confirm the mapping
+docker ps
+
+# Fetch the default page (should return HTML)
+curl -s http://localhost:8080 | head -5
+
+# Inspect the env var inside the container
+docker exec webserver env | grep NGINX
+
+# Clean up
+docker stop webserver && docker rm webserver`;
+
+<PlayWithDocker client:visible code={portsEnvCode} label="Run nginx with a port and an env var" />
+
+<Callout title="-p 8080:80 maps host 8080 to container 80">
+Without `-p`, the container port exists only inside Docker's internal network — your browser and `curl` on the host cannot reach it. The mapping `-p 8080:80` means: traffic arriving at port 8080 on the host is forwarded to port 80 inside the container.
+</Callout>
+
+export const quizPortsEnv = [
+  {
+    q: "What does '-p 3000:8080' mean?",
+    options: [
+      "Host port 8080 maps to container port 3000",
+      "Host port 3000 maps to container port 8080",
+      "Both ports 3000 and 8080 are exposed on the host",
+      "The container listens on all ports between 3000 and 8080"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which flag passes a file of KEY=VALUE pairs as environment variables?",
+    options: [
+      "-e",
+      "--env",
+      "--env-file",
+      "--config"
+    ],
+    answer: 2
+  },
+  {
+    q: "If you run a container WITHOUT -p, can you reach its port from the host?",
+    options: [
+      "Yes — all container ports are always reachable",
+      "Yes — but only on port 80",
+      "No — the port is only accessible inside Docker's internal network",
+      "Only if the container uses EXPOSE in its Dockerfile"
+    ],
+    answer: 2
+  },
+  {
+    q: "What is the benefit of using --name when running a container?",
+    options: [
+      "It speeds up the container startup time",
+      "It gives the container a predictable name for use in subsequent commands",
+      "It automatically publishes all ports",
+      "It prevents the container from being removed"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="containers/ports-env" questions={quizPortsEnv} />
+
+<ProgressTracker client:visible id="containers/ports-env" />

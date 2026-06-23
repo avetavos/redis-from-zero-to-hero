@@ -1,0 +1,161 @@
+---
+title: 'นโยบาย Restart และการ Inspect'
+description: 'กำหนดนโยบาย restart, ตรวจสอบรายละเอียด container ด้วย docker inspect, ติดตาม stats แบบ live, และตั้งค่าการจำกัด resource'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## นโยบาย restart
+
+โดยค่าเริ่มต้น container ที่หยุดหรือ crash จะอยู่ในสถานะหยุด นโยบาย restart บอก Docker ว่าเมื่อใดควรรีสตาร์ทอัตโนมัติ
+
+| นโยบาย | พฤติกรรม |
+|--------|---------|
+| `no` | ไม่รีสตาร์ทเลย (ค่าเริ่มต้น) |
+| `always` | รีสตาร์ทเสมอ แม้แต่หลัง `docker stop` ด้วยตนเอง เริ่มต้นเมื่อ Docker daemon boot |
+| `unless-stopped` | รีสตาร์ทอัตโนมัติ แต่ไม่รีสตาร์ทถ้าคุณหยุดด้วยตนเอง เริ่มต้นเมื่อ daemon boot เว้นแต่ถูกหยุดไว้ |
+| `on-failure[:N]` | รีสตาร์ทเฉพาะเมื่อ exit code ไม่ใช่ศูนย์ มี retry count สูงสุดเป็น optional |
+
+```bash
+# แนะนำสำหรับ service ที่ต้องทำงานต่อเนื่อง
+docker run -d --restart unless-stopped nginx:alpine
+
+# รีสตาร์ทสูงสุด 5 ครั้งเมื่อเกิดข้อผิดพลาด
+docker run -d --restart on-failure:5 myworker:latest
+```
+
+## การ inspect container
+
+`docker inspect` คืนค่า JSON configuration ทั้งหมดของ container — network settings, mounts, ตัวแปร environment, นโยบาย restart, และอื่นๆ:
+
+```bash
+docker inspect webserver
+```
+
+ใช้ `--format` พร้อม Go template syntax เพื่อดึงข้อมูลเฉพาะ field:
+
+```bash
+# รับ IP address ของ container
+docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' webserver
+
+# รับนโยบาย restart
+docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' webserver
+```
+
+## การติดตาม resource แบบ live ด้วย `docker stats`
+
+`docker stats` แสดงตารางที่อัปเดตแบบ live ของ CPU, memory, network I/O, และ disk I/O สำหรับ container ที่กำลังทำงาน:
+
+```bash
+# container ทั้งหมดที่กำลังทำงาน
+docker stats
+
+# container เฉพาะ, snapshot เดียว (ไม่ update แบบ live)
+docker stats --no-stream webserver
+```
+
+```text
+CONTAINER ID   NAME        CPU %  MEM USAGE / LIMIT   MEM %   NET I/O       BLOCK I/O
+a1b2c3d4e5f6   webserver   0.1%   5.2MiB / 7.62GiB    0.07%   1.2kB / 648B  0B / 0B
+```
+
+## การจำกัด resource
+
+Container สามารถใช้ memory และ CPU ทั้งหมดที่มีได้ถ้าไม่กำหนดขีดจำกัด ตั้งค่าขีดจำกัดตอนรัน:
+
+```bash
+docker run -d \
+  --name limited \
+  --memory 256m \
+  --cpus 0.5 \
+  nginx:alpine
+```
+
+- `--memory 256m` — จำกัด memory สูงสุด (container จะถูก OOM-kill ถ้าเกินนี้)
+- `--cpus 0.5` — อนุญาตให้ container ใช้ CPU core ได้ครึ่งหนึ่ง
+
+ยืนยันว่าขีดจำกัดถูกนำไปใช้:
+
+```bash
+docker inspect --format '{{.HostConfig.Memory}}' limited
+# 268435456  (256 * 1024 * 1024 bytes)
+```
+
+export const restartInspectCode = `# 1. Run nginx with a restart policy
+docker run -d --name webserver --restart unless-stopped nginx:alpine
+
+# 2. Inspect the full config (JSON)
+docker inspect webserver | head -60
+
+# 3. Extract just the restart policy
+docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' webserver
+
+# 4. Live stats (one snapshot)
+docker stats --no-stream webserver
+
+# 5. Run a memory-limited container
+docker run -d --name limited --memory 128m --cpus 0.25 nginx:alpine
+
+# 6. Confirm the memory limit
+docker inspect --format '{{.HostConfig.Memory}}' limited
+
+# 7. Clean up
+docker stop webserver limited && docker rm webserver limited`;
+
+<PlayWithDocker client:visible code={restartInspectCode} label="นโยบาย restart, inspect, และการจำกัด resource" />
+
+<Callout title="ใช้ --restart unless-stopped สำหรับ service ที่ต้องทำงานต่อเนื่อง">
+`unless-stopped` คือนโยบาย restart ที่แนะนำสำหรับ service อย่าง web server, database, และ background worker Container จะรอดจาก host reboot และ crash ที่ไม่คาดคิดอัตโนมัติ แต่ยังยอมรับ `docker stop` ที่ตั้งใจ — เพื่อให้คุณสามารถนำออกจากการให้บริการเพื่อ maintenance ได้โดยไม่มีปัญหา
+</Callout>
+
+export const quizRestartInspect = [
+  {
+    q: "นโยบาย restart ใดเริ่ม container อัตโนมัติหลัง host reboot แต่ยอมรับ 'docker stop' ด้วยตนเอง?",
+    options: [
+      "always",
+      "on-failure",
+      "unless-stopped",
+      "no"
+    ],
+    answer: 2
+  },
+  {
+    q: "'docker stats --no-stream' ทำหน้าที่อะไร?",
+    options: [
+      "ปิดการเก็บข้อมูล network stats",
+      "แสดง snapshot เดียวของการใช้ resource แล้วออก",
+      "แสดง stats เฉพาะ container ที่หยุดแล้ว",
+      "ส่ง stats ไปยังไฟล์แทน terminal"
+    ],
+    answer: 1
+  },
+  {
+    q: "เกิดอะไรขึ้นเมื่อ container เกินขีดจำกัด --memory?",
+    options: [
+      "Docker หยุด container ชั่วคราวจนกว่า memory จะว่าง",
+      "Docker แสดง warning แต่ไม่ดำเนินการใดๆ",
+      "กระบวนการของ container ถูก OOM-kill โดย kernel",
+      "Docker เพิ่มขีดจำกัดอัตโนมัติ"
+    ],
+    answer: 2
+  },
+  {
+    q: "คำสั่งใดแสดง JSON configuration ทั้งหมดของ container ที่กำลังทำงาน?",
+    options: [
+      "docker info",
+      "docker top",
+      "docker inspect",
+      "docker stats"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="containers/restart-inspect" questions={quizRestartInspect} />
+
+<ProgressTracker client:visible id="containers/restart-inspect" />

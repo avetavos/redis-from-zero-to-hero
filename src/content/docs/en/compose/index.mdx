@@ -1,0 +1,161 @@
+---
+title: 'Docker Compose'
+description: 'Define and run multi-container Docker applications declaratively in a single compose.yaml file.'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is Docker Compose?
+
+Running a real application almost always means running more than one container — a web server, a database, maybe a cache. Without Compose you would open multiple terminals, type a long `docker run` command for each service, and remember to wire them together manually on the same network. That process is fragile and impossible to share reliably.
+
+Docker Compose lets you describe your entire multi-container application in a single file called `compose.yaml`. One command starts everything:
+
+```bash
+docker compose up
+```
+
+One command tears it all down:
+
+```bash
+docker compose down
+```
+
+## compose.yaml vs long docker run commands
+
+Compare running a simple web app two ways.
+
+Without Compose:
+
+```bash
+docker network create myapp-net
+docker run -d \
+  --name web \
+  --network myapp-net \
+  -p 8080:8080 \
+  -e APP_ENV=production \
+  myapp:latest
+```
+
+With Compose:
+
+```yaml
+services:
+  web:
+    image: myapp:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - APP_ENV=production
+```
+
+The Compose version is self-documenting, version-controlled, and reproduced identically by anyone on your team.
+
+## What this module covers
+
+This module walks you through every layer of Docker Compose:
+
+| Lesson | Topic |
+|--------|-------|
+| 1 (this page) | Why Compose — one-file declarative apps |
+| 2 | `compose.yaml` structure in depth |
+| 3 | Multi-service apps with networking |
+| 4 | Environment variables, volumes, and networks |
+| 5 | Lifecycle commands and scaling |
+
+## A minimal first Compose app
+
+Here is the smallest useful `compose.yaml` — a single Nginx service:
+
+```yaml
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+```
+
+Start it with `docker compose up` (add `-d` to run in the background). Visit `http://localhost:8080` and you see the Nginx welcome page. Stop it with `Ctrl-C`, or `docker compose down` if you used `-d`.
+
+## Hands-on practice
+
+The snippet below writes a `compose.yaml`, starts it, and checks the running service — all inside Play with Docker.
+
+export const composeIndexCode = `# Write a minimal compose.yaml
+cat > compose.yaml <<'EOF'
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+EOF
+
+# Start in detached mode
+docker compose up -d
+
+# Check running services
+docker compose ps
+
+# Fetch the Nginx welcome page
+curl -s http://localhost:8080 | head -5
+
+# Tear it down
+docker compose down`;
+
+<PlayWithDocker client:visible code={composeIndexCode} label="Run your first Compose app" />
+
+<Callout title="Compose v2 is docker compose (no hyphen)">
+Modern Docker ships Compose as a built-in CLI plugin. The command is `docker compose` (space-separated), not the legacy `docker-compose` standalone binary. Always use `docker compose` in new projects.
+</Callout>
+
+export const quizIndex = [
+  {
+    q: "What is the main benefit of using Docker Compose over plain docker run commands?",
+    options: [
+      "It builds images faster by using parallel layers",
+      "It lets you define and manage multi-container apps in a single declarative file",
+      "It automatically pushes images to a registry",
+      "It removes the need for Dockerfiles"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which command starts all services defined in compose.yaml in the foreground?",
+    options: [
+      "docker compose start",
+      "docker compose run",
+      "docker compose up",
+      "docker compose launch"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which command is correct for Compose v2?",
+    options: [
+      "docker-compose up",
+      "docker compose up",
+      "compose up",
+      "dockerd compose up"
+    ],
+    answer: 1
+  },
+  {
+    q: "What is the standard filename for a Compose configuration?",
+    options: [
+      "docker-compose.yml",
+      "Composefile",
+      "compose.yaml",
+      "docker.yaml"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="compose/index" questions={quizIndex} />
+
+<ProgressTracker client:visible id="compose/index" />

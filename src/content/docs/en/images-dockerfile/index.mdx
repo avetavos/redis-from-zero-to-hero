@@ -1,0 +1,123 @@
+---
+title: 'Images & the Dockerfile — Module Overview'
+description: 'Learn what Docker images are, how a Dockerfile builds them, and what this module covers.'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## What is a Docker image?
+
+A Docker **image** is a read-only package that contains everything needed to run a program — the OS filesystem, runtime, libraries, application code, and default configuration. Think of it as a recipe: the recipe itself never changes, but you can bake as many cakes (containers) from it as you like.
+
+Images are built from stacked, read-only **layers**. Each layer represents a change — a file added, a package installed, a configuration written. When you stack layers on top of each other you get a complete filesystem, but Docker only stores (and transfers) the layers that have changed, keeping images lean.
+
+```text
+Image (read-only)
+├── Layer 3: COPY app/ /app/          ← your code
+├── Layer 2: RUN npm install          ← dependencies
+├── Layer 1: FROM node:22-alpine      ← base OS + runtime
+```
+
+A running **container** is an image with one extra writable layer on top. The image is untouched — the container writes to its own scratch layer. Stop the container and that layer disappears (unless you save it).
+
+```text
+Container (running)
+├── Writable layer  ← container-specific changes (deleted on stop)
+├── Layer 3 (read-only)
+├── Layer 2 (read-only)
+└── Layer 1 (read-only)
+```
+
+## What is a Dockerfile?
+
+A **Dockerfile** is a plain-text file of instructions that tells Docker how to build an image. Each instruction becomes a layer. You run `docker build` to turn a Dockerfile into an image, and `docker run` to start a container from that image.
+
+Here is the simplest possible Dockerfile:
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM alpine:3.20
+CMD ["echo", "Hello, Docker!"]
+```
+
+Build and run it:
+
+```bash
+docker build -t hello .
+docker run --rm hello
+```
+
+Expected output:
+
+```text
+Hello, Docker!
+```
+
+## What this module covers
+
+| Lesson | What you will learn |
+|---|---|
+| This page | Images vs containers, layers, first build |
+| Dockerfile basics | Core instructions: FROM, WORKDIR, COPY, RUN, ENV, EXPOSE |
+| Build & tag | Build context, `-t name:tag`, `docker images`, `.dockerignore` |
+| Layers & cache | How build cache works, instruction ordering for speed |
+| CMD vs ENTRYPOINT | Exec form, shell form, default arguments, overrides |
+
+## Hands-on: your first build
+
+Paste the snippet below into a Play with Docker session, run the two commands, and see Docker build a tiny image from scratch.
+
+export const helloCode = `# syntax=docker/dockerfile:1
+FROM alpine:3.20
+CMD ["echo", "Hello, Docker!"]
+# --- build & run ---
+# docker build -t hello .
+# docker run --rm hello`;
+
+<PlayWithDocker client:visible code={helloCode} label="Build your first image" />
+
+<Callout title="Image vs container">
+An image is the recipe — static and reusable. A container is a running instance of that recipe. One image can spawn many containers simultaneously, each with its own writable layer.
+</Callout>
+
+export const quizIndex = [
+  {
+    q: "What is a Docker image?",
+    options: [
+      "A running process with its own writable filesystem",
+      "A read-only, layered package that contains everything needed to run a program",
+      "A virtual machine disk snapshot",
+      "A YAML file that describes services"
+    ],
+    answer: 1
+  },
+  {
+    q: "What happens to a container's writable layer when the container stops?",
+    options: [
+      "It is merged back into the image",
+      "It is saved automatically to a volume",
+      "It is deleted (unless explicitly committed or mounted to a volume)",
+      "It becomes a new read-only layer"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which command turns a Dockerfile into an image?",
+    options: [
+      "docker run",
+      "docker pull",
+      "docker build",
+      "docker create"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="images-dockerfile/index" questions={quizIndex} />
+
+<ProgressTracker client:visible id="images-dockerfile/index" />

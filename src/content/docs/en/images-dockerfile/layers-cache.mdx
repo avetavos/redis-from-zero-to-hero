@@ -1,0 +1,162 @@
+---
+title: 'Layers & the Build Cache'
+description: 'Understand how Docker layer caching works, why instruction order matters, and how to order instructions for maximum cache reuse.'
+sidebar:
+  order: 4
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## How the build cache works
+
+Every Dockerfile instruction creates a layer. Docker stores these layers on disk and assigns each one a cache key based on:
+
+- The instruction text itself
+- The parent layer's cache key
+- (For `COPY`/`ADD`) the checksum of the copied files
+
+When you rebuild an image, Docker checks each instruction against the cache. If the cache key matches, Docker reuses the cached layer — instant, zero-cost. If the cache key does **not** match (the instruction changed, or a copied file changed), Docker invalidates that layer **and every layer after it**, rebuilding them from scratch.
+
+This is the critical rule:
+
+> **Cache invalidation cascades downward. Once a layer is invalidated, all subsequent layers are also rebuilt.**
+
+## Why instruction order matters
+
+Consider this poorly ordered Dockerfile:
+
+```dockerfile
+# BAD: copies all source code first
+FROM node:22-alpine
+WORKDIR /app
+COPY . .                   # ← copies everything, including app source
+RUN npm ci --omit=dev      # ← runs after COPY — cache busted on every code change
+```
+
+Every time you change a single source file, `COPY . .` is invalidated, which also invalidates `RUN npm ci`. That means npm reinstalls all dependencies on every build — even if `package.json` did not change.
+
+The fix is to copy dependency manifests first, install, then copy source:
+
+```dockerfile
+# GOOD: dependency install is cached separately
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json package-lock.json ./   # ← only changes when deps change
+RUN npm ci --omit=dev                    # ← cached as long as package.json unchanged
+COPY . .                                  # ← source changes only bust this layer
+```
+
+Now `npm ci` is only re-run when `package.json` or `package-lock.json` changes. Changing app code only invalidates the final `COPY . .` and anything below it.
+
+## Seeing the cache in action
+
+First build — everything is a fresh download:
+
+```text
+[+] Building 14.7s (7/7) FINISHED
+ => [1/5] FROM docker.io/library/node:22-alpine     5.2s
+ => [2/5] WORKDIR /app                              0.0s
+ => [3/5] COPY package.json package-lock.json ./    0.0s
+ => [4/5] RUN npm ci --omit=dev                     8.1s
+ => [5/5] COPY . .                                  0.0s
+ => exporting to image                              1.4s
+```
+
+Second build — only app source changed, `npm ci` is cached:
+
+```text
+[+] Building 1.1s (7/7) FINISHED
+ => [1/5] FROM docker.io/library/node:22-alpine     0.0s
+ => CACHED [2/5] WORKDIR /app                       0.0s
+ => CACHED [3/5] COPY package.json package-lock.json ./  0.0s
+ => CACHED [4/5] RUN npm ci --omit=dev              0.0s
+ => [5/5] COPY . .                                  0.0s
+ => exporting to image                              1.1s
+```
+
+The build went from 14.7 s to 1.1 s because four of five layers were served from cache.
+
+## General ordering rule
+
+Order instructions from **least frequently changing** to **most frequently changing**:
+
+1. `FROM` (base image — rarely changes)
+2. System package installs (`RUN apt-get install ...`)
+3. Dependency manifests copied + installed (`COPY package.json ./` + `RUN npm ci`)
+4. Application source code (`COPY . .`)
+5. Build steps that depend on source (`RUN npm run build`)
+
+## Hands-on: observe the cache
+
+The snippet below builds a tiny image twice. Run it and watch the second build use `CACHED` layers.
+
+export const layersCacheCode = `# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+# Step 1: copy only the manifest and install
+RUN echo '{"name":"demo","version":"1.0.0"}' > package.json
+RUN npm install --omit=dev 2>/dev/null || true
+# Step 2: copy "source" (simulated with an echo)
+RUN echo "console.log('Hello from app v1');" > app.js
+CMD ["node", "app.js"]
+# --- first build ---
+# docker build -t cachetest .
+# docker run --rm cachetest
+# --- change "source" and rebuild: only the last RUN reruns ---
+# docker build -t cachetest .`;
+
+<PlayWithDocker client:visible code={layersCacheCode} label="Watch the build cache" />
+
+<Callout title="Order instructions least- to most-frequently-changing">
+The golden rule: put instructions that change rarely (base image, system packages, dependency installs) near the top of the Dockerfile. Put instructions that change often (copying your app source) near the bottom. This maximises cache hits and keeps rebuilds fast — often from 60+ seconds down to under 2 seconds when only application code changes.
+</Callout>
+
+export const quizLayersCache = [
+  {
+    q: "What happens to all layers below an invalidated layer?",
+    options: [
+      "They are skipped and reused from cache",
+      "They are invalidated and rebuilt from scratch",
+      "They are merged into a single layer",
+      "They are deleted from the image"
+    ],
+    answer: 1
+  },
+  {
+    q: "Why do we COPY package.json before COPY . . in a Node.js Dockerfile?",
+    options: [
+      "Because Docker requires manifest files to be copied before source files",
+      "So that npm ci runs only when dependencies change, not on every source code change",
+      "To reduce the number of layers in the final image",
+      "Because COPY . . does not copy package.json"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which of these instructions creates a new layer in the image?",
+    options: [
+      "EXPOSE",
+      "LABEL",
+      "RUN",
+      "ARG"
+    ],
+    answer: 2
+  },
+  {
+    q: "A second `docker build` on unchanged source prints `CACHED` for most steps. What does that mean?",
+    options: [
+      "Docker downloaded the layers from a remote cache registry",
+      "Docker reused locally stored layers whose cache keys matched, skipping their execution",
+      "Docker skipped building the image entirely",
+      "Docker used the previous container's writable layer"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="images-dockerfile/layers-cache" questions={quizLayersCache} />
+
+<ProgressTracker client:visible id="images-dockerfile/layers-cache" />

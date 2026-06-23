@@ -1,0 +1,115 @@
+---
+title: 'การ Optimize & Best Practices — ภาพรวมโมดูล'
+description: 'เรียนรู้ว่าทำไมขนาด image ถึงสำคัญ โมดูลนี้ครอบคลุมอะไรบ้าง และดูการเปรียบเทียบขนาดก่อน/หลัง Optimize'
+sidebar:
+  order: 1
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ทำไมต้อง Optimize Docker image?
+
+เมื่อ build Docker image ครั้งแรก เราอาจได้ image ที่มีขนาดถึง **1–2 GB** ได้ง่ายๆ ขนาดนั้นส่งผลกระทบในทุกมิติ: ทุกครั้งที่ `docker pull` บน CI จะเสียเวลาเป็นวินาที (หรือนาที) ทุกการ push ไปยัง registry เสียแบนด์วิดท์ และทุก megabyte ใน image คือพื้นที่ที่ผู้โจมตีอาจใช้ประโยชน์ได้
+
+การ Optimize ไม่ได้หมายถึงการปรับปรุงเล็กน้อย แต่คือการใช้เทคนิคที่ผ่านการพิสูจน์แล้วไม่กี่อย่าง ได้แก่ multi-stage builds, การเรียงลำดับ layer อย่างชาญฉลาด, base image ที่กระทัดรัด, และการตั้งค่าความปลอดภัยที่เหมาะสม ซึ่งสามารถลดขนาด image ได้ถึง **70–90%** และทำให้ deploy ได้เร็วขึ้นและปลอดภัยขึ้น
+
+### สามมิติของการ Optimize
+
+| มิติ | เป้าหมาย | เทคนิคที่ครอบคลุม |
+|---|---|---|
+| **ขนาด** | Image เล็ก = pull เร็ว, ใช้พื้นที่น้อย | Multi-stage builds, base image เล็ก, `.dockerignore` |
+| **ความเร็วในการ build** | Build ซ้ำๆ ได้เร็วขึ้น | การเรียงลำดับ layer cache, `--mount=type=cache` |
+| **ความปลอดภัย** | ลด attack surface | User ที่ไม่ใช่ root, ไม่ฝัง secret, `HEALTHCHECK`, การ scan |
+
+### ก่อนและหลัง
+
+นี่คือการเปรียบเทียบที่สมจริง ฝั่งซ้ายคือ Node.js image แบบ single-stage ทั่วไป ฝั่งขวาคือแอปเดียวกันที่ build ด้วยเทคนิคในโมดูลนี้:
+
+```text
+REPOSITORY          TAG        SIZE
+myapp               naive      1.21GB
+myapp               optimized  112MB
+```
+
+ลดลงถึง **10 เท่า** โดยไม่มีการเปลี่ยนแปลงพฤติกรรมของแอปพลิเคชัน — เปลี่ยนแค่ Dockerfile เท่านั้น
+
+## โมดูลนี้ครอบคลุมอะไรบ้าง
+
+| บทเรียน | สิ่งที่จะได้เรียนรู้ |
+|---|---|
+| หน้านี้ | ทำไมต้อง Optimize, สามมิติ, ตัวอย่างขนาดก่อน/หลัง |
+| Multi-stage builds | แยก build stage กับ runtime stage; `COPY --from` |
+| การเรียงลำดับ cache | จัดลำดับ instruction เพื่อใช้ cache ได้สูงสุด; pin versions |
+| Base image เล็กและ `.dockerignore` | Alpine/distroless, ตัด noise ออกจาก build context |
+| Security และ HEALTHCHECK | Non-root user, ไม่ฝัง secret, `HEALTHCHECK`, `docker scout` |
+
+## ลงมือทำ: ดูขนาด image
+
+snippet ด้านล่าง build image สองอัน — อันหนึ่งใหญ่โต อีกอันกระทัดรัด — เพื่อให้เห็น output ของ `docker images` แบบเปรียบเทียบ
+
+export const optimizationIndexCode = `# Build a "before" image with unnecessary dev tools
+# syntax=docker/dockerfile:1
+FROM node:22 AS before
+WORKDIR /app
+RUN echo '{"name":"demo","version":"1.0.0"}' > package.json
+RUN npm install --save-dev typescript eslint
+RUN echo "console.log('hello');" > index.js
+CMD ["node","index.js"]
+
+# Build a "after" image with only what is needed
+FROM node:22-alpine AS after
+WORKDIR /app
+RUN echo '{"name":"demo","version":"1.0.0"}' > package.json
+RUN echo "console.log('hello');" > index.js
+CMD ["node","index.js"]
+
+# --- build both and compare sizes ---
+# docker build --target before -t myapp:before .
+# docker build --target after  -t myapp:after  .
+# docker images myapp`;
+
+<PlayWithDocker client:visible code={optimizationIndexCode} label="Compare image sizes" />
+
+<Callout title="Image เล็กกว่า = pull เร็วกว่าและ attack surface เล็กกว่า">
+ทุก package ที่ติดตั้งใน Docker image คือช่องโหว่ที่อาจเกิดขึ้นได้ การทำให้ image เล็กไม่ใช่แค่เรื่องความเร็ว แต่ยังช่วยลดจำนวน component ที่ต้องได้รับการ patch, scan และ maintain runtime image ควรมีเฉพาะสิ่งที่แอปพลิเคชันต้องการ ไม่มากไปกว่านั้น
+</Callout>
+
+export const quizOptimizationIndex = [
+  {
+    q: "ข้อใดต่อไปนี้ไม่ใช่หนึ่งในสามมิติของการ Optimize Docker image ที่ครอบคลุมในโมดูลนี้?",
+    options: [
+      "ขนาด image",
+      "ความเร็วในการ build",
+      "ความปลอดภัย",
+      "Network throughput"
+    ],
+    answer: 3
+  },
+  {
+    q: "Node.js image แบบ single-stage มีขนาด 1.21 GB หลังใช้ multi-stage builds และ base image ขนาดเล็ก ขนาดที่คาดหวังหลัง Optimize คือเท่าไร?",
+    options: [
+      "~900 MB",
+      "~600 MB",
+      "~112 MB",
+      "~1 MB"
+    ],
+    answer: 2
+  },
+  {
+    q: "การลดขนาด image ช่วยเพิ่มความปลอดภัยได้อย่างไร?",
+    options: [
+      "Image ขนาดเล็กจะเข้ารหัส filesystem โดยอัตโนมัติ",
+      "Package ที่ติดตั้งน้อยลงหมายถึงช่องโหว่ที่ต้อง patch น้อยลง",
+      "Docker จะปฏิเสธการรัน image ที่มีขนาดใหญ่กว่า 500 MB",
+      "การลดขนาดจะลบ instruction RUN ทั้งหมดออกจาก image"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="optimization/index" questions={quizOptimizationIndex} />
+
+<ProgressTracker client:visible id="optimization/index" />

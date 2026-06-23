@@ -1,0 +1,164 @@
+---
+title: 'Custom Networks and Container Isolation'
+description: 'Create, connect, inspect, and remove Docker networks to isolate groups of containers.'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Creating a custom network
+
+Use `docker network create` with `--driver bridge` to create a named network. The bridge driver is the default, so you can omit it for brevity:
+
+```bash
+docker network create --driver bridge frontend-net
+```
+
+## Connecting containers at run time
+
+Attach a container to a custom network with `--network` at start time:
+
+```bash
+docker run -d --name nginx-proxy --network frontend-net nginx:alpine
+```
+
+## Connecting a running container to an additional network
+
+A running container can be added to another network without restarting it:
+
+```bash
+docker network connect backend-net mycontainer
+```
+
+After this, `mycontainer` has interfaces on both `frontend-net` and `backend-net` and can communicate with containers on either network.
+
+## Disconnecting a container from a network
+
+```bash
+docker network disconnect frontend-net mycontainer
+```
+
+The container loses its interface on `frontend-net` but keeps any other network connections.
+
+## Inspecting a custom network
+
+```bash
+docker network inspect frontend-net
+```
+
+The output shows the driver, subnet, gateway, and a `Containers` map listing every attached container with its IP and MAC address.
+
+## Isolation in practice
+
+Network segmentation is a zero-cost security control. Containers on different networks cannot reach each other unless explicitly connected to both.
+
+A typical three-tier application uses three separate networks:
+
+| Network | Containers attached | Can reach |
+|---|---|---|
+| `frontend-net` | `nginx-proxy`, `web-app` | Each other only |
+| `backend-net` | `web-app`, `api-server` | Each other only |
+| `data-net` | `api-server`, `postgres` | Each other only |
+
+`web-app` is connected to both `frontend-net` and `backend-net`, so it bridges the two tiers. `postgres` is on `data-net` only — the nginx proxy cannot reach the database directly, even if compromised.
+
+## Listing networks
+
+Filter `docker network ls` by driver to see only bridge networks:
+
+```bash
+docker network ls --filter driver=bridge
+```
+
+## Removing a network
+
+A network cannot be removed while containers are attached to it. Stop and remove the containers first, then remove the network:
+
+```bash
+docker network rm frontend-net
+```
+
+## Hands-on: isolation between networks
+
+export const customNetworksCode = `# Create two networks
+docker network create frontend-net
+docker network create backend-net
+
+# Start a container on frontend-net only
+docker run -d --name frontend --network frontend-net alpine sleep 300
+
+# Start a container on backend-net only
+docker run -d --name backend --network backend-net alpine sleep 300
+
+# Show isolation: frontend cannot reach backend by name
+docker exec frontend ping -c 1 backend || echo "Isolated: frontend cannot reach backend"
+
+# Connect frontend to backend-net so it can reach both
+docker network connect backend-net frontend
+
+# Now frontend can reach backend
+docker exec frontend ping -c 3 backend
+
+# Inspect the networks
+docker network ls --filter driver=bridge
+
+# Cleanup
+docker stop frontend backend && docker rm frontend backend
+docker network rm frontend-net backend-net`;
+
+<PlayWithDocker client:visible code={customNetworksCode} label="Explore network isolation" />
+
+<Callout title="Isolate services with separate networks">
+Put each tier of your application (frontend, backend, database) on its own network. Only connect containers that must communicate. This limits the blast radius of a compromise and is a zero-cost security improvement.
+</Callout>
+
+export const quizCustomNetworks = [
+  {
+    q: "Two containers are on different user-defined bridge networks. Can they communicate by default?",
+    options: [
+      "Yes, all containers on the same host can always communicate",
+      "Yes, but only by IP address — not by name",
+      "No, containers on different networks are isolated from each other",
+      "No, unless the host firewall is configured to allow it"
+    ],
+    answer: 2
+  },
+  {
+    q: "You have a running container named 'api' and you want to connect it to an existing network named 'data-net' without restarting it. Which command do you use?",
+    options: [
+      "docker run --network data-net api",
+      "docker network attach data-net api",
+      "docker network connect data-net api",
+      "docker container connect api data-net"
+    ],
+    answer: 2
+  },
+  {
+    q: "You try to run docker network rm mynet but get an error saying the network has active endpoints. What must you do first?",
+    options: [
+      "Use docker network rm --force mynet to override the check",
+      "Stop and remove all containers attached to mynet, then remove it",
+      "Disconnect the network from the Docker daemon with docker network disable",
+      "Restart the Docker daemon to release all endpoints"
+    ],
+    answer: 1
+  },
+  {
+    q: "In a three-tier app, you want the database container to be reachable by the API server but not by the frontend proxy. What is the correct network design?",
+    options: [
+      "Put all three services on one network and use firewall rules to block the frontend",
+      "Put the database on a separate data-net and only connect the API server to data-net",
+      "Use the host network driver for the database so it cannot be reached by other containers",
+      "Put the database on the default bridge network where it is isolated automatically"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="networking/custom-networks" questions={quizCustomNetworks} />
+
+<ProgressTracker client:visible id="networking/custom-networks" />

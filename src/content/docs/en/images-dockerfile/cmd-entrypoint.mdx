@@ -1,0 +1,195 @@
+---
+title: 'CMD vs ENTRYPOINT'
+description: 'Understand exec form vs shell form, how CMD and ENTRYPOINT interact, and how to set a fixed executable with configurable default arguments.'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Two ways to specify what a container runs
+
+Docker gives you two instructions for defining what happens when a container starts:
+
+- **`CMD`** — the default command (or default arguments). Easily overridden at `docker run`.
+- **`ENTRYPOINT`** — the fixed executable. Harder to override; makes the container behave like a specific program.
+
+They are often confused. Understanding the difference lets you build containers that are easy to use correctly.
+
+## Exec form vs shell form
+
+Both `CMD` and `ENTRYPOINT` accept two syntax forms.
+
+### Exec form (preferred)
+
+```dockerfile
+CMD ["node", "server.js"]
+ENTRYPOINT ["node"]
+```
+
+Arguments are a JSON array. Docker executes the program **directly** — no shell involved. PID 1 inside the container is your process. This means it receives OS signals (SIGTERM, SIGINT) properly, which is critical for graceful shutdown.
+
+### Shell form
+
+```dockerfile
+CMD node server.js
+ENTRYPOINT node
+```
+
+Docker wraps the command in `/bin/sh -c "..."`. The shell becomes PID 1, not your process. Your app runs as a child of the shell, and OS signals are not forwarded reliably. Avoid this form for production services.
+
+## CMD — the default command
+
+`CMD` sets the default command a container runs. If the user passes a command on `docker run`, it **replaces** `CMD` entirely.
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM alpine:3.20
+CMD ["echo", "Hello from CMD!"]
+```
+
+```bash
+# Uses CMD
+docker run --rm myimage
+# Output: Hello from CMD!
+
+# Overrides CMD completely
+docker run --rm myimage echo "Custom message"
+# Output: Custom message
+```
+
+## ENTRYPOINT — the fixed executable
+
+`ENTRYPOINT` sets the executable that always runs. Arguments passed on `docker run` are **appended** to the entry point — not substituted.
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM alpine:3.20
+ENTRYPOINT ["ping"]
+CMD ["-c", "3", "8.8.8.8"]
+```
+
+```bash
+# Uses ENTRYPOINT + CMD defaults
+docker run --rm pinger
+# Runs: ping -c 3 8.8.8.8
+
+# Appends to ENTRYPOINT, replaces CMD
+docker run --rm pinger -c 1 1.1.1.1
+# Runs: ping -c 1 1.1.1.1
+```
+
+## ENTRYPOINT + CMD together (the pattern)
+
+The most flexible and idiomatic pattern:
+
+- **`ENTRYPOINT`** = the executable (fixed)
+- **`CMD`** = default arguments (replaceable by the user)
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:22-alpine
+WORKDIR /app
+COPY server.js .
+ENTRYPOINT ["node"]
+CMD ["server.js"]
+```
+
+```bash
+# Default: node server.js
+docker run --rm myapp
+
+# Override: node --version
+docker run --rm myapp --version
+```
+
+## Overriding ENTRYPOINT
+
+You can still override `ENTRYPOINT` when needed using the `--entrypoint` flag:
+
+```bash
+docker run --rm --entrypoint sh myapp
+```
+
+This drops you into a shell inside the container — useful for debugging.
+
+## Summary table
+
+| | No override | `docker run img args` | `docker run --entrypoint X img` |
+|---|---|---|---|
+| Only CMD | runs CMD | replaces CMD with args | n/a — uses new entrypoint |
+| Only ENTRYPOINT | runs ENTRYPOINT | appends args to ENTRYPOINT | replaces ENTRYPOINT |
+| ENTRYPOINT + CMD | runs ENTRYPOINT + CMD defaults | replaces CMD with args | replaces ENTRYPOINT |
+
+## Hands-on practice
+
+export const cmdEntrypointCode = `# syntax=docker/dockerfile:1
+FROM alpine:3.20
+# ENTRYPOINT sets the fixed executable
+# CMD sets the default arguments
+ENTRYPOINT ["echo"]
+CMD ["Hello from ENTRYPOINT + CMD!"]
+# --- build ---
+# docker build -t greet .
+# Run with defaults (uses CMD):
+# docker run --rm greet
+# Override CMD with your own message:
+# docker run --rm greet "My custom message"
+# Override ENTRYPOINT entirely:
+# docker run --rm --entrypoint sh greet`;
+
+<PlayWithDocker client:visible code={cmdEntrypointCode} label="Experiment with CMD and ENTRYPOINT" />
+
+<Callout title="Use exec form; ENTRYPOINT fixes the executable, CMD sets defaults">
+Always prefer exec form (`["executable", "arg"]`) over shell form — your process receives OS signals directly as PID 1, enabling graceful shutdown. Use `ENTRYPOINT` to define what the container _is_ (e.g., a Node.js runner, a CLI tool). Use `CMD` to supply sensible default arguments that users can easily override at `docker run` time without touching the Dockerfile.
+</Callout>
+
+export const quizCmdEntrypoint = [
+  {
+    q: "Why is exec form (`[\"node\", \"server.js\"]`) preferred over shell form (`node server.js`)?",
+    options: [
+      "Exec form runs faster because it skips the shell",
+      "Exec form makes the process PID 1, so it receives OS signals directly for graceful shutdown",
+      "Shell form is deprecated and will be removed in a future Docker version",
+      "Exec form allows multiple commands in a single instruction"
+    ],
+    answer: 1
+  },
+  {
+    q: "If a Dockerfile has both ENTRYPOINT [\"ping\"] and CMD [\"-c\", \"3\", \"8.8.8.8\"], what runs when you execute `docker run img -c 1 1.1.1.1`?",
+    options: [
+      "ping -c 3 8.8.8.8 (CMD is not overridden)",
+      "ping -c 1 1.1.1.1 (CMD is replaced by the user arguments, ENTRYPOINT is kept)",
+      "-c 1 1.1.1.1 (ENTRYPOINT is dropped)",
+      "ping -c 3 8.8.8.8 -c 1 1.1.1.1 (arguments are merged)"
+    ],
+    answer: 1
+  },
+  {
+    q: "Which docker run flag allows you to replace ENTRYPOINT at runtime?",
+    options: [
+      "--cmd",
+      "--override",
+      "--entrypoint",
+      "--exec"
+    ],
+    answer: 2
+  },
+  {
+    q: "What is the idiomatic use of CMD when ENTRYPOINT is also set?",
+    options: [
+      "CMD is ignored when ENTRYPOINT is present",
+      "CMD provides default arguments to ENTRYPOINT that the user can override",
+      "CMD sets the working directory for the ENTRYPOINT process",
+      "CMD provides a fallback executable if ENTRYPOINT fails"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="images-dockerfile/cmd-entrypoint" questions={quizCmdEntrypoint} />
+
+<ProgressTracker client:visible id="images-dockerfile/cmd-entrypoint" />

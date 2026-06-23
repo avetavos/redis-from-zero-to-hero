@@ -1,0 +1,185 @@
+---
+title: 'Multi-Stage Builds'
+description: 'Use multi-stage builds to separate your build environment from your runtime image — and ship dramatically smaller, cleaner containers.'
+sidebar:
+  order: 2
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The problem with single-stage builds
+
+A typical application needs two very different sets of tools:
+
+- **Build time:** compilers, test runners, type checkers, build toolchains (`tsc`, `go build`, `maven`, etc.)
+- **Run time:** only the compiled output and its runtime dependencies
+
+In a naive single-stage Dockerfile you install everything in one image. The compiler that was essential during the build now sits idle in production, adding hundreds of megabytes and unnecessary attack surface.
+
+```dockerfile
+# Naive single-stage — compiler ends up in the final image
+FROM node:22
+WORKDIR /app
+COPY . .
+RUN npm ci
+RUN npm run build
+CMD ["node", "dist/server.js"]
+```
+
+A typical result:
+
+```text
+myapp:naive    1.21GB
+```
+
+## Multi-stage builds
+
+Docker BuildKit supports **multi-stage builds**: a single Dockerfile with multiple `FROM` instructions. Each `FROM` starts a fresh stage. You can copy artifacts from an earlier stage into a later one using `COPY --from=<stage>`.
+
+The key insight: **only the last stage is exported as the final image**. All intermediate stages — along with every tool installed in them — are discarded automatically.
+
+### Anatomy of a multi-stage Dockerfile
+
+```dockerfile
+# syntax=docker/dockerfile:1
+
+# ── Stage 1: build ─────────────────────────────────────────────
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY src/ ./src/
+RUN npm run build        # produces dist/
+
+# ── Stage 2: runtime ───────────────────────────────────────────
+FROM node:22-alpine AS runtime
+WORKDIR /app
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["node", "dist/server.js"]
+```
+
+What changes:
+
+| | Single-stage | Multi-stage |
+|---|---|---|
+| Final image contains | Source + devDeps + dist | dist + prodDeps only |
+| Typical size (Node.js) | ~1.2 GB | ~110 MB |
+| Build tools in prod | Yes | No |
+
+### Naming stages
+
+Give each stage a meaningful name with `AS <name>`. You can then reference it in `COPY --from=<name>` and also build only up to a specific stage during development:
+
+```bash
+# Build only the build stage (useful for running tests on CI)
+docker build --target build -t myapp:ci .
+
+# Build the full image for production
+docker build -t myapp:prod .
+```
+
+### A Go example
+
+Go is an ideal language for multi-stage builds: the compiler produces a single static binary that needs no runtime at all.
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM golang:1.23-alpine AS build
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o server ./cmd/server
+
+FROM scratch AS runtime
+COPY --from=build /app/server /server
+EXPOSE 8080
+ENTRYPOINT ["/server"]
+```
+
+`FROM scratch` is the absolute minimum base — a completely empty filesystem. The only file in the final image is the compiled binary. Result: often **under 10 MB**.
+
+## Hands-on: multi-stage Node.js build
+
+The snippet below runs a two-stage build inside Play with Docker and prints the final image size.
+
+export const multiStageCode = `# syntax=docker/dockerfile:1
+
+# Stage 1 — build
+FROM node:22-alpine AS build
+WORKDIR /app
+RUN echo '{"name":"demo","version":"1.0.0","scripts":{"build":"echo built"}}' > package.json
+RUN npm run build
+RUN echo "console.log('Hello from optimized image!');" > dist/server.js
+
+# Stage 2 — runtime (only dist/ lands here)
+FROM node:22-alpine AS runtime
+WORKDIR /app
+COPY --from=build /app/dist ./dist
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["node","dist/server.js"]
+
+# --- build & run ---
+# docker build -t myapp:multi .
+# docker run --rm myapp:multi
+# docker images myapp:multi`;
+
+<PlayWithDocker client:visible code={multiStageCode} label="Run a multi-stage build" />
+
+<Callout title="Multi-stage builds keep build tools out of the final image">
+Every compiler, test runner, or dev dependency installed in a `build` stage is automatically discarded when Docker exports the final stage. The result is a smaller, faster, and more secure production image with zero extra effort at runtime.
+</Callout>
+
+export const quizMultiStage = [
+  {
+    q: "In a multi-stage Dockerfile, which stage ends up in the final image?",
+    options: [
+      "The first stage (AS build)",
+      "All stages merged together",
+      "Only the last stage",
+      "The stage with the most RUN instructions"
+    ],
+    answer: 2
+  },
+  {
+    q: "What does `COPY --from=build /app/dist ./dist` do?",
+    options: [
+      "Copies dist/ from the host into the current stage",
+      "Copies dist/ from the stage named 'build' into the current stage",
+      "Moves dist/ and deletes it from the build stage",
+      "Downloads dist/ from a remote registry"
+    ],
+    answer: 1
+  },
+  {
+    q: "Why is `FROM scratch` useful for compiled Go binaries?",
+    options: [
+      "scratch provides a minimal Ubuntu environment",
+      "scratch disables networking for security",
+      "scratch is a completely empty base so the final image contains only the binary",
+      "scratch automatically compresses the binary"
+    ],
+    answer: 2
+  },
+  {
+    q: "Which flag lets you build only up to a specific stage?",
+    options: [
+      "--stage",
+      "--target",
+      "--from",
+      "--stop-at"
+    ],
+    answer: 1
+  }
+];
+
+<Quiz client:visible id="optimization/multi-stage" questions={quizMultiStage} />
+
+<ProgressTracker client:visible id="optimization/multi-stage" />

@@ -1,0 +1,63 @@
+---
+title: Docker — From Zero to Hero
+description: Learn Docker from first principles to production — images, containers, volumes, networking, Compose, optimization, and CI/CD.
+template: splash
+hero:
+  tagline: A standalone, beginner→advanced course on Docker. Learn through real Dockerfiles, commands, and Compose files with expected output — and a one-click "Try in Play with Docker" for hands-on practice in your browser.
+  actions:
+    - text: Start here
+      link: /docker-from-zero-to-hero/en/intro/
+      icon: right-arrow
+      variant: primary
+    - text: Jump to Images & the Dockerfile
+      link: /docker-from-zero-to-hero/en/images-dockerfile/
+      icon: open-book
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What you'll learn
+
+<CardGrid>
+  <Card title="Intro & Concepts" icon="rocket">
+    Containers vs VMs, images vs containers, the Docker architecture, install &amp; first run. [Start →](/docker-from-zero-to-hero/en/intro/)
+  </Card>
+  <Card title="Images & the Dockerfile" icon="seti:docker">
+    FROM/COPY/RUN/CMD/ENTRYPOINT, building, tagging, layers &amp; cache. [Build →](/docker-from-zero-to-hero/en/images-dockerfile/)
+  </Card>
+  <Card title="Running Containers" icon="laptop">
+    run/ps/exec/logs, ports &amp; env, restart policies, inspect. [Run →](/docker-from-zero-to-hero/en/containers/)
+  </Card>
+  <Card title="Data & Volumes" icon="document">
+    Named volumes vs bind mounts, persistence, backup &amp; restore. [Persist →](/docker-from-zero-to-hero/en/data-volumes/)
+  </Card>
+  <Card title="Networking" icon="random">
+    Bridge networks, container DNS, publishing ports, custom networks. [Connect →](/docker-from-zero-to-hero/en/networking/)
+  </Card>
+  <Card title="Docker Compose" icon="puzzle">
+    compose.yaml, multi-service apps, env/volumes/networks, up/down. [Compose →](/docker-from-zero-to-hero/en/compose/)
+  </Card>
+  <Card title="Optimization & Best Practices" icon="approve-check">
+    Multi-stage builds, cache ordering, small &amp; non-root images, HEALTHCHECK. [Optimize →](/docker-from-zero-to-hero/en/optimization/)
+  </Card>
+  <Card title="Registry, CI & Deploy" icon="setting">
+    Docker Hub, tag/push/pull, GitHub Actions, deploy basics. [Ship it →](/docker-from-zero-to-hero/en/registry-ci-deploy/)
+  </Card>
+</CardGrid>
+
+## How this course works
+
+<CardGrid>
+  <Card title="Real commands & files" icon="open-book">
+    Every lesson shows the actual Dockerfiles, CLI commands, and Compose files — with the output you should expect.
+  </Card>
+  <Card title="Hands-on in the browser" icon="rocket">
+    A one-click "Try in Play with Docker" button copies the snippet and opens a free, real Docker environment.
+  </Card>
+  <Card title="Quizzes & progress" icon="bars">
+    Check your understanding after each lesson; your progress is saved locally.
+  </Card>
+  <Card title="Bilingual" icon="translate">
+    Available in English and ไทย — switch anytime from the top bar.
+  </Card>
+</CardGrid>

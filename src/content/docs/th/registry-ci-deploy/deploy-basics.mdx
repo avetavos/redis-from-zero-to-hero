@@ -1,0 +1,211 @@
+---
+title: 'Deploy Basics'
+description: 'Deploy container ลงเซิร์ฟเวอร์: docker run พร้อม restart policy, rolling updates ด้วย docker compose, และการเก็บ secrets ออกจาก image'
+sidebar:
+  order: 5
+---
+
+import PlayWithDocker from '../../../../components/PlayWithDocker.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Pattern การ deploy แบบง่าย
+
+การ deploy ที่ตรงไปตรงมาที่สุด: SSH ไปยังเซิร์ฟเวอร์, pull image ใหม่, แล้วเริ่ม container
+
+```bash
+# บนเซิร์ฟเวอร์ deploy
+docker pull acme/api-server:2.1.0
+docker stop api-server || true
+docker rm   api-server || true
+docker run -d \
+  --name api-server \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  -e DATABASE_URL="$DATABASE_URL" \
+  acme/api-server:2.1.0
+```
+
+`|| true` ป้องกัน pipeline ล้มเหลวหาก container ยังไม่มีอยู่ใน deploy ครั้งแรก
+
+## Restart policies
+
+flag `--restart` บอก Docker ว่าต้องทำอะไรหาก container หยุดทำงาน:
+
+| Policy | พฤติกรรม |
+|---|---|
+| `no` (ค่าเริ่มต้น) | ไม่ restart เลย |
+| `on-failure` | Restart เฉพาะเมื่อ exit code ไม่ใช่ศูนย์ |
+| `always` | Restart เสมอ รวมถึงหลัง `docker restart` daemon |
+| `unless-stopped` | เหมือน `always` แต่ไม่ restart หากคุณ `docker stop` ด้วยตัวเอง |
+
+สำหรับ production service ใช้ `unless-stopped` มันรอดจากการ reboot host และการ restart daemon แต่เคารพการหยุดด้วยตั้งใจ
+
+## Rolling updates ด้วย Docker Compose
+
+หากเซิร์ฟเวอร์รัน service ด้วย Compose v2 อยู่แล้ว การอัปเดตทำได้ด้วยสองคำสั่ง:
+
+```bash
+# Pull image ที่อัปเดตทั้งหมดที่กำหนดใน compose.yml
+docker compose pull
+
+# Recreate container ที่มี image ใหม่กว่า
+docker compose up -d
+```
+
+Compose จะ recreate เฉพาะ service ที่ image digest เปลี่ยนแปลง โดยปล่อย service ที่ไม่เปลี่ยนแปลงให้รันต่อ หากคุณใช้ `compose.yml` ที่ pin image tag:
+
+```yaml
+services:
+  api:
+    image: acme/api-server:2.1.0
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+```
+
+เปลี่ยน tag ใน `compose.yml` แล้วรัน `docker compose up -d` — Compose จะตรวจพบการเปลี่ยน tag และ recreate service
+
+## Environment variables และ secrets บน host
+
+**ห้ามฝัง secrets ไว้ใน image** ให้ส่งผ่านตอน runtime แทน
+
+สามแนวทาง เรียงจากง่ายไปถึงปลอดภัยที่สุด:
+
+### 1. Environment variables ผ่าน `-e`
+
+```bash
+docker run -d \
+  -e DATABASE_URL="postgres://user:pass@db:5432/app" \
+  -e SECRET_KEY="abc123" \
+  acme/api-server:2.1.0
+```
+
+ง่าย แต่ค่าจะปรากฏใน `docker inspect` output และ shell history
+
+### 2. Environment file ผ่าน `--env-file`
+
+```bash
+# .env (ไม่ commit เข้า git)
+DATABASE_URL=postgres://user:pass@db:5432/app
+SECRET_KEY=abc123
+```
+
+```bash
+docker run -d --env-file .env acme/api-server:2.1.0
+```
+
+สะอาดกว่า `-e` flags เก็บไฟล์ `.env` ใน secrets manager หรือ vault บนเซิร์ฟเวอร์
+
+### 3. Docker secrets (Swarm / Compose)
+
+สำหรับทีมที่รัน Docker Swarm หรือ Compose กับ block `secrets:` นั้น secrets จะถูก mount เป็นไฟล์ที่ `/run/secrets/<name>` ภายใน container นี่คือตัวเลือกที่ปลอดภัยที่สุด — secrets ไม่ถูกเปิดเผยเป็น environment variables
+
+```yaml
+services:
+  api:
+    image: acme/api-server:2.1.0
+    secrets:
+      - db_password
+
+secrets:
+  db_password:
+    external: true
+```
+
+## ตรวจสอบการ deploy
+
+หลัง pull และ restart ยืนยันว่า version ใหม่กำลังรัน:
+
+```bash
+docker ps
+docker logs api-server --tail 20
+docker inspect api-server | grep Image
+```
+
+## ลองทำ: pull และรัน public image พร้อม restart policy
+
+Snippet ด้านล่างแสดงการ `docker pull`, `docker run -d --restart unless-stopped`, และการตรวจสอบ log — ใช้ public image ดังนั้นไม่ต้องใช้ credentials
+
+export const deployPullCode = `# Pull a versioned nginx image
+docker pull nginx:1.27-alpine
+
+# Run it detached with a restart policy
+docker run -d \\
+  --name web \\
+  --restart unless-stopped \\
+  -p 8080:80 \\
+  nginx:1.27-alpine
+
+# Verify it is running
+docker ps
+
+# Check logs
+docker logs web --tail 5
+
+# Simulate an update: pull a different tag and recreate
+docker pull nginx:1.26-alpine
+docker stop web && docker rm web
+docker run -d \\
+  --name web \\
+  --restart unless-stopped \\
+  -p 8080:80 \\
+  nginx:1.26-alpine
+
+docker ps`;
+
+<PlayWithDocker client:visible code={deployPullCode} label="Deploy with a restart policy" />
+
+<Callout title="Pull tag ใหม่แล้ว recreate; เก็บ secrets ใน env/secret stores ไม่ใช่ใน image">
+Pattern อัปเดตมาตรฐานคือ: pull tag ใหม่, หยุดและลบ container เก่า, เริ่ม container ใหม่ด้วย flag เดิม ใช้ `--restart unless-stopped` สำหรับ service ที่รันตลอดเวลา ห้ามฝัง credentials ไว้ใน image — ส่งผ่านตอน runtime ด้วย `--env-file` หรือ mount ผ่าน Docker secrets
+</Callout>
+
+export const quizDeployBasics = [
+  {
+    q: "Restart policy ใดที่ restart container เมื่อ host reboot แต่ไม่ restart หากคุณ docker stop ด้วยตั้งใจ?",
+    options: [
+      "always",
+      "on-failure",
+      "unless-stopped",
+      "no"
+    ],
+    answer: 2
+  },
+  {
+    q: "`docker compose up -d` ทำอะไรเมื่อคุณอัปเดต image tag ใน compose.yml?",
+    options: [
+      "Build image ใหม่จาก Dockerfile",
+      "Recreate เฉพาะ service ที่ image เปลี่ยนแปลง โดยปล่อยตัวอื่นรันต่อ",
+      "Restart service ทั้งหมดโดยไม่คำนึงถึงการเปลี่ยนแปลง",
+      "Pull image ทั้งหมดแต่ไม่ recreate container ใด ๆ"
+    ],
+    answer: 1
+  },
+  {
+    q: "เหตุใดจึงไม่ควรฝัง secrets ไว้ใน Docker image?",
+    options: [
+      "Docker image ไม่รองรับ environment variables",
+      "Image มักถูกแชร์, เก็บใน registry, และตรวจสอบได้ — secrets ใน layer เปิดเผยต่อทุกคนที่ pull image ได้",
+      "Container orchestrator ไม่สามารถอ่าน secrets จาก image",
+      "ขนาด image เพิ่มขึ้นอย่างมากเมื่อเพิ่ม secrets"
+    ],
+    answer: 1
+  },
+  {
+    q: "flag ใดทำให้ container ที่รัง survive การ restart ของ Docker daemon หรือ host?",
+    options: [
+      "--detach",
+      "--keep-alive",
+      "--restart unless-stopped",
+      "--persistent"
+    ],
+    answer: 2
+  }
+];
+
+<Quiz client:visible id="registry-ci-deploy/deploy-basics" questions={quizDeployBasics} />
+
+<ProgressTracker client:visible id="registry-ci-deploy/deploy-basics" />
