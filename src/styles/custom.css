@@ -15,8 +15,10 @@
 .tr__code { margin:0; border:0; border-radius:0; white-space:pre; overflow:auto; }
 .tr__btn { display:block; width:100%; cursor:pointer; font-size:.82rem; font-weight:600; border:0; border-top:1px solid var(--sl-color-gray-5); padding:.5rem .8rem; background:var(--sl-color-accent); color:#fff; }
 .tr__btn:hover { filter:brightness(1.08); }
-.rr { margin:1.25rem 0; border:1px solid var(--sl-color-accent); border-radius:10px; padding:1rem 1.1rem; background:var(--sl-color-accent-low); }
+.rr { margin:1.25rem 0; border:1px solid var(--sl-color-accent); border-radius:10px; padding:1rem 1.1rem; background:var(--sl-color-accent-low); color:var(--sl-color-accent-high); }
 .rr__label { font-weight:800; margin:0 0 .25rem; color:var(--sl-color-accent-high); font-size:1.05rem; }
-.rr__hint { margin:0 0 .5rem; font-size:.9rem; opacity:.85; }
-.rr__code { margin:0 0 .5rem; white-space:pre; overflow:auto; }
-.rr__note { margin:0; font-size:.82rem; opacity:.8; }
+.rr__hint { margin:0 0 .5rem; font-size:.9rem; color:var(--sl-color-accent-high); opacity:.95; }
+.rr__code { margin:0 0 .5rem; white-space:pre; overflow:auto; background:transparent; }
+.rr__code, .rr__code code { color:var(--sl-color-accent-high); background:transparent; }
+.rr__note { margin:0; font-size:.82rem; color:var(--sl-color-accent-high); opacity:.95; }
+.rr__note a { color:#fff; text-decoration:underline; }
