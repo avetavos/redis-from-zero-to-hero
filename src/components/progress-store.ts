@@ -1,4 +1,4 @@
-const KEY = 'dz2h:v1';
+const KEY = 'redisz2h:v1';
 type State = { completed: string[]; quizzes: Record<string, { correct: number; total: number }> };
 
 function read(): State {
