@@ -1,0 +1,213 @@
+---
+title: SCAN & Key Operations
+description: 'EXISTS, DEL, TYPE, RENAME, and safe keyspace iteration with SCAN — plus why KEYS is dangerous in production.'
+sidebar:
+  order: 5
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Core key operations
+
+These commands operate on any key regardless of its type.
+
+### EXISTS
+
+Returns `1` if the key exists, `0` if it does not. You can check multiple keys at once — the return value is the count of keys that exist.
+
+```text
+127.0.0.1:6379> SET user:1 "Ada"
+OK
+127.0.0.1:6379> EXISTS user:1
+(integer) 1
+127.0.0.1:6379> EXISTS user:99
+(integer) 0
+127.0.0.1:6379> EXISTS user:1 user:99 user:1
+(integer) 2
+```
+
+### DEL
+
+Deletes one or more keys. Returns the count of keys that were actually deleted (keys that did not exist are not counted).
+
+```text
+127.0.0.1:6379> SET a "1"
+OK
+127.0.0.1:6379> SET b "2"
+OK
+127.0.0.1:6379> DEL a b nonexistent
+(integer) 2
+127.0.0.1:6379> EXISTS a
+(integer) 0
+```
+
+### TYPE
+
+Returns the data type of the value stored at a key: `string`, `list`, `set`, `zset`, `hash`, or `stream`.
+
+```text
+127.0.0.1:6379> SET mystr "hello"
+OK
+127.0.0.1:6379> TYPE mystr
+string
+127.0.0.1:6379> TYPE nonexistent:key
+none
+```
+
+### RENAME
+
+Renames a key. If the destination key already exists, it is overwritten. Use `RENAMENX` to rename only if the destination does not exist.
+
+```text
+127.0.0.1:6379> SET old:key "value"
+OK
+127.0.0.1:6379> RENAME old:key new:key
+OK
+127.0.0.1:6379> EXISTS old:key
+(integer) 0
+127.0.0.1:6379> GET new:key
+"value"
+```
+
+export const keyOpsCode = `SET user:1 "Ada"
+EXISTS user:1
+EXISTS user:99
+SET a "1"
+SET b "2"
+DEL a b nonexistent
+SET mystr "hello"
+TYPE mystr
+SET old:key "value"
+RENAME old:key new:key
+GET new:key`;
+
+<TryRedis client:visible code={keyOpsCode} />
+
+## KEYS — and why you must not use it in production
+
+`KEYS pattern` returns all keys matching a glob-style pattern. It is very convenient for development and debugging.
+
+```text
+127.0.0.1:6379> MSET user:1 "Ada" user:2 "Bob" session:abc "tok" session:xyz "tok2"
+OK
+127.0.0.1:6379> KEYS user:*
+1) "user:2"
+2) "user:1"
+127.0.0.1:6379> KEYS *
+1) "user:2"
+2) "user:1"
+3) "session:abc"
+4) "session:xyz"
+```
+
+`KEYS` is a **blocking, O(N) scan** of the entire keyspace. On a Redis server with millions of keys it can take seconds, blocking every other client for the duration. Never run it against a production server — use `SCAN` instead.
+
+## SCAN — safe keyspace iteration
+
+`SCAN` is a cursor-based iterator. Each call processes a small batch of keys and returns:
+1. A new cursor (to pass to the next call)
+2. A list of keys from this batch
+
+When the returned cursor is `0`, the iteration is complete.
+
+```text
+127.0.0.1:6379> MSET k1 a k2 b k3 c k4 d k5 e k6 f k7 g k8 h k9 i k10 j
+OK
+127.0.0.1:6379> SCAN 0 MATCH k* COUNT 3
+1) "7"
+2) 1) "k9"
+   2) "k3"
+   3) "k1"
+127.0.0.1:6379> SCAN 7 MATCH k* COUNT 3
+1) "4"
+2) 1) "k8"
+   2) "k2"
+127.0.0.1:6379> SCAN 4 MATCH k* COUNT 3
+1) "0"
+2) 1) "k10"
+   2) "k4"
+   3) "k7"
+   4) "k5"
+   5) "k6"
+```
+
+`COUNT` is a **hint**, not a hard limit — Redis may return more or fewer keys per call. The iteration always completes when the cursor returns to `0`.
+
+export const scanCode = `MSET k1 a k2 b k3 c k4 d k5 e k6 f k7 g k8 h k9 i k10 j
+SCAN 0 MATCH k* COUNT 3
+SCAN 0 MATCH k* COUNT 100`;
+
+<TryRedis client:visible code={scanCode} />
+
+## SCAN options
+
+| Option | Description |
+|--------|-------------|
+| `MATCH pattern` | Filter results by glob pattern (filtering happens after sampling) |
+| `COUNT hint` | Suggest how many items to sample per call (default 10) |
+| `TYPE type` | Only return keys of a specific type (Redis 6.0+) |
+
+A practical full-scan loop in a script looks like:
+
+```text
+127.0.0.1:6379> SCAN 0 MATCH session:* COUNT 100
+1) "42"
+2) 1) "session:abc"
+127.0.0.1:6379> SCAN 42 MATCH session:* COUNT 100
+1) "0"
+2) 1) "session:xyz"
+```
+
+Keep calling `SCAN` with the returned cursor until the cursor comes back as `0`. Collect results across all iterations.
+
+export const fullScanCode = `SCAN 0 MATCH session:* COUNT 100`;
+
+<TryRedis client:visible code={fullScanCode} />
+
+<Callout title="Never run KEYS * on a production server — use SCAN">
+
+`KEYS *` blocks the entire Redis server until it finishes scanning every key. On a server with 10 million keys this can block your application for several seconds, causing timeouts and cascading failures across all services sharing that Redis instance.
+
+`SCAN` spreads the work across many small calls. Each call returns quickly; your application stays responsive. The trade-off is that you may see a key appear, then be deleted before you process it — build your consumers to handle that gracefully.
+
+</Callout>
+
+export const quizScanKeys = [
+  {
+    q: "What does SCAN return when the full iteration is complete?",
+    options: [
+      "An empty list",
+      "A cursor value of 0",
+      "The string 'DONE'",
+      "A cursor value of -1",
+    ],
+    answer: 1,
+  },
+  {
+    q: "Why is KEYS dangerous on a production Redis server?",
+    options: [
+      "It permanently deletes matching keys",
+      "It blocks the server for the duration of the full keyspace scan",
+      "It requires admin privileges",
+      "It only works on keyspaces smaller than 1000 keys",
+    ],
+    answer: 1,
+  },
+  {
+    q: "What does EXISTS user:1 user:1 user:2 return if user:1 exists and user:2 does not?",
+    options: ["1", "2", "3", "An error"],
+    answer: 1,
+  },
+  {
+    q: "What does TYPE return for a key that does not exist?",
+    options: ["nil", "none", "0", "string"],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="keys-strings/scan-keys" questions={quizScanKeys} />
+
+<ProgressTracker client:visible id="keys-strings/scan-keys" />

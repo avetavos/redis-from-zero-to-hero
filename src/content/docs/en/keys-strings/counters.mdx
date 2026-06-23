@@ -1,0 +1,175 @@
+---
+title: Counters
+description: 'Atomic increment and decrement with INCR, INCRBY, and INCRBYFLOAT — safe for concurrent use.'
+sidebar:
+  order: 4
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## Integers stored as strings
+
+Redis stores everything as a string, but it recognises when a string is a valid integer (or float) and lets you do arithmetic on it with dedicated commands. The key insight is that these operations are **atomic** — Redis executes each one as a single, uninterruptible step.
+
+## INCR and DECR
+
+`INCR key` increments the integer value by 1. `DECR key` decrements by 1. If the key does not exist, Redis treats the missing value as `0` before applying the operation.
+
+```text
+127.0.0.1:6379> SET pageviews:home 0
+OK
+127.0.0.1:6379> INCR pageviews:home
+(integer) 1
+127.0.0.1:6379> INCR pageviews:home
+(integer) 2
+127.0.0.1:6379> INCR pageviews:home
+(integer) 3
+127.0.0.1:6379> DECR pageviews:home
+(integer) 2
+```
+
+export const incrCode = `SET pageviews:home 0
+INCR pageviews:home
+INCR pageviews:home
+INCR pageviews:home
+DECR pageviews:home`;
+
+<TryRedis client:visible code={incrCode} />
+
+## INCRBY and DECRBY
+
+When you need to add or subtract values other than 1, use `INCRBY` and `DECRBY`:
+
+```text
+127.0.0.1:6379> SET score:player1 100
+OK
+127.0.0.1:6379> INCRBY score:player1 50
+(integer) 150
+127.0.0.1:6379> DECRBY score:player1 30
+(integer) 120
+127.0.0.1:6379> INCRBY score:player1 -10
+(integer) 110
+```
+
+export const incrbyCode = `SET score:player1 100
+INCRBY score:player1 50
+DECRBY score:player1 30
+INCRBY score:player1 -10`;
+
+<TryRedis client:visible code={incrbyCode} />
+
+## INCRBYFLOAT
+
+For floating-point arithmetic (prices, averages, sensor data), use `INCRBYFLOAT`. There is no `DECRBYFLOAT` — just pass a negative delta.
+
+```text
+127.0.0.1:6379> SET temperature 22.5
+OK
+127.0.0.1:6379> INCRBYFLOAT temperature 1.3
+"23.8"
+127.0.0.1:6379> INCRBYFLOAT temperature -5.0
+"18.8"
+127.0.0.1:6379> GET temperature
+"18.8"
+```
+
+export const floatCode = `SET temperature 22.5
+INCRBYFLOAT temperature 1.3
+INCRBYFLOAT temperature -5.0
+GET temperature`;
+
+<TryRedis client:visible code={floatCode} />
+
+## Real-world pattern: page-view counter
+
+Because `INCR` initialises a missing key to 0 before incrementing, you do not need a `SET 0` first. Combine with `EXPIRE` for a rolling-window counter:
+
+```text
+127.0.0.1:6379> INCR views:article:42
+(integer) 1
+127.0.0.1:6379> INCR views:article:42
+(integer) 2
+127.0.0.1:6379> INCR views:article:42
+(integer) 3
+127.0.0.1:6379> GET views:article:42
+"3"
+```
+
+export const pageviewCode = `INCR views:article:42
+INCR views:article:42
+INCR views:article:42
+GET views:article:42`;
+
+<TryRedis client:visible code={pageviewCode} />
+
+## Real-world pattern: rate limiter
+
+Track how many requests an IP has made within a window. Use `INCR` plus `EXPIRE` set only on the first increment:
+
+```text
+127.0.0.1:6379> INCR ratelimit:ip:203.0.113.5
+(integer) 1
+127.0.0.1:6379> EXPIRE ratelimit:ip:203.0.113.5 60
+(integer) 1
+127.0.0.1:6379> INCR ratelimit:ip:203.0.113.5
+(integer) 2
+127.0.0.1:6379> TTL ratelimit:ip:203.0.113.5
+(integer) 57
+```
+
+In application code you check: if the result of `INCR` exceeds your limit (e.g., 100), reject the request. The key auto-deletes after 60 seconds, resetting the window.
+
+export const ratelimitCode = `INCR ratelimit:ip:203.0.113.5
+EXPIRE ratelimit:ip:203.0.113.5 60
+INCR ratelimit:ip:203.0.113.5
+TTL ratelimit:ip:203.0.113.5`;
+
+<TryRedis client:visible code={ratelimitCode} />
+
+<Callout title="INCR is atomic — no read-modify-write race">
+
+In a multi-threaded application, a naive counter looks like: read the value, add 1, write it back. Two threads doing this simultaneously can both read the same value and produce the wrong total (a classic race condition).
+
+`INCR` sidesteps this entirely. Redis is single-threaded in its command execution, so `INCR` is an indivisible operation — no other command can interleave between the read and the write. Ten thousand concurrent requests all calling `INCR pageviews` will produce exactly 10,000 with no losses.
+
+</Callout>
+
+export const quizCounters = [
+  {
+    q: "What value does INCR use when the key does not exist yet?",
+    options: ["1", "0", "nil", "It returns an error"],
+    answer: 1,
+  },
+  {
+    q: "Which command increments a floating-point value?",
+    options: ["INCR", "INCRBY", "INCRBYFLOAT", "INCRFLOAT"],
+    answer: 2,
+  },
+  {
+    q: "Why is INCR safe for concurrent counters?",
+    options: [
+      "It uses a client-side lock",
+      "It is an atomic operation executed as a single step by Redis",
+      "It queues requests and processes them serially in the client",
+      "It uses Redis transactions (MULTI/EXEC) internally",
+    ],
+    answer: 1,
+  },
+  {
+    q: "How do you subtract 5 using INCRBYFLOAT?",
+    options: [
+      "DECRBYFLOAT key 5",
+      "INCRBYFLOAT key -5",
+      "INCRBY key -5.0",
+      "You cannot subtract with INCRBYFLOAT",
+    ],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="keys-strings/counters" questions={quizCounters} />
+
+<ProgressTracker client:visible id="keys-strings/counters" />

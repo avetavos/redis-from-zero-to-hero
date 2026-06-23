@@ -1,5 +1,90 @@
 ---
-title: Keys & Strings
-description: The string type, keys, expiration, and counters.
+title: 'Keys & Strings: Overview'
+description: 'Every Redis value lives under a key. Strings are the simplest type — and the foundation for everything else.'
+sidebar:
+  order: 1
 ---
-Coming soon.
+
+import RunRedis from '../../../../components/RunRedis.astro';
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+<RunRedis />
+
+## What is a Redis key?
+
+Redis is a key–value server. Every piece of data you store — a counter, a cached page, a session token — lives under a **key**. Keys are binary-safe strings up to 512 MB, though in practice you should keep them short and meaningful.
+
+A Redis value always belongs to one of the built-in **types**: String, List, Hash, Set, Sorted Set, Stream, and more. The **String** type is the simplest: a key maps directly to a single value, which can be text, a number, or raw binary.
+
+```text
+127.0.0.1:6379> SET user:1 "Ada"
+OK
+127.0.0.1:6379> GET user:1
+"Ada"
+```
+
+## What this module covers
+
+| Lesson | Topic |
+|--------|-------|
+| Keys & Strings: Overview | This page — types, keys, and your first SET/GET |
+| SET & GET | All SET options, MSET/MGET, APPEND, STRLEN |
+| Expiration & TTL | EXPIRE, TTL, PERSIST, lazy vs active expiry |
+| Counters | INCR/DECR, atomic increments, rate counters |
+| SCAN & Key Ops | EXISTS, DEL, TYPE, RENAME, KEYS vs SCAN |
+
+## Your first SET and GET
+
+Let's store and retrieve a value. Paste these commands into the `redis-cli` you opened above:
+
+```text
+127.0.0.1:6379> SET greeting "Hello, Redis!"
+OK
+127.0.0.1:6379> GET greeting
+"Hello, Redis!"
+```
+
+export const firstCode = `SET greeting "Hello, Redis!"
+GET greeting`;
+
+<TryRedis client:visible code={firstCode} />
+
+<Callout title="Keys are binary-safe — use a naming convention">
+
+Keys can contain any bytes, including spaces and special characters, but a consistent naming scheme makes your keyspace readable and avoids collisions.
+
+The most common convention is `object:id` or `object:id:field`, for example:
+
+- `user:42` — a user record
+- `user:42:email` — a specific field of that user
+- `session:abc123` — a session token
+- `ratelimit:ip:203.0.113.5` — a rate-limit counter per IP
+
+Pick one convention and stick to it across your application.
+
+</Callout>
+
+export const quizIndex = [
+  {
+    q: "What does the GET command return if the key does not exist?",
+    options: ["An empty string", "nil", "0", "An error"],
+    answer: 1,
+  },
+  {
+    q: "Which of the following is a valid Redis key?",
+    options: ["user:42", "user 42", "user/42", "All of the above"],
+    answer: 3,
+  },
+  {
+    q: "What is the maximum size of a Redis key?",
+    options: ["64 bytes", "1 MB", "512 MB", "Unlimited"],
+    answer: 2,
+  },
+];
+
+<Quiz client:visible id="keys-strings/index" questions={quizIndex} />
+
+<ProgressTracker client:visible id="keys-strings/index" />

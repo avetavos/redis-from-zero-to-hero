@@ -1,0 +1,182 @@
+---
+title: SET & GET
+description: 'Storing and retrieving strings: SET options, MSET/MGET, APPEND, and STRLEN.'
+sidebar:
+  order: 2
+---
+
+import TryRedis from '../../../../components/TryRedis.tsx';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## SET and GET — the core of Redis strings
+
+`SET key value` stores a string. `GET key` retrieves it. If the key already exists, `SET` **overwrites** it unconditionally (unless you add a condition flag).
+
+```text
+127.0.0.1:6379> SET city "Bangkok"
+OK
+127.0.0.1:6379> GET city
+"Bangkok"
+127.0.0.1:6379> SET city "Chiang Mai"
+OK
+127.0.0.1:6379> GET city
+"Chiang Mai"
+```
+
+## SET options
+
+Redis 7 `SET` supports several options in one command:
+
+| Option | Meaning |
+|--------|---------|
+| `EX seconds` | Set expiration in seconds |
+| `PX milliseconds` | Set expiration in milliseconds |
+| `EXAT unix-time-seconds` | Expire at a Unix timestamp (seconds) |
+| `PXAT unix-time-ms` | Expire at a Unix timestamp (milliseconds) |
+| `NX` | Only set if the key does **not** exist |
+| `XX` | Only set if the key **does** exist |
+| `GET` | Return the old value before overwriting |
+| `KEEPTTL` | Retain the existing TTL instead of resetting it |
+
+```text
+127.0.0.1:6379> SET token "abc123" EX 60
+OK
+127.0.0.1:6379> TTL token
+(integer) 59
+127.0.0.1:6379> SET counter 0 NX
+OK
+127.0.0.1:6379> SET counter 99 NX
+(nil)
+127.0.0.1:6379> GET counter
+"0"
+127.0.0.1:6379> SET city "Phuket" GET
+"Chiang Mai"
+127.0.0.1:6379> GET city
+"Phuket"
+```
+
+export const setOptionsCode = `SET token "abc123" EX 60
+TTL token
+SET counter 0 NX
+SET counter 99 NX
+GET counter
+SET city "Phuket" GET
+GET city`;
+
+<TryRedis client:visible code={setOptionsCode} />
+
+## SETEX and SETNX
+
+These are older convenience aliases — `SET` with `EX` or `NX` is preferred in Redis 7, but you will still see them in legacy code:
+
+```text
+127.0.0.1:6379> SETEX session:user1 3600 "token-xyz"
+OK
+127.0.0.1:6379> TTL session:user1
+(integer) 3599
+127.0.0.1:6379> SETNX lock:job1 "worker-A"
+(integer) 1
+127.0.0.1:6379> SETNX lock:job1 "worker-B"
+(integer) 0
+127.0.0.1:6379> GET lock:job1
+"worker-A"
+```
+
+export const legacyCode = `SETEX session:user1 3600 "token-xyz"
+TTL session:user1
+SETNX lock:job1 "worker-A"
+SETNX lock:job1 "worker-B"
+GET lock:job1`;
+
+<TryRedis client:visible code={legacyCode} />
+
+## MSET and MGET — batch operations
+
+Set or get many keys in a single round-trip. This is significantly faster than individual commands when you need multiple keys at once.
+
+```text
+127.0.0.1:6379> MSET user:1:name "Ada" user:1:lang "Python" user:2:name "Bob" user:2:lang "Go"
+OK
+127.0.0.1:6379> MGET user:1:name user:1:lang user:2:name user:2:lang
+1) "Ada"
+2) "Python"
+3) "Bob"
+4) "Go"
+127.0.0.1:6379> MGET user:1:name user:99:name
+1) "Ada"
+2) (nil)
+```
+
+export const msetCode = `MSET user:1:name "Ada" user:1:lang "Python" user:2:name "Bob" user:2:lang "Go"
+MGET user:1:name user:1:lang user:2:name user:2:lang
+MGET user:1:name user:99:name`;
+
+<TryRedis client:visible code={msetCode} />
+
+## APPEND and STRLEN
+
+`APPEND` adds to the end of an existing string value (or creates the key if absent). `STRLEN` returns the byte length of the value.
+
+```text
+127.0.0.1:6379> SET log "2024-01-01 boot"
+OK
+127.0.0.1:6379> APPEND log " | 2024-01-01 ready"
+(integer) 34
+127.0.0.1:6379> GET log
+"2024-01-01 boot | 2024-01-01 ready"
+127.0.0.1:6379> STRLEN log
+(integer) 34
+```
+
+export const appendCode = `SET log "2024-01-01 boot"
+APPEND log " | 2024-01-01 ready"
+GET log
+STRLEN log`;
+
+<TryRedis client:visible code={appendCode} />
+
+<Callout title="SET key val NX — the basis for distributed locks">
+
+`SET key value NX` sets the key **only if it does not already exist**. It returns `OK` on success and `(nil)` if the key was already there. This atomicity makes it the building block for simple distributed locks:
+
+```text
+SET lock:resource "worker-id" NX EX 30
+```
+
+If two workers race, only one gets `OK`. The `EX 30` ensures the lock auto-releases after 30 seconds even if the holder crashes.
+
+</Callout>
+
+export const quizSetGet = [
+  {
+    q: "What does `SET key val NX` return when the key already exists?",
+    options: ["OK", "(nil)", "An error", "The existing value"],
+    answer: 1,
+  },
+  {
+    q: "Which command sets multiple keys in one round-trip?",
+    options: ["MULTISET", "MSET", "SETALL", "BATCH"],
+    answer: 1,
+  },
+  {
+    q: "What does `SET key val GET` do?",
+    options: [
+      "Returns the key before setting it",
+      "Returns the new value after setting",
+      "Returns the old value before overwriting",
+      "Only works if the key exists",
+    ],
+    answer: 2,
+  },
+  {
+    q: "STRLEN returns the length of a string in what unit?",
+    options: ["Characters", "Bytes", "Words", "UTF-16 code units"],
+    answer: 1,
+  },
+];
+
+<Quiz client:visible id="keys-strings/set-get" questions={quizSetGet} />
+
+<ProgressTracker client:visible id="keys-strings/set-get" />
