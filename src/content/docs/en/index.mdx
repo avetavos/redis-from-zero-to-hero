@@ -1,6 +1,66 @@
 ---
 title: Redis — From Zero to Hero
-description: Learn Redis from first principles to real-world patterns.
+description: Learn Redis from first principles to real-world patterns — data types, persistence, pub/sub, and caching/rate-limiting/locks.
 template: splash
+hero:
+  tagline: A standalone, beginner→advanced course on Redis. Start a real Redis in seconds with the gifted Docker script below, then learn every data type and pattern hands-on with redis-cli.
+  actions:
+    - text: Start here
+      link: /redis-from-zero-to-hero/en/intro-setup/
+      icon: right-arrow
+      variant: primary
+    - text: Jump to Keys & Strings
+      link: /redis-from-zero-to-hero/en/keys-strings/
+      icon: open-book
 ---
-Coming soon.
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+import RunRedis from '../../../components/RunRedis.astro';
+
+<RunRedis />
+
+## What you'll learn
+
+<CardGrid>
+  <Card title="Intro & Setup" icon="rocket">
+    What Redis is, the gifted Docker setup, redis-cli, first commands. [Start →](/redis-from-zero-to-hero/en/intro-setup/)
+  </Card>
+  <Card title="Keys & Strings" icon="seti:redis">
+    SET/GET, expiration &amp; TTL, atomic counters, SCAN vs KEYS. [Learn →](/redis-from-zero-to-hero/en/keys-strings/)
+  </Card>
+  <Card title="Lists & Hashes" icon="list-format">
+    Lists as queues, hashes as objects. [Explore →](/redis-from-zero-to-hero/en/lists-hashes/)
+  </Card>
+  <Card title="Sets & Sorted Sets" icon="approve-check">
+    Uniqueness, set algebra, and leaderboards with sorted sets. [Rank →](/redis-from-zero-to-hero/en/sets-sorted-sets/)
+  </Card>
+  <Card title="Pub/Sub & Streams" icon="random">
+    Fire-and-forget messaging vs durable streams &amp; consumer groups. [Message →](/redis-from-zero-to-hero/en/pubsub-streams/)
+  </Card>
+  <Card title="Persistence & Expiration" icon="document">
+    RDB vs AOF, durability, eviction policies, keyspace notifications. [Persist →](/redis-from-zero-to-hero/en/persistence-expiration/)
+  </Card>
+  <Card title="Patterns & Use Cases" icon="puzzle">
+    Caching, rate limiting, sessions, distributed locks. [Apply →](/redis-from-zero-to-hero/en/patterns/)
+  </Card>
+  <Card title="Transactions, Lua & Tooling" icon="setting">
+    MULTI/EXEC/WATCH, pipelines, Lua scripting, monitoring. [Master →](/redis-from-zero-to-hero/en/transactions-scripting-tooling/)
+  </Card>
+</CardGrid>
+
+## How this course works
+
+<CardGrid>
+  <Card title="Gifted setup" icon="rocket">
+    One copy-paste Docker command starts Redis locally — you're running it before the first lesson.
+  </Card>
+  <Card title="Hands-on with redis-cli" icon="open-book">
+    Every lesson shows the commands and expected replies, with a one-click copy to paste into your CLI.
+  </Card>
+  <Card title="Quizzes & progress" icon="bars">
+    Check your understanding after each lesson; your progress is saved locally.
+  </Card>
+  <Card title="Bilingual" icon="translate">
+    Available in English and ไทย — switch anytime from the top bar.
+  </Card>
+</CardGrid>

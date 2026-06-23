@@ -1,6 +1,66 @@
 ---
 title: Redis — From Zero to Hero
-description: Learn Redis from first principles to real-world patterns.
+description: เรียน Redis ตั้งแต่พื้นฐานจนถึงแพตเทิร์นใช้งานจริง — data type, persistence, pub/sub และ caching/rate-limiting/locks
 template: splash
+hero:
+  tagline: คอร์ส Redis แบบ standalone ตั้งแต่ผู้เริ่มต้นจนถึงขั้นสูง เริ่มรัน Redis จริงได้ในไม่กี่วินาทีด้วยสคริปต์ Docker ที่แจกให้ด้านล่าง แล้วเรียนทุก data type และแพตเทิร์นแบบลงมือทำด้วย redis-cli
+  actions:
+    - text: เริ่มที่นี่
+      link: /redis-from-zero-to-hero/th/intro-setup/
+      icon: right-arrow
+      variant: primary
+    - text: ข้ามไปที่ Keys & Strings
+      link: /redis-from-zero-to-hero/th/keys-strings/
+      icon: open-book
 ---
-Coming soon.
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+import RunRedis from '../../../components/RunRedis.astro';
+
+<RunRedis />
+
+## สิ่งที่คุณจะได้เรียน
+
+<CardGrid>
+  <Card title="Intro & Setup" icon="rocket">
+    Redis คืออะไร, สคริปต์ Docker ที่แจกให้, redis-cli, คำสั่งแรก [เริ่ม →](/redis-from-zero-to-hero/th/intro-setup/)
+  </Card>
+  <Card title="Keys & Strings" icon="seti:redis">
+    SET/GET, expiration &amp; TTL, counter แบบ atomic, SCAN เทียบ KEYS [เรียน →](/redis-from-zero-to-hero/th/keys-strings/)
+  </Card>
+  <Card title="Lists & Hashes" icon="list-format">
+    List เป็นคิว, Hash เป็นอ็อบเจ็กต์ [สำรวจ →](/redis-from-zero-to-hero/th/lists-hashes/)
+  </Card>
+  <Card title="Sets & Sorted Sets" icon="approve-check">
+    ความไม่ซ้ำ, set algebra และ leaderboard ด้วย sorted set [จัดอันดับ →](/redis-from-zero-to-hero/th/sets-sorted-sets/)
+  </Card>
+  <Card title="Pub/Sub & Streams" icon="random">
+    messaging แบบ fire-and-forget เทียบ stream ที่เก็บถาวร &amp; consumer group [ส่งข้อความ →](/redis-from-zero-to-hero/th/pubsub-streams/)
+  </Card>
+  <Card title="Persistence & Expiration" icon="document">
+    RDB เทียบ AOF, durability, eviction policy, keyspace notification [คงข้อมูล →](/redis-from-zero-to-hero/th/persistence-expiration/)
+  </Card>
+  <Card title="Patterns & Use Cases" icon="puzzle">
+    caching, rate limiting, session, distributed lock [นำไปใช้ →](/redis-from-zero-to-hero/th/patterns/)
+  </Card>
+  <Card title="Transactions, Lua & Tooling" icon="setting">
+    MULTI/EXEC/WATCH, pipeline, Lua scripting, การมอนิเตอร์ [เชี่ยวชาญ →](/redis-from-zero-to-hero/th/transactions-scripting-tooling/)
+  </Card>
+</CardGrid>
+
+## คอร์สนี้ทำงานยังไง
+
+<CardGrid>
+  <Card title="แจกสคริปต์ตั้งค่า" icon="rocket">
+    คำสั่ง Docker คัดลอกวางครั้งเดียวเพื่อสตาร์ต Redis ในเครื่อง — คุณรันมันได้ก่อนบทเรียนแรก
+  </Card>
+  <Card title="ลงมือทำด้วย redis-cli" icon="open-book">
+    ทุกบทแสดงคำสั่งและผลลัพธ์ที่คาดหวัง พร้อมปุ่มคัดลอกคลิกเดียวเพื่อวางลงใน CLI ของคุณ
+  </Card>
+  <Card title="แบบทดสอบ & ความคืบหน้า" icon="bars">
+    ทบทวนความเข้าใจหลังแต่ละบท ความคืบหน้าถูกบันทึกไว้ในเครื่อง
+  </Card>
+  <Card title="สองภาษา" icon="translate">
+    มีทั้งภาษาอังกฤษและไทย — สลับได้ตลอดจากแถบด้านบน
+  </Card>
+</CardGrid>
