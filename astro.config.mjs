@@ -13,6 +13,9 @@ export default defineConfig({
   output: 'static',
   integrations: [starlight({
       title: 'Redis — From Zero to Hero',
+      head: [
+        { tag: 'script', attrs: { type: 'module', src: '/redis-from-zero-to-hero/enhance.js' } },
+      ],
       defaultLocale: 'en',
       locales: {
         en: { label: 'English', lang: 'en' },

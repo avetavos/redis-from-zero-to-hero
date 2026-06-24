@@ -9,16 +9,21 @@ import TryRedis from '../../../../components/TryRedis.tsx';
 import Callout from '../../../../components/Callout.astro';
 import Quiz from '../../../../components/Quiz.tsx';
 import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+import Mermaid from '../../../../components/Mermaid.astro';
+
+export const cacheAsideDiagram = `flowchart TD
+  A["App needs cache:user:42"] --> B["GET cache:user:42"]
+  B --> C{"Cache hit?"}
+  C -->|"Yes"| D["Return cached value"]
+  C -->|"No (nil)"| E["Query DB"]
+  E --> F["SET cache:user:42 result EX 300"]
+  F --> G["Return value"]`;
 
 pattern **cache-aside** (หรือที่รู้จักในชื่อ *lazy loading*) ให้แอปพลิเคชันของคุณควบคุมว่าอะไรจะเข้าไปในแคชและเมื่อไหร่ Redis อยู่หน้าฐานข้อมูลของคุณ: ถ้าข้อมูลอยู่ที่นั่น ก็ข้ามฐานข้อมูลไปได้เลย ถ้าไม่มี ก็ดึงจาก DB แล้วนำมาเก็บในแคชสำหรับครั้งถัดไป
 
 ## วิธีการทำงานของ Cache-aside
 
-```text
-1. GET cache:user:42
-2. if nil → query DB → SET cache:user:42 <result> EX 300
-3. else → return cached value
-```
+<Mermaid code={cacheAsideDiagram} title="Cache-aside read flow: check Redis, fall back to the DB on a miss, then write back with a TTL" />
 
 แอปพลิเคชันเป็นผู้ควบคุมทั้งการอ่านและการเขียนลงในแคช ไม่มีการโหลดข้อมูลล่วงหน้า รายการถูกสร้างขึ้นตามความต้องการและหมดอายุโดยอัตโนมัติผ่าน TTL
 

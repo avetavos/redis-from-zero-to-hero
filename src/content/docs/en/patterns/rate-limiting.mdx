@@ -9,6 +9,16 @@ import TryRedis from '../../../../components/TryRedis.tsx';
 import Callout from '../../../../components/Callout.astro';
 import Quiz from '../../../../components/Quiz.tsx';
 import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+import Mermaid from '../../../../components/Mermaid.astro';
+
+export const rateLimitFlowDiagram = `flowchart TD
+  A["Incoming request"] --> B["count = INCR rate:\${userId}:window"]
+  B --> C{"count == 1?"}
+  C -->|"Yes (first hit)"| D["EXPIRE rate:\${userId}:window 60"]
+  C -->|"No"| E{"count > 100?"}
+  D --> E
+  E -->|"Yes"| F["Reject (HTTP 429)"]
+  E -->|"No"| G["Allow request"]`;
 
 ## What is a rate limiter?
 
@@ -18,12 +28,7 @@ A rate limiter caps how many requests a client can make in a given time window. 
 
 For each incoming request, increment a counter keyed by user and time window. On the very first hit — when the counter equals 1 — set an expiry on that key. If the counter exceeds the limit, reject the request.
 
-```text
-1. count = INCR rate:${userId}:window
-2. if count == 1 → EXPIRE rate:${userId}:window 60
-3. if count > 100 → reject (HTTP 429)
-4. else → allow
-```
+<Mermaid code={rateLimitFlowDiagram} title="Fixed-window rate limiter: INCR the counter, set EXPIRE on the first hit, reject once the limit is exceeded" />
 
 The key encodes the window so each new window gets a fresh counter automatically.
 

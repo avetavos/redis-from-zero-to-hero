@@ -9,16 +9,21 @@ import TryRedis from '../../../../components/TryRedis.tsx';
 import Callout from '../../../../components/Callout.astro';
 import Quiz from '../../../../components/Quiz.tsx';
 import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+import Mermaid from '../../../../components/Mermaid.astro';
+
+export const cacheAsideDiagram = `flowchart TD
+  A["App needs cache:user:42"] --> B["GET cache:user:42"]
+  B --> C{"Cache hit?"}
+  C -->|"Yes"| D["Return cached value"]
+  C -->|"No (nil)"| E["Query DB"]
+  E --> F["SET cache:user:42 result EX 300"]
+  F --> G["Return value"]`;
 
 The **cache-aside** pattern (also called *lazy loading*) keeps your application in control of what goes into the cache and when. Redis sits in front of your database: if the data is there, great — skip the DB entirely. If not, fetch it from the DB and populate the cache for next time.
 
 ## How Cache-aside Works
 
-```text
-1. GET cache:user:42
-2. if nil → query DB → SET cache:user:42 <result> EX 300
-3. else → return cached value
-```
+<Mermaid code={cacheAsideDiagram} title="Cache-aside read flow: check Redis, fall back to the DB on a miss, then write back with a TTL" />
 
 The application owns both reads and writes to the cache. Nothing is preloaded; entries are created on demand and expire automatically via the TTL.
 
