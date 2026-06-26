@@ -15,6 +15,15 @@ export default defineConfig({
       title: 'Redis — From Zero to Hero',
       head: [
         { tag: 'script', attrs: { type: 'module', src: '/redis-from-zero-to-hero/enhance.js' } },
+        { tag: 'link', attrs: { rel: 'manifest', href: '/redis-from-zero-to-hero/manifest.webmanifest' } },
+        { tag: 'link', attrs: { rel: 'apple-touch-icon', href: '/redis-from-zero-to-hero/apple-touch-icon.png' } },
+        { tag: 'link', attrs: { rel: 'icon', type: 'image/png', sizes: '192x192', href: '/redis-from-zero-to-hero/icon-192.png' } },
+        { tag: 'meta', attrs: { name: 'theme-color', content: '#DC382D' } },
+        { tag: 'meta', attrs: { name: 'mobile-web-app-capable', content: 'yes' } },
+        { tag: 'meta', attrs: { name: 'apple-mobile-web-app-capable', content: 'yes' } },
+        { tag: 'meta', attrs: { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' } },
+        { tag: 'meta', attrs: { name: 'apple-mobile-web-app-title', content: "Redis" } },
+        { tag: 'script', content: "if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/redis-from-zero-to-hero/sw.js',{scope:'/redis-from-zero-to-hero/'}).catch(function(){})})}" },
       ],
       defaultLocale: 'en',
       locales: {
