@@ -111,6 +111,26 @@ SCARD prize:pool`;
 
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| Set สำหรับ tags/deduplication | รับประกันความไม่ซ้ำโดยไม่ต้องเช็คก่อน insert, `SADD` ทำหน้าที่เป็น upsert ในตัว | ไม่มีลำดับ (unordered) ถ้าต้องการลำดับการเพิ่มหรือการเรียงตามค่า ต้องใช้ List หรือ Sorted Set แทน |
+| `SISMEMBER` สำหรับ membership check | lookup แบบ O(1) ไม่ว่า Set จะมีสมาชิกกี่ล้านตัว | ตอบได้แค่ "มีหรือไม่มี" ไม่คืนข้อมูลอื่นเกี่ยวกับสมาชิกนั้น ต้องเก็บ metadata แยกใน key อื่น |
+| `SPOP` สำหรับ random sampling | สุ่มและลบพร้อมกันแบบ atomic เหมาะกับของรางวัลหรือ job assignment | สมาชิกที่ pop แล้วหายไปถาวร ถ้าต้องการเก็บ history การสุ่มต้อง log แยกเอง |
+
+## Common Mistakes
+
+- **เรียก `SMEMBERS` บน Set ที่มีสมาชิกระดับล้าน** — คำสั่งนี้ดึงสมาชิกทั้งหมดกลับมาในครั้งเดียวและ block เซิร์ฟเวอร์ระหว่างทำงาน ควรใช้ `SSCAN` แทนเพื่อ iterate แบบ cursor-based บน Set ขนาดใหญ่
+- **สับสนว่า `SADD` คืนค่าจำนวนสมาชิกทั้งหมด** — `SADD` คืนแค่จำนวนสมาชิก **ใหม่** ที่เพิ่มสำเร็จ ไม่ใช่ขนาดของ Set ทั้งหมด ถ้าต้องการขนาด Set ต้องเรียก `SCARD` แยก
+- **ใช้ Set เมื่อจริงๆ ต้องการลำดับ** — ถ้า business logic ต้องพึ่งลำดับการเพิ่มสมาชิก (เช่น "รายการล่าสุดก่อน") Set จะไม่ตอบโจทย์เพราะไม่รับประกันลำดับ ควรใช้ List หรือ Sorted Set (ผูก timestamp เป็นคะแนน) แทน
+
+> 💡 Real World Example
+>
+> **ระบบ tag บทความ/สินค้า** — เว็บข่าวและ e-commerce จำนวนมากใช้ Set เก็บ tag ต่อ item เพราะ `SADD` ป้องกัน tag ซ้ำโดยอัตโนมัติ และ `SISMEMBER` ตรวจสอบได้เร็วว่า item มี tag ใดบ้าง
+>
+> **การติดตาม URL/event ที่เคยประมวลผลแล้ว** — ระบบ deduplication ใช้ Set เก็บ ID ของ event ที่ประมวลผลแล้ว แล้วเช็คด้วย `SISMEMBER` ก่อนประมวลผลซ้ำ ป้องกัน duplicate processing ใน pipeline แบบ at-least-once delivery
+
 export const quizSets = [
   {
     q: "SADD คืนค่าอะไรเมื่อเพิ่มสมาชิกที่มีอยู่แล้ว?",

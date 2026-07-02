@@ -138,6 +138,26 @@ Sorted Set จะไม่มีสมาชิกเดียวกันสอ
 
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| Sorted Set แทน SQL table + `ORDER BY` | insert และ range read O(log N) เสมอ ไม่ต้องพึ่ง index ที่ต้อง maintain แยก | คะแนนเป็น float64 เดี่ยวเท่านั้น sort ตามหลายคอลัมน์แบบ relational ทำไม่ได้ตรงๆ |
+| `ZRANGEBYSCORE` สำหรับ range query | ดึงข้อมูลตามช่วงคะแนนได้ตรงๆ โดยไม่ต้อง scan ทั้งหมด | ต้องออกแบบ score ล่วงหน้าให้ครอบคลุม use case การ query ทั้งหมด เปลี่ยนทีหลังมีค่าใช้จ่ายในการ re-score |
+| tie-break ด้วย lexicographic order เมื่อคะแนนเท่ากัน | พฤติกรรม deterministic ไม่ต้องเขียน logic เพิ่มเมื่อคะแนนชนกัน | ถ้าไม่ได้ตั้งใจออกแบบ member name ให้เรียงมีความหมาย ผลลัพธ์ tie อาจดูสุ่มสำหรับผู้ใช้ |
+
+## Common Mistakes
+
+- **คิดว่า `ZADD` กับสมาชิกที่มีอยู่แล้วจะสร้าง duplicate** — Sorted Set ไม่มีสมาชิกซ้ำ การ `ZADD` สมาชิกเดิมจะแค่อัปเดตคะแนนและคืนค่า 0 ไม่ใช่เพิ่มรายการใหม่
+- **ใช้ `ZRANGE` เมื่อต้องการลำดับจากมากไปน้อย** — `ZRANGE` เรียงจากน้อยไปมากเสมอ ถ้าต้องการ "คะแนนสูงสุดก่อน" ต้องใช้ `ZREVRANGE` ไม่เช่นนั้นผลลัพธ์จะกลับด้าน
+- **ลืมตั้ง `-inf`/`+inf` เมื่อต้องการ range แบบเปิดขอบ** — การเขียนตัวเลขจำกัดตายตัวใน `ZRANGEBYSCORE` แทนที่จะใช้ `-inf`/`+inf` ทำให้ query พลาดสมาชิกที่มีคะแนนต่ำ/สูงกว่าที่คาดไว้
+
+> 💡 Real World Example
+>
+> **Leaderboard และระบบจัดอันดับเกม** — ผูก score เข้ากับผู้เล่นโดยตรงเพื่อให้ query "top N" และ "อันดับของฉัน" ทำงานแบบ real-time โดยไม่ต้อง batch คำนวณใหม่
+>
+> **Priority queue และ scheduled job** — หลายระบบใช้ Sorted Set ผูก timestamp เป็นคะแนน เพื่อ query "งานที่ถึงกำหนดแล้ว" ด้วย `ZRANGEBYSCORE` แทนการ poll ฐานข้อมูลเชิงสัมพันธ์ซ้ำๆ
+
 export const quizSortedSets = [
   {
     q: "ZREVRANGE คืนอะไรเมื่อเทียบกับ ZRANGE?",

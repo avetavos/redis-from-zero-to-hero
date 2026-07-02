@@ -109,9 +109,29 @@ SMEMBERS all:staff`;
 
 <Callout title="Set algebra ทำงานบนเซิร์ฟเวอร์ — ไม่ต้องส่งข้อมูล">
 
-ด้วย `SINTER`, `SUNION`, และ `SDIFF` Redis ทำการคำนวณทั้งหมดใน-process สำหรับ Set ขนาดใหญ่ (ล้าน member) วิธีนี้หลีกเลี่ยงการส่ง collection ทั้งหมดไปยัง application server เพื่อ intersect หรือ diff เอง `*STORE` variants ยิ่งไปกว่านั้น: ผลลัพธ์ถูก materialize เป็น key ใหม่ที่ client อื่นอ่านได้ทันที
+ด้วย `SINTER`, `SUNION`, และ `SDIFF` Redis คำนวณทั้งหมดใน-process สำหรับ Set ขนาดใหญ่ (ล้าน member) วิธีนี้หลีกเลี่ยงการส่ง collection ทั้งหมดไปยัง application server เพื่อ intersect หรือ diff เอง `*STORE` variants ยิ่งไปกว่านั้น: ผลลัพธ์ถูก materialize เป็น key ใหม่ที่ client อื่นอ่านได้ทันที
 
 </Callout>
+
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| คำนวณ set algebra บนเซิร์ฟเวอร์ (`SINTER`/`SUNION`/`SDIFF`) | ไม่ต้องส่งสมาชิกทั้งหมดมาที่ client เพื่อคำนวณเอง เร็วกว่ามากบน Set ขนาดใหญ่ | คำสั่งเหล่านี้ block เซิร์ฟเวอร์ระหว่างคำนวณ ถ้า Set ใหญ่มากอาจกระทบ latency ของ client อื่น |
+| `*STORE` variants (`SINTERSTORE` เป็นต้น) | materialize ผลลัพธ์เป็น key ใหม่ที่อ่านซ้ำได้ทันทีโดยไม่ต้องคำนวณใหม่ | ผลลัพธ์เป็น snapshot ตอนที่รัน ถ้า Set ต้นทางเปลี่ยนภายหลัง key ผลลัพธ์จะไม่ sync อัตโนมัติ |
+| ใช้ Set แทน SQL JOIN สำหรับความสัมพันธ์แบบง่าย | หลีกเลี่ยง JOIN ที่ช้าบนตารางใหญ่ | เหมาะกับความสัมพันธ์แบบ many-to-many ธรรมดาเท่านั้น ไม่รองรับ query ที่ซับซ้อนแบบ relational |
+
+## Common Mistakes
+
+- **เรียก `SINTER`/`SUNION`/`SDIFF` ซ้ำๆ ในทุก request แทนที่จะ cache ผล** — ถ้าผลลัพธ์เปลี่ยนไม่บ่อย ควรใช้ `*STORE` variant เก็บผลไว้ใน key แล้วตั้ง TTL แทนการคำนวณใหม่ทุกครั้ง
+- **ลืมว่า `SDIFF` สนใจลำดับของ key ที่ส่งเข้าไป** — `SDIFF A B` กับ `SDIFF B A` ให้ผลลัพธ์ต่างกัน เพราะ set แรกคือฐานที่ใช้ลบสมาชิกออก สลับลำดับผิดจะได้ผลตรงข้ามที่ไม่ได้ตั้งใจ
+- **ใช้ `*STORE` variant กับ key ปลายทางที่มีข้อมูลอยู่แล้วโดยไม่ตั้งใจ** — คำสั่งเหล่านี้ overwrite destination key ทั้งหมด ถ้า key นั้นถูกใช้เก็บข้อมูลอื่นอยู่ ข้อมูลเดิมจะหายไปทันที
+
+> 💡 Real World Example
+>
+> **ระบบแนะนำเพื่อนร่วมกัน (mutual friends)** — แพลตฟอร์มโซเชียลใช้ `SINTER` ระหว่าง follower set ของผู้ใช้สองคนเพื่อหาเพื่อนร่วมกันแบบ real-time โดยไม่ต้อง query relational database ที่มี JOIN หนักๆ
+>
+> **การรวมกลุ่มผู้ชม campaign การตลาด** — ทีม marketing ใช้ `SUNION`/`SINTERSTORE` รวมหรือกรอง audience segment จากหลาย campaign บนเซิร์ฟเวอร์ ก่อนส่งไปยัง notification pipeline
 
 export const quizSetOps = [
   {

@@ -137,6 +137,26 @@ TTL ratelimit:ip:203.0.113.5`;
 
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| ใช้ `INCR`/`INCRBY` ทำ counter ใน Redis | atomic โดย default ไม่ต้อง lock ฝั่ง application รองรับ throughput สูง | ค่าอยู่แค่ใน key เดียว ไม่มี history หรือ audit trail แบบที่ table ใน DB ให้ได้ |
+| ผูก `EXPIRE` เข้ากับ counter (rate limiter) | ได้ rolling window ฟรี ไม่ต้องมี cleanup job ลบ counter เก่า | ถ้าลืมตั้ง `EXPIRE` ตอน increment ครั้งแรก counter จะกลายเป็น persistent ค้างอยู่ตลอดไป |
+| ใช้ `INCRBYFLOAT` แทน read-modify-write ฝั่ง client | เลี่ยง race condition ได้เหมือน `INCR` | ไม่มี `DECRBYFLOAT` ต้องส่งค่าติดลบเอง และ floating-point อาจสะสม rounding error เล็กน้อยเมื่อบวกลบซ้ำหลายรอบ |
+
+## Common Mistakes
+
+- **อ่านค่าปัจจุบันด้วย `GET` แล้วบวกเองก่อนเขียนกลับด้วย `SET`** — เปิดช่องให้เกิด race condition แบบคลาสสิกเมื่อมีหลาย client เขียนพร้อมกัน ควรใช้ `INCR`/`INCRBY` เสมอเพื่อความเป็น atomic
+- **ลืมตั้ง `EXPIRE` ให้ counter ที่ควรเป็น rolling window (เช่น rate limiter)** — ถ้าไม่ตั้ง TTL ตอน increment ครั้งแรก counter จะไม่มีวันรีเซ็ต และ key จะค้างอยู่ใน memory ตลอดไป
+- **คิดว่า `INCR` ต้องมี key อยู่ก่อนถึงจะใช้ได้** — จริง ๆ แล้ว `INCR` จะตั้งค่าเริ่มต้นเป็น `0` ให้อัตโนมัติถ้า key ยังไม่มี ไม่จำเป็นต้อง `SET key 0` ล่วงหน้า
+
+> 💡 Real World Example
+>
+> **GitHub** — ใช้ counter แบบ `INCR` เก็บ API rate-limit ต่อ token ผูกกับ `EXPIRE` เพื่อ reset window อัตโนมัติโดยไม่ต้องมี cron job มาล้างข้อมูลเก่า
+>
+> **Reddit/YouTube-style platforms** — ใช้ `INCR` นับ view count และ upvote count แบบ near-real-time แทนการอัปเดตแถวใน relational DB ทุกครั้งที่มีคนดู
+
 export const quizCounters = [
   {
     q: "INCR ใช้ค่าอะไรเมื่อ key ยังไม่มีอยู่?",

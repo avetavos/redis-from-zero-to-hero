@@ -65,6 +65,26 @@ CONFIG GET appendfsync`;
 
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| `appendfsync always` | ไม่สูญหายข้อมูลแม้ crash | `fsync()` ทุกคำสั่ง ทำให้ throughput ต่ำที่สุดในสามโหมด |
+| `appendfsync everysec` | สมดุลระหว่างความทนทานกับ throughput เหมาะกับ production ส่วนใหญ่ | สูญเสียข้อมูลได้สูงสุด ~1 วินาทีเมื่อ crash |
+| `appendfsync no` | throughput สูงสุด ไม่มี overhead จาก fsync | OS ตัดสินใจเองว่าจะ flush เมื่อใด ข้อมูลสูญหายได้ไม่แน่นอนหากดิสก์ยังไม่ flush |
+
+## Common Mistakes
+
+- **คิดว่า replica ทดแทนความจำเป็นของ persistence ได้** — replica ที่ crash และ restart ก็ต้องโหลดจากไฟล์ persistence ของตัวเอง (หรือ sync ใหม่จาก primary) ควรเปิด persistence บน replica แยกต่างหาก ไม่ใช่พึ่งพา primary เพียงอย่างเดียว
+- **ใช้ `appendfsync no` ในระบบที่ทนการสูญหายข้อมูลไม่ได้** — โหมดนี้ให้ throughput สูงสุดแต่ปล่อยให้ OS ตัดสินใจเวลา flush เอง หาก crash ก่อน OS flush ข้อมูลตั้งแต่ flush ล่าสุดจะหายทั้งหมด
+- **ไม่ทดสอบ recovery หลัง crash จริง** — การตั้งค่า `appendfsync` ที่ถูกต้องไม่มีประโยชน์ถ้าไม่เคยลองทำ `kill -9` แล้วดูว่า Redis restart และโหลดข้อมูลกลับมาได้ตามที่คาดไว้จริงหรือไม่
+
+> 💡 Real World Example
+>
+> **GitHub** — ใช้ `appendfsync everysec` เป็นค่ามาตรฐานสำหรับ Redis instance ที่เก็บข้อมูลสำคัญ เพื่อรักษาสมดุลระหว่าง durability กับ write throughput บน workload ที่มีการเขียนหนัก
+>
+> **Financial-grade queue systems** — ระบบที่เกี่ยวกับธุรกรรมทางการเงินมักเลือก `appendfsync always` แม้ throughput จะต่ำลง เพราะยอมรับการสูญหายข้อมูลแม้แต่คำสั่งเดียวไม่ได้
+
 export const quizDurability = [
   {
     q: "โหมด `appendfsync` ใดที่รับประกันว่าจะไม่มีการสูญหายของข้อมูลเมื่อเกิด crash?",

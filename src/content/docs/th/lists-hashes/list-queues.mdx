@@ -67,7 +67,7 @@ LPOP stack`;
 
 ## RPOPLPUSH — ย้ายข้อมูลระหว่างลิสต์แบบ atomic
 
-`RPOPLPUSH source destination` จะดึงข้อมูลจากท้ายของ `source` และเพิ่มไปที่หัวของ `destination` ในการดำเนินการ atomic ครั้งเดียว นี่คือ pattern คลาสสิกสำหรับ **reliable queue**: งานจะถูกย้ายจากลิสต์ `pending` ไปยัง `processing` ในขั้นตอนเดียว จึงไม่มีทางเกิดปัญหาหากเกิด crash ขึ้นระหว่างกลาง
+`RPOPLPUSH source destination` จะดึงข้อมูลจากท้ายของ `source` และเพิ่มไปที่หัวของ `destination` ในการทำงาน atomic เพียงครั้งเดียว นี่คือ pattern คลาสสิกสำหรับ **reliable queue**: งานจะถูกย้ายจากลิสต์ `pending` ไปยัง `processing` ในขั้นตอนเดียว จึงไม่มีทางเกิดปัญหาหากเกิด crash ขึ้นระหว่างกลาง
 
 ```text
 127.0.0.1:6379> DEL pending processing
@@ -107,13 +107,33 @@ LRANGE processing 0 -1`;
 
 > **หมายเหตุ:** BLPOP ต้องใช้กับ connection แบบ blocking สด — ทดสอบใน redis-cli ของคุณเอง
 
-ในกระบวนการ worker คุณจะรัน `BLPOP jobs 0` วนซ้ำในลูป เมื่อ producer เรียก `LPUSH jobs "new-job"` การเรียกแบบ blocking จะ return ทันทีพร้อมกับงานใหม่ — ไม่ต้อง polling แต่อย่างใด
+ใน worker process คุณจะรัน `BLPOP jobs 0` วนซ้ำในลูป เมื่อ producer เรียก `LPUSH jobs "new-job"` การเรียกแบบ blocking จะ return ทันทีพร้อมกับงานใหม่ — ไม่ต้อง polling แต่อย่างใด
 
 <Callout title="BLPOP — job queue แบบง่าย">
 
-`BLPOP` จะบล็อกจนกว่าจะมีข้อมูลเข้ามา — ไม่ต้องเขียน polling loop เอง กระบวนการ worker วนซ้ำด้วย `BLPOP jobs 0` และ producer จะปลุก worker ทันทีด้วย `LPUSH` นี่คือ pattern ระดับ production สำหรับ background worker ขนาดเบาที่ไม่จำเป็นต้องใช้ message broker เต็มรูปแบบ
+`BLPOP` จะบล็อกจนกว่าจะมีข้อมูลเข้ามา — ไม่ต้องเขียน polling loop เอง worker process วนซ้ำด้วย `BLPOP jobs 0` และ producer จะปลุก worker ทันทีด้วย `LPUSH` นี่คือ pattern ระดับ production สำหรับ background worker ขนาดเบาที่ไม่จำเป็นต้องใช้ message broker เต็มรูปแบบ
 
 </Callout>
+
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| `BLPOP`/`BRPOP` (blocking pop) | ไม่ต้องเขียน polling loop เอง worker ตื่นทันทีเมื่อมีงานใหม่ | ต้องเปิด connection ทิ้งไว้บล็อกยาว ๆ ต่อ worker หนึ่งตัว |
+| Redis List เป็น queue | ตั้งค่าง่าย latency ต่ำ ไม่ต้องติดตั้ง broker แยก | ไม่มี retry, dead-letter, หรือ delivery guarantee ในตัวเหมือน RabbitMQ/Kafka |
+| `RPOPLPUSH` ย้ายไป processing list | ป้องกันงานหายถ้า worker crash ระหว่างประมวลผล | ต้องเขียน logic เคลียร์ processing list เองเมื่อ worker ทำงานเสร็จ |
+
+## Common Mistakes
+
+- **ใช้ `RPOPLPUSH` ย้ายงานไป processing list แต่ไม่เคลียร์ออกเมื่อประมวลผลเสร็จ** — processing list โตขึ้นเรื่อย ๆ จนกลายเป็น memory leak
+- **ใช้ Redis List queue แทน message broker เต็มรูปแบบเมื่อจำเป็นต้องมี retry, dead-letter queue หรือ delivery guarantee ที่เข้มงวด** — Redis List ไม่มี feature เหล่านี้ในตัว ต้องเขียนเองทั้งหมด
+- **ปล่อย unbounded list โดยไม่ `LTRIM`** — ถ้า consumer ตามไม่ทัน producer list จะโตไม่มีขีดจำกัดจนหน่วยความจำหมด
+
+> 💡 Real World Example
+>
+> **Sidekiq** — background job library ยอดนิยมของ Ruby ใช้ Redis List เป็น queue หลัก โดยมี worker process วน `BLPOP` รอรับงานใหม่แบบเดียวกับที่เรียนในบทนี้
+>
+> **GitHub** — ใช้ Redis-backed queue (ผ่าน Sidekiq) ประมวลผล background job อย่างการส่ง notification และ webhook นับล้านครั้งต่อวัน
 
 export const listQueuesQuiz = [
   {

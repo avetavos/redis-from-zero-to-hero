@@ -96,6 +96,25 @@ OK
 
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| `PSUBSCRIBE` ด้วย glob pattern | subscribe หลาย channel ด้วยคำสั่งเดียว ไม่ต้องรู้ชื่อ channel ล่วงหน้าทั้งหมด | Redis ต้องจับคู่ pattern กับทุกข้อความที่ publish เพิ่ม overhead เมื่อมี pattern จำนวนมาก |
+| Keyspace notifications ผ่าน Pub/Sub | ได้ event แบบ real-time โดยไม่ต้อง poll | เพิ่มโหลดให้ Pub/Sub ของ Redis เอง และยังเป็น fire-and-forget เหมือน Pub/Sub ทั่วไป |
+
+## Common Mistakes
+
+- **ตั้ง pattern กว้างเกินไปเช่น `*`** — ทำให้ต้องจับคู่ทุกข้อความในระบบกับ pattern นี้ เปลือง CPU โดยไม่จำเป็น ควรจำกัด pattern ให้แคบเท่าที่ใช้งานจริง
+- **สับสนระหว่าง `message` กับ `pmessage`** — client ที่ subscribe ด้วย `PSUBSCRIBE` ต้อง parse reply แบบสี่ส่วน (มี pattern เพิ่มมา) ถ้าเขียนโค้ด parse แบบเดียวกับ `SUBSCRIBE` ธรรมดาจะอ่านฟิลด์ผิดตำแหน่ง
+- **เปิด keyspace notifications แล้วลืมปิดใน production ที่มี throughput สูง** — `notify-keyspace-events` เพิ่ม CPU overhead ให้ทุกคำสั่งที่แตะ key ควรเปิดเฉพาะ event type ที่ต้องใช้จริง ไม่ใช่ `KEA` (ทุก event) เสมอไป
+
+> 💡 Real World Example
+>
+> **ระบบแจ้งเตือนหลายหมวดหมู่** — ใช้ `PSUBSCRIBE alerts.*` เพื่อรับ alert จากทุกหมวด (`alerts.security`, `alerts.billing`, ฯลฯ) ด้วย subscription เดียวแทนที่จะ subscribe ทีละ channel
+>
+> **Cache invalidation ผ่าน keyspace notifications** — บริการที่ cache ข้อมูลไว้ในเลเยอร์อื่น subscribe `__keyevent@0__:expired` เพื่อรู้ทันทีเมื่อ key ต้นทางหมดอายุ แล้วไป invalidate cache ที่เกี่ยวข้อง
+
 export const quizPsubscribe = [
   {
     q: "glob wildcard ตัวใดจับคู่กับอักขระหนึ่งตัวเท่านั้นใน PSUBSCRIBE pattern?",

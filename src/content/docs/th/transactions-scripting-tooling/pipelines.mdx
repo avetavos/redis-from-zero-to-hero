@@ -79,9 +79,29 @@ MGET a b c`;
 
 <Callout title="Pipelining รวมคำสั่งเพื่อลด RTT — ไม่ได้ทำให้เป็น atomic">
 
-Pipeline ลดจำนวน network round-trips ซึ่งสามารถเพิ่ม throughput ได้อย่างมากสำหรับการเขียนหรืออ่านจำนวนมาก อย่างไรก็ตาม ระหว่างแต่ละคำสั่งใน pipeline client อื่นยังสามารถรันคำสั่งของตัวเองได้ หากต้องการให้ batch ไม่ถูกขัดจังหวะ ให้ห่อด้วย `MULTI`/`EXEC` — ไม่ใช่แค่ pipeline
+Pipeline ลดจำนวน network round-trips ซึ่งสามารถเพิ่ม throughput ได้อย่างมากสำหรับการเขียนหรืออ่านจำนวนมาก แต่ระหว่างแต่ละคำสั่งใน pipeline client อื่นยังสามารถรันคำสั่งของตัวเองได้ หากต้องการให้ batch ไม่ถูกขัดจังหวะ ให้ห่อด้วย `MULTI`/`EXEC` — ไม่ใช่แค่ pipeline
 
 </Callout>
+
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| Pipeline (batch หลายคำสั่งใน request เดียว) | ลด network round-trip เหลือแทบ 1 ครั้ง เพิ่ม throughput ได้มากสำหรับ bulk operation | ไม่มี atomicity — client อื่นสามารถแทรกคำสั่งระหว่างคำสั่งใน pipeline ได้ |
+| `redis-cli --pipe` สำหรับ bulk import | โหลดข้อมูลจำนวนล้าน key ได้ในไม่กี่วินาที ผ่าน connection เดียว | ต้องสร้าง RESP protocol เองหรือใช้ command file ดีบักยากกว่าคำสั่งทีละบรรทัด |
+| รวม `MULTI`/`EXEC` ไว้ใน pipeline | ได้ทั้ง round-trip น้อยและ atomicity guarantee | เพิ่มความซับซ้อนของโค้ด client ต้องเข้าใจทั้งสองแนวคิดควบคู่กัน |
+
+## Common Mistakes
+
+- **คิดว่า pipeline ให้ atomicity เหมือน transaction** — pipeline เป็นแค่ network optimization ที่รวมคำสั่งไปในการเขียนครั้งเดียว client อื่นยังสามารถรันคำสั่งของตัวเองแทรกระหว่างคำสั่งใน pipeline ได้ ถ้าต้องการ atomicity ต้องห่อด้วย `MULTI`/`EXEC`
+- **ส่ง pipeline ขนาดใหญ่เกินไปในครั้งเดียว** — batch ที่ใหญ่มากอาจทำให้ memory buffer ทั้งฝั่ง client และ server พองขึ้นชั่วคราว ควรแบ่งเป็น batch ขนาดพอเหมาะ (เช่น หลักพันคำสั่งต่อ pipeline)
+- **ไม่ตรวจสอบผลลัพธ์แต่ละคำสั่งใน pipeline** — pipeline คืน array ของผลลัพธ์ตามลำดับคำสั่ง หากมีคำสั่งใดผิดพลาดระหว่างทาง คำสั่งอื่นยังรันต่อ ต้อง loop ตรวจ error ในผลลัพธ์เอง ไม่ใช่ assume ว่าทั้ง batch สำเร็จหมด
+
+> 💡 Real World Example
+>
+> **Bulk data import job ทั่วไป** — ใช้ `redis-cli --pipe` หรือ client library pipelining เพื่อโหลดข้อมูล seed หรือ migrate ข้อมูลนับล้าน key เข้า Redis โดยลด round-trip จากนับล้านครั้งเหลือเพียงไม่กี่ batch
+>
+> **Analytics/logging pipeline** — ระบบที่ต้องเขียน event จำนวนมากต่อวินาทีมักรวมคำสั่ง `SET`/`INCR`/`ZADD` เป็น pipeline เพื่อให้ throughput สูงพอสำหรับ traffic ที่มี volume สูง
 
 export const quizPipelines = [
   {

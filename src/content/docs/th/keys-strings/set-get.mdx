@@ -149,6 +149,26 @@ SET lock:resource "worker-id" NX EX 30
 
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| `SET key val NX` (set แบบมีเงื่อนไข) | atomic เช็ก-แล้ว-set ในคำสั่งเดียว ใช้ทำ lock/dedup เบื้องต้นได้ | ไม่มี ownership token ในตัว ต้องออกแบบเพิ่มเองถ้าต้องการปลดล็อกอย่างปลอดภัย |
+| `MSET`/`MGET` (batch operation) | ลด round-trip เมื่อต้อง set/get หลาย key พร้อมกัน | ไม่ atomic ข้าม key ต่างชนิดกันแบบ transaction เต็มรูปแบบ (ใช้ `MULTI`/`EXEC` ถ้าต้องการ isolation จริง) |
+| `SET key val` แบบไม่มีเงื่อนไข | ง่าย เขียนทับได้ทันทีโดยไม่ต้องเช็กก่อน | เสี่ยง overwrite ข้อมูลของ client อื่นโดยไม่ตั้งใจถ้าไม่ได้ออกแบบ key ให้ unique พอ |
+
+## Common Mistakes
+
+- **ใช้ `SET` แบบไม่มีเงื่อนไขตอนที่ตั้งใจจะทำ "set ถ้ายังไม่มี"** — ลืมใส่ `NX` ทำให้ข้อมูลเดิมถูกเขียนทับโดยไม่รู้ตัว ควรใช้ `SET key val NX` เมื่อ logic ต้องการ atomic check-then-set
+- **ลืมว่า `SET` แบบธรรมดาจะ reset TTL เดิมของ key ทิ้ง** — ถ้าอยากคง expiry เดิมไว้ตอนอัปเดตค่า ต้องเติม `KEEPTTL` เข้าไปด้วย ไม่งั้น key จะกลายเป็น persistent ทันที
+- **ใช้ `SETNX`/`SETEX` (legacy command) ปนกับ `SET ... NX/EX` ในโค้ดเดียวกัน** — ทำให้ style ไม่สม่ำเสมอ ควรเลือกใช้ `SET` พร้อม option เป็นมาตรฐานเดียวตามคำแนะนำของ Redis 7+
+
+> 💡 Real World Example
+>
+> **Stripe-style idempotency keys** — ใช้ `SET key val NX EX <ttl>` เพื่อกันไม่ให้ request เดิมถูกประมวลผลซ้ำสองครั้ง โดย key ที่ set สำเร็จเพียงครั้งเดียวคือ request ที่ผ่านเข้าไปจริง
+>
+> **Feature-flag/config caches** — ใช้ `MSET`/`MGET` ดึงค่า config หลายตัวพร้อมกันในคำสั่งเดียว แทนที่จะยิง `GET` แยกทีละ key ซึ่งเพิ่ม network round-trip โดยไม่จำเป็น
+
 export const quizSetGet = [
   {
     q: "`SET key val NX` คืนค่าอะไรเมื่อ key มีอยู่แล้ว?",

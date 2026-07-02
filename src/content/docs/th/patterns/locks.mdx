@@ -80,6 +80,26 @@ EVAL "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]
 อย่าใช้ DEL ธรรมดาในการปลดล็อก เพราะ TTL ของคุณอาจหมดอายุไปแล้วและ worker อื่นอาจ acquire ล็อกนั้นแล้ว Lua script ทำให้ GET และ DEL แบบมีเงื่อนไขเป็น atomic เพื่อให้แน่ใจว่าคุณจะไม่ลบล็อกที่คุณไม่ได้เป็นเจ้าของ
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| `SET NX PX` บน Redis node เดียว | ง่าย เร็ว ใช้คำสั่งเดียว | ถ้า node นั้น failover ไปยัง replica ที่ยังไม่ sync อาจได้ล็อกซ้ำสองตัว |
+| Redlock (หลาย node) | ทนต่อความล้มเหลวของ node เดี่ยวได้ | ซับซ้อนกว่า ต้องพึ่ง clock ที่ใกล้เคียงกันระหว่าง node และ quorum logic |
+| DB-level lock (เช่น `SELECT ... FOR UPDATE`) | ผูกกับ transaction ของข้อมูลโดยตรง | ช้ากว่า Redis มาก และเพิ่มภาระให้ connection pool ของ DB |
+
+## Common Mistakes
+
+- **ปลดล็อกด้วย `DEL` ตรง ๆ โดยไม่เช็ค token** — ถ้า TTL หมดอายุไปแล้วและ worker อื่น acquire ล็อกไปแล้ว การ `DEL` แบบไม่มีเงื่อนไขจะลบล็อกของคนอื่นทิ้ง
+- **ตั้ง TTL สั้นเกินไปเทียบกับเวลาที่ critical section ต้องใช้จริง** — ถ้างานยังไม่เสร็จแต่ล็อกหมดอายุ worker อีกตัวจะ acquire ล็อกซ้อนเข้ามาทำงานเดิม
+- **ใช้ `SET NX PX` แบบ single-node แล้วคาดหวังความปลอดภัยระดับเดียวกับ Redlock** — สำหรับงานที่ต้องการ high availability จริง (เช่น payment) ต้องใช้ Redlock หรือกลไก quorum อื่น ไม่ใช่ node เดียว
+
+> 💡 Real World Example
+>
+> **Sidekiq** — ใช้ pattern แบบ `SET NX` เพื่อกันไม่ให้ job เดียวกันถูกประมวลผลซ้ำโดย worker หลายตัวพร้อมกัน
+>
+> **Stripe** — ใช้ lock ที่มี token ตรวจสอบความเป็นเจ้าของแบบเดียวกับบทนี้ เพื่อรับประกันว่า operation ที่เกี่ยวกับเงินจะไม่ทำงานซ้ำจากหลาย process
+
 export const quizLocks = [
   {
     q: "flag NX ใน `SET lock:res token NX PX 30000` ทำหน้าที่อะไร?",

@@ -134,6 +134,26 @@ ZREVRANK lb "carol"`;
 
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| Sorted Set สำหรับ leaderboard | ranking แบบ real-time โดยไม่ต้อง JOIN หรือ ORDER BY, เขียนและอ่าน O(log N) | คะแนนเป็น float64 เท่านั้น ต้อง encode tie-breaker เองถ้าต้องการ ranking ที่ซับซ้อนกว่าคะแนนตัวเลข |
+| `ZINCRBY` แบบ atomic | อัปเดตคะแนนโดยไม่ต้อง read-modify-write, ปลอดภัยเมื่อมีหลาย client เขียนพร้อมกัน | ไม่มี event log ของการเปลี่ยนแปลง ถ้าต้องการ audit trail ว่าใครมอบแต้มเมื่อไรต้องเก็บแยกเอง |
+| ดึง top N ด้วย `ZREVRANGE` | เร็วและง่าย ไม่ต้อง cache ผลลัพธ์แยก | เรียก fresh ทุกครั้งบน leaderboard ขนาดใหญ่ที่ traffic สูงมากอาจยังต้องมี cache layer เพิ่มเติม |
+
+## Common Mistakes
+
+- **ใช้คะแนนเดียวกันสำหรับผู้เล่นหลายคนโดยไม่ตั้งใจ** — `ZRANGE`/`ZREVRANGE` จะเรียงลำดับ tie ด้วย lexicographic order ของ member ทำให้อันดับดูสุ่มถ้าไม่ได้ตั้งใจออกแบบไว้ ควรผูก timestamp เข้ากับคะแนนเพื่อ break tie อย่างมีความหมาย
+- **ลืมว่า `ZREVRANK` เป็นแบบ 0-based** — อันดับหนึ่งคืนค่า 0 ไม่ใช่ 1 ถ้าแสดงผลตรงๆ ให้ผู้ใช้ต้องบวก 1 เอง มิฉะนั้นอันดับจะเพี้ยนไปหนึ่งตำแหน่งเสมอ
+- **ใช้ `ZADD` แทน `ZINCRBY` เมื่อต้องการมอบแต้มเพิ่ม** — `ZADD` ตั้งคะแนนใหม่ทับของเดิมทันที ไม่ใช่บวกเพิ่ม ถ้าใช้ผิดจะทำให้คะแนนเดิมหายไปแทนที่จะสะสม
+
+> 💡 Real World Example
+>
+> **เกมออนไลน์หลายค่าย** — ใช้ Redis Sorted Set เป็น backend ของ leaderboard real-time เพราะ `ZADD`/`ZREVRANGE`/`ZREVRANK` ให้ ranking ที่อัปเดตทันทีโดยไม่ต้อง batch job มาคำนวณใหม่
+>
+> **Reddit-style ranking** — ใช้แนวคิดเดียวกันกับ Sorted Set โดยผูก "hot score" (คำนวณจาก vote และเวลา) เป็น score เพื่อจัดเรียงโพสต์แบบ real-time โดยไม่ต้อง query ฐานข้อมูลหลักซ้ำ
+
 export const quizLeaderboards = [
   {
     q: "คำสั่งใดดึงผู้เล่น 10 อันดับแรกตามลำดับคะแนนจากมากไปน้อย?",

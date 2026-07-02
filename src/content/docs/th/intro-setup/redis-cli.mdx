@@ -132,6 +132,26 @@ SELECT 0`;
 
 <TryRedis client:visible code={cliCode} />
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| ใช้ `redis-cli` แบบ interactive | ทดสอบคำสั่งไว เห็นผลลัพธ์ทันที เหมาะกับ debug | ไม่มี connection pooling, retry, หรือ error handling ที่ app จริงต้องการ |
+| ใช้ client library ในโค้ดแอป | จัดการ connection lifecycle, pipelining, retry ให้อัตโนมัติ | เขียนโค้ดเพิ่ม ต้อง import library เข้าโปรเจกต์ |
+| สลับ database ด้วย `SELECT` | สะดวกสำหรับแยกข้อมูลชั่วคราวใน dev | ไม่ใช่ multi-tenancy จริง ทุก database ยังแชร์ instance, memory, และ performance เดียวกัน |
+
+## Common Mistakes
+
+- **ใช้ `redis-cli` เชื่อมต่อ production โดยตรงเพื่อรันคำสั่งแก้ข้อมูล** — เสี่ยงพิมพ์ผิดแล้ว `FLUSHDB` หรือ `DEL` โดน key จริง ควรใช้ script ที่ผ่าน review หรือ client library แทนเมื่อทำงานกับข้อมูล production
+- **เข้าใจผิดว่า `SELECT` คือการแบ่ง tenant ที่ปลอดภัย** — 16 database logical ยังแชร์ CPU, memory และ `FLUSHALL` กระทบทุก database พร้อมกัน ไม่เหมาะใช้แทน per-tenant isolation จริง
+- **ใช้ `redis-cli` เป็นทางเดียวในการต่อกับ Redis จาก application code** — ecosystem ที่ดีคือใช้ `redis-cli` สำหรับ debug/ทดลองเท่านั้น ส่วนโค้ดจริงควรต่อผ่าน client library ที่จัดการ connection pooling และ retry ให้
+
+> 💡 Real World Example
+>
+> **Stack Overflow** — ทีม infra ใช้ `redis-cli` เพื่อ `PING` และตรวจสอบ keyspace ของ cache layer หน้า SQL Server เวลามีปัญหา latency ก่อนจะไปดูที่ metrics dashboard
+>
+> **GitHub** — วิศวกรใช้ `redis-cli` ต่อเข้า Redis instance ที่ใช้เก็บ session/cache เพื่อ debug ปัญหาเฉพาะหน้า แต่โค้ด production ทั้งหมดเชื่อมผ่าน client library ไม่ใช่ CLI
+
 export const quizCli = [
   {
     q: "Flag ใดที่ใช้เลือก Redis database เฉพาะเมื่อเชื่อมต่อด้วย redis-cli?",

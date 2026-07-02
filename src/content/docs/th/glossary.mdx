@@ -1,0 +1,76 @@
+---
+title: Glossary
+description: คำศัพท์ Redis ที่ใช้ตลอด course นี้ — รักษา terminology ภาษาอังกฤษตามที่ developer ใช้จริงในงาน
+sidebar:
+  order: 99
+---
+
+import Callout from '../../../components/Callout.astro';
+import ProgressTracker from '../../../components/ProgressTracker.tsx';
+
+## Core
+
+| English | Thai Style | หมายเหตุ |
+|---------|-----------|---------|
+| Key | key | ชื่อที่ใช้อ้างอิงถึงค่าใน Redis เช่น `user:1` |
+| Value | value | ข้อมูลที่ผูกอยู่กับ key หนึ่งตัว |
+| TTL (Time To Live) | TTL | เวลาที่เหลือก่อน key จะถูกลบอัตโนมัติ |
+| Expiration | expiration | สถานะที่ key ถูกกำหนดเวลาให้หมดอายุแล้วถูกลบ |
+| Eviction | eviction | การบังคับลบ key เมื่อหน่วยความจำเต็ม ตาม eviction policy |
+
+## Data Structures
+
+| English | Thai Style | หมายเหตุ |
+|---------|-----------|---------|
+| String | string | ประเภทข้อมูลพื้นฐานที่สุดใน Redis — เก็บ text, number, หรือ binary |
+| List | list | โครงสร้างแบบ linked list ที่เรียงลำดับได้ ใช้ทำ queue/stack |
+| Hash | hash | dictionary แบบ flat เก็บคู่ field-value ภายใต้ key เดียว |
+| Set | set | กลุ่มของ member ที่ไม่ซ้ำกันและไม่มีลำดับ |
+| Sorted Set | Sorted Set | เหมือน set แต่แต่ละ member มี score ทำให้เรียงลำดับได้ |
+| Stream | stream | log แบบ append-only สำหรับ event ที่เรียงตามเวลา |
+
+## Patterns
+
+| English | Thai Style | หมายเหตุ |
+|---------|-----------|---------|
+| Cache-aside | cache-aside | pattern ที่แอปเช็ค cache ก่อน แล้วค่อย fallback ไป DB เมื่อ miss |
+| Write-through | write-through | pattern ที่เขียนเข้า cache และ DB พร้อมกันทุกครั้ง |
+| Lock | lock | กลไกกันไม่ให้หลาย process แก้ resource เดียวกันพร้อมกัน |
+| Rate limiting | rate limiting | การจำกัดจำนวนคำขอต่อช่วงเวลาของผู้เรียกแต่ละราย |
+| Queue | queue | โครงสร้างสำหรับส่งงานจาก producer ไปยัง worker แบบ FIFO |
+
+## Durability & Scale
+
+| English | Thai Style | หมายเหตุ |
+|---------|-----------|---------|
+| RDB (snapshot) | RDB | การ dump ข้อมูลทั้งหมดลงไฟล์เป็นระยะ ๆ |
+| AOF (Append-Only File) | AOF | การบันทึก log คำสั่งเขียนทุกคำสั่งเพื่อ replay ตอน restart |
+| Replication | replication | การคัดลอกข้อมูลจาก primary ไปยัง replica แบบ real-time |
+| Cluster | cluster | การกระจายข้อมูลข้าม node หลายตัวด้วย hash slot |
+| Sentinel | Sentinel | ระบบ monitor ที่ทำ automatic failover ให้ replication setup |
+
+## Execution
+
+| English | Thai Style | หมายเหตุ |
+|---------|-----------|---------|
+| Pipeline | pipeline | การส่งหลายคำสั่งรวดเดียวเพื่อลด network round-trip |
+| Transaction (MULTI/EXEC) | transaction | การรวมหลายคำสั่งให้ queue แล้วรันต่อเนื่องกันด้วย `MULTI`/`EXEC` |
+| Lua script | Lua script | สคริปต์ที่รันฝั่งเซิร์ฟเวอร์แบบ atomic ผ่าน `EVAL`/`EVALSHA` |
+| Pub/Sub | Pub/Sub | รูปแบบส่งข้อความแบบ publish-subscribe ที่ไม่เก็บ history |
+
+## เมื่อ **ไม่** ควรใช้ literal Thai translation
+
+| หลีกเลี่ยง | ใช้แทน |
+|------------|--------|
+| การหมดอายุ (แทน TTL โดยตรง) | TTL / expiration |
+| ดำเนินการ | ทำงาน / รัน |
+| การจำลอง Object | การ model Object |
+| กระบวนการ (บริบท worker) | process |
+| การล็อก | lock |
+| แคช / การแคช | cache / caching |
+
+<Callout title="ทำไมคำเหล่านี้ไม่แปลเป็นไทยทั้งหมด">
+Course นี้เก็บคำศัพท์หลักของ Redis ไว้เป็นภาษาอังกฤษ เพราะเป็นคำที่ developer ใช้พูดคุยกันจริงในที่ทำงานและในเอกสารทางการของ Redis เอง — ทั้งใน `redis-cli`, config directive, และ error message การแปลคำเหล่านี้เป็นไทยทั้งหมดจะทำให้อ่าน official docs หรือคุยกับทีมได้ยากขึ้น
+</Callout>
+
+<ProgressTracker client:visible id="th/glossary" />

@@ -175,6 +175,26 @@ export const fullScanCode = `SCAN 0 MATCH session:* COUNT 100`;
 
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| `SCAN` (cursor-based iteration) | ไม่ block server แบ่งงานเป็น batch เล็ก ๆ ปลอดภัยกับ production | ไม่ได้ snapshot ที่แน่นอน — key ที่ถูกเพิ่ม/ลบระหว่าง scan อาจโผล่มาซ้ำหรือถูกข้าม |
+| `KEYS *` (full blocking scan) | ง่าย เรียกครั้งเดียวได้ผลลัพธ์ครบ เหมาะกับ dataset เล็กใน dev | block event loop จนกว่าจะสแกนครบทุก key ห้ามใช้กับ production ที่มี key จำนวนมาก |
+| ตั้ง `COUNT` สูงใน `SCAN` เพื่อลดจำนวนรอบ | เรียก round-trip น้อยลง เร็วขึ้นในภาพรวม | แต่ละรอบทำงานหนักขึ้น อาจกระทบ latency ของคำสั่งอื่นที่รันคั่นอยู่ |
+
+## Common Mistakes
+
+- **ใช้ `KEYS *` เพื่อดู key ทั้งหมดบน production** — คำสั่งนี้ block server จนกว่าจะสแกนครบทุก key บน dataset ใหญ่อาจทำให้ client อื่นค้างหลายวินาที ควรใช้ `SCAN` แทนเสมอ
+- **เข้าใจผิดว่า `COUNT` คือขีดจำกัดตายตัวของจำนวน key ที่คืนมา** — `COUNT` เป็นเพียงคำใบ้ Redis อาจคืน key มากกว่าหรือน้อยกว่านั้นในแต่ละรอบก็ได้
+- **หยุด loop การเรียก `SCAN` ก่อนที่ cursor จะกลับมาเป็น `0`** — ทำให้ได้ผลลัพธ์ไม่ครบ การวนไล่ต้องเรียกต่อเนื่องจนกว่า cursor ที่คืนมาจะเป็น `0` เท่านั้นถึงจะถือว่าสมบูรณ์
+
+> 💡 Real World Example
+>
+> **GitHub-style rate-limit dashboards** — ใช้ `SCAN` แทน `KEYS` เมื่อต้อง audit key ที่ตรงกับ pattern บน production Redis instance ที่มี key นับล้านตัว เพื่อไม่ให้กระทบ traffic จริง
+>
+> **Cache invalidation tooling** — ทีม ops มักเขียน script ที่ loop `SCAN` เพื่อหา key ที่ตรงกับ pattern (เช่น `cache:user:*`) แล้วลบเป็น batch แทนที่จะเสี่ยง block server ด้วย `KEYS`
+
 export const quizScanKeys = [
   {
     q: "SCAN คืนค่าอะไรเมื่อการวนไล่ทั้งหมดเสร็จสมบูรณ์?",

@@ -128,6 +128,26 @@ LRANGE recent 0 -1`;
 
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| Redis List (doubly linked list) | push/pop ที่ปลายทั้งสองด้าน O(1) เหมาะกับ queue/stack/feed | เข้าถึงองค์ประกอบกลาง list ด้วย `LINDEX` เป็น O(N) |
+| `LPUSH` + `LTRIM` สำหรับ recent-items feed | เก็บ list ขนาดคงที่อัตโนมัติ ไม่ต้องเขียน cleanup job แยก | ต้องเรียก `LTRIM` ทุกครั้งหลัง push ถ้าลืมจะโตไม่มีที่สิ้นสุด |
+| `LREM` ลบตาม value | ลบข้อมูลที่ไม่รู้ index ล่วงหน้าได้ | สแกน list ทั้งเส้น O(N) ไม่เหมาะกับ list ขนาดใหญ่ที่ลบบ่อย |
+
+## Common Mistakes
+
+- **ใช้ `LINDEX` หรือวน `LRANGE` ทีละ index เพื่ออ่านข้อมูลกลาง list บ่อย ๆ** — แต่ละครั้งเป็น O(N) ถ้าต้องอ่านสุ่มตำแหน่งบ่อย ควรพิจารณาโครงสร้างข้อมูลอื่นแทน
+- **ใช้ `LPUSH` เก็บ activity feed โดยไม่เรียก `LTRIM` ตามหลัง** — list โตไม่มีขีดจำกัดจนกิน memory ทั้งที่ต้องการแค่ N รายการล่าสุด
+- **คาดหวังว่า `LSET` ทำงานเหมือน "insert ที่ index"** — แต่จริง ๆ แล้วมันเขียนทับ (overwrite) องค์ประกอบที่มีอยู่แล้วเท่านั้น ถ้า index ไม่มีอยู่จริงจะได้ error
+
+> 💡 Real World Example
+>
+> **Twitter (X)** — ใช้ Redis List คู่กับ `LTRIM` เก็บ timeline cache ของแต่ละ user ให้มีขนาดคงที่ ไม่ให้โตไม่มีที่สิ้นสุดเมื่อมี tweet ใหม่เข้ามาเรื่อย ๆ
+>
+> **Instagram** — ใช้ List pattern คล้ายกันเก็บ recent activity feed ต่อ user ผสาน `LPUSH` สำหรับ event ใหม่และ `LTRIM` ตัดให้เหลือ N รายการล่าสุดเสมอ
+
 export const quizLists = [
   {
     q: "`LRANGE tasks 0 -1` คืนค่าอะไร?",

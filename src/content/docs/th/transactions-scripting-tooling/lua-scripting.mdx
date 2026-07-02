@@ -101,6 +101,26 @@ GET counter`;
 
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| Lua script (`EVAL`) แทน `MULTI`/`EXEC` | ทำ conditional/branching logic แบบ atomic ได้ — สิ่งที่ transaction ทำไม่ได้ | เขียนและ debug ยากกว่าคำสั่งเดี่ยว ต้องแยก Lua error จาก Redis error เอง |
+| Cache script ด้วย `EVALSHA` | ไม่ต้องส่ง script text เต็มซ้ำทุก request ประหยัด bandwidth | ต้อง handle `NOSCRIPT` fallback เอง โดยเฉพาะหลัง server restart หรือ `SCRIPT FLUSH` |
+| Script รัน atomic บน server | ไม่มีคำสั่งอื่นแทรกระหว่าง script ทำงาน รับประกัน consistency | Script ที่ยาวหรือมี loop หนักจะบล็อก event loop ทำให้ client อื่นทั้งหมดรอ |
+
+## Common Mistakes
+
+- **เขียน Lua script ที่ทำงานหนักหรือวนลูปจำนวนมาก** — Redis เป็น single-threaded ดังนั้น script ที่ช้าจะบล็อกทุกคำสั่งอื่นบน server ทั้งหมด ควรจำกัด script ให้สั้นและ predictable
+- **ไม่ handle error `NOSCRIPT` จาก `EVALSHA`** — หลัง server restart หรือ `SCRIPT FLUSH` hash ที่ cache ไว้จะหายไป client ต้องตรวจ error นี้แล้ว fallback ไปใช้ `EVAL` เพื่ออัปโหลด script ใหม่
+- **ใช้ `redis.call` ทั้งที่ต้องการ handle error เอง** — `redis.call` จะโยน Lua error ทันทีเมื่อคำสั่งล้มเหลว ทำให้ script ทั้งหมดหยุด ถ้าต้องการตรวจสอบและจัดการ error ภายใน script ให้ใช้ `redis.pcall` แทน
+
+> 💡 Real World Example
+>
+> **Stripe** — ใช้ Lua script บน Redis เพื่อทำ atomic idempotency check ก่อนประมวลผล payment request ซ้ำ ป้องกัน race condition ระหว่างการอ่านและเขียนสถานะ
+>
+> **Rate limiter ทั่วไปในหลายบริษัท** — ใช้ pattern แบบเดียวกับในบทนี้ (`INCR` + `EXPIRE` + threshold check) ห่อด้วย Lua เพื่อให้การตรวจสอบและอัปเดต counter เป็น atomic operation เดียว
+
 export const quizLua = [
   {
     q: "ภายใน Lua script คุณเข้าถึง key แรกที่ส่งให้ EVAL อย่างไร?",

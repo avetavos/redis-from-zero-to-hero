@@ -79,6 +79,25 @@ Consumer groups มอบ at-least-once delivery ให้คุณ หาก co
 
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| Consumer group แบ่งงานให้หลาย worker | scale การประมวลผลแนวนอนได้ แต่ละ entry ไปหา consumer เดียว ไม่ซ้ำงาน | ต้องจัดการ `XACK` เองทุก entry เพิ่มความซับซ้อนเทียบกับ `XREAD` ธรรมดา |
+| At-least-once delivery ผ่าน PEL | ไม่มี entry สูญหายแม้ consumer crash กลางคัน | consumer ต้องเขียน logic ให้ idempotent เพราะ entry อาจถูกส่งซ้ำได้เมื่อ claim ใหม่ |
+
+## Common Mistakes
+
+- **ไม่เรียก `XACK` หลังประมวลผลสำเร็จ** — entry จะค้างอยู่ใน PEL ตลอดไป ทำให้ PEL โตขึ้นเรื่อย ๆ และมองไม่เห็นว่า entry ไหนจบงานแล้วจริง ๆ
+- **`XACK` ก่อนประมวลผลเสร็จ** — ถ้า worker crash หลัง ack แต่ก่อนทำงานจริงเสร็จ entry นั้นจะหายไปจากระบบ tracking ทั้งที่งานยังไม่เสร็จ ควร ack หลังบันทึกผลสำเร็จเท่านั้น
+- **ไม่มี process คอย claim entry ที่ค้างจาก consumer ที่ตายไปแล้ว** — ถ้าไม่ใช้ `XCLAIM`/`XAUTOCLAIM` ตรวจสอบ PEL เป็นระยะ entry ของ consumer ที่ crash จะไม่มีวันถูกประมวลผลต่อ
+
+> 💡 Real World Example
+>
+> **Sidekiq-style background job queue** — ระบบประมวลผลงานเบื้องหลัง (ส่งอีเมล, resize รูป) ใช้ consumer group กระจายงานให้ worker หลายตัวพร้อม guarantee ว่างานจะไม่หายแม้ worker ตัวหนึ่ง crash
+>
+> **Log/event processing แบบกระจาย** — ทีมข้อมูลใช้ consumer group หลายตัวอ่าน stream เดียวกันเพื่อประมวลผลแบบขนาน โดยอาศัย PEL และ `XCLAIM` รับประกันว่าไม่มี event ไหนถูกข้ามไปแม้ instance ล้มเหลวระหว่างทาง
+
 export const quizConsumerGroups = [
   {
     q: "`XREADGROUP GROUP g consumer STREAMS s >` หมายความว่าอะไร?",

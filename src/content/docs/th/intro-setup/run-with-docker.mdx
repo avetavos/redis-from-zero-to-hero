@@ -86,6 +86,26 @@ docker exec -it redis redis-cli`;
 
 <TryRedis client:visible code={dockerCode} />
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| รันแบบไม่ mount volume | เริ่มต้นเร็ว เหมาะกับทดลองใช้งานชั่วคราว | ข้อมูลหายทันทีเมื่อ `docker rm` container |
+| แนบ named volume (`-v redisdata:/data`) | ข้อมูลอยู่รอดข้าม restart/recreate container | ต้องจัดการ volume lifecycle เอง (backup, cleanup) เพิ่มความซับซ้อน |
+| รัน container ด้วยค่าเริ่มต้นจาก `docker run` ตรง ๆ | สะดวก เหมาะกับ local dev | ไม่มี password, ไม่มี TLS, ไม่เหมาะเอาไป production ตรง ๆ |
+
+## Common Mistakes
+
+- **ลืมแนบ volume แล้วสงสัยว่าทำไมข้อมูลหาย** — ถ้าไม่ mount `/data` ไปยัง named volume ข้อมูลทั้งหมดจะอยู่ใน writable layer ของ container เท่านั้น พอ `docker rm` ข้อมูลหายถาวร
+- **เปิด `-p 6379:6379` แล้วเผยแพร่ port ออกสู่อินเทอร์เน็ตโดยไม่มี firewall** — official image ไม่ได้ตั้งค่า authentication มาให้ ถ้า bind กับ `0.0.0.0` โดยไม่กรอง network ใครก็เชื่อมต่อและรันคำสั่งได้
+- **รัน container โดยไม่ตั้ง `--requirepass`** — เหมาะสำหรับทดลองบนเครื่อง local เท่านั้น ก่อนใช้งานจริงต้องตั้งรหัสผ่านหรือใช้ ACL เสมอ
+
+> 💡 Real World Example
+>
+> **GitHub** — ใช้ Redis สำหรับงาน caching และ session หลายส่วนในระบบ โดยใน environment สำหรับ dev/test มักรันผ่าน container คล้ายกับที่สอนในบทนี้ ก่อนขึ้น production จริงบน infrastructure ที่ hardened แล้ว
+>
+> **Twitter** — แม้ production จะรันบน infrastructure ขนาดใหญ่ แต่ทีม dev ภายในมักใช้ Redis container เดียวกันนี้เพื่อจำลอง timeline cache ตอนพัฒนาและทดสอบ local
+
 export const quizDocker = [
   {
     q: "Flag ใดที่ใช้รัน Docker container ในโหมด detached (background)?",

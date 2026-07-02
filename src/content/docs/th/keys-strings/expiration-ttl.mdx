@@ -120,6 +120,26 @@ bug ที่พบบ่อยคือการเช็ก `TTL key == 0` เ
 
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| ตั้ง TTL ให้ key ทุกตัวที่เป็น cache/session | memory ถูกล้างอัตโนมัติ ไม่ต้องเขียน cleanup job เอง | ถ้าคำนวณ TTL ผิดพลาด ข้อมูลอาจหายไปเร็วเกินไปในขณะที่ระบบยังต้องใช้อยู่ |
+| พึ่งพา lazy expiry (ตรวจตอนเข้าถึง key) | ไม่มี overhead เพิ่มถ้าไม่มีใครอ่าน key นั้นเลย | key ที่หมดอายุแต่ไม่มีใครเข้าถึงจะยังกิน memory ค้างอยู่จนกว่า active expiry cycle จะมาเจอ |
+| ใช้ `PERSIST` ยกเลิก TTL ของ key ที่เคยตั้งไว้ | ยืดอายุข้อมูลสำคัญได้โดยไม่ต้องสร้าง key ใหม่ | เสี่ยงลืมว่า key นั้นเคยตั้งใจให้เป็นข้อมูลชั่วคราว ทำให้ memory โตแบบไม่มีการล้าง |
+
+## Common Mistakes
+
+- **เช็ก `TTL key == 0` เพื่อตรวจว่า key หายไปหรือไม่** — ค่าที่ถูกต้องสำหรับ key ที่ไม่มีอยู่คือ `-2` ไม่ใช่ `0` เพราะ TTL จะไม่มีวันค้างอยู่ที่ศูนย์ ต้องแยกเงื่อนไข `-2` (ไม่มีอยู่) กับ `-1` (persistent) ให้ถูกต้อง
+- **ลืมตั้ง TTL ให้ key ที่ควรเป็นข้อมูลชั่วคราว** — ถ้า `SET` cache หรือ session โดยไม่ผูก `EX`/`PX` เลย ข้อมูลจะกลายเป็น persistent และสะสมจน `maxmemory` เต็ม
+- **สับสนระหว่าง `EXPIRE` (relative) กับ `EXPIREAT` (absolute timestamp)** — ใช้ผิดตัวจะทำให้ TTL คลาดเคลื่อนจากที่ตั้งใจ โดยเฉพาะเมื่อ clock ของ client กับ server ไม่ตรงกัน
+
+> 💡 Real World Example
+>
+> **Twitter timeline cache** — ผูก TTL กับ key แคช timeline เพื่อให้ข้อมูลเก่าถูกล้างอัตโนมัติ แล้ว regenerate ใหม่จาก source of truth เมื่อมีคน request เข้ามาหลัง cache หมดอายุ
+>
+> **Stack Overflow** — ใช้ TTL กับ session key เพื่อ log out ผู้ใช้อัตโนมัติหลังไม่มี activity ในช่วงเวลาที่กำหนด แทนที่จะต้องมี background job มาลบ session เก่า
+
 export const quizTTL = [
   {
     q: "TTL คืนค่าอะไรสำหรับ key ที่มีอยู่แต่ไม่ได้ตั้ง expiration ไว้?",

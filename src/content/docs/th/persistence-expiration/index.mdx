@@ -28,7 +28,7 @@ AOF (Append-Only File) บันทึกคำสั่งเขียนทุ
 
 ### Key Expiration / TTL
 
-Redis ช่วยให้คุณแนบเวลา time-to-live กับ key ใด ๆ ด้วย `EXPIRE` (วินาที) หรือ `PEXPIRE` (มิลลิวินาที) เมื่อ TTL หมดอายุ key จะถูกลบโดยอัตโนมัติ ใช้ `TTL` เพื่อตรวจสอบเวลาที่เหลือ และ `PERSIST` เพื่อลบการหมดอายุออกและทำให้ key อยู่ถาวร
+Redis ช่วยให้คุณแนบเวลา time-to-live กับ key ใด ๆ ด้วย `EXPIRE` (วินาที) หรือ `PEXPIRE` (มิลลิวินาที) เมื่อ TTL หมดอายุ key จะถูกลบโดยอัตโนมัติ ใช้ `TTL` เพื่อตรวจสอบเวลาที่เหลือ และ `PERSIST` เพื่อลบ expiration ออกและทำให้ key อยู่ถาวร
 
 ### Eviction Policies
 
@@ -46,7 +46,7 @@ Redis ช่วยให้คุณแนบเวลา time-to-live กับ
 
 ## ลองทำ — TTL เบื้องต้น
 
-โค้ดด้านล่างตั้ง key พร้อมการหมดอายุ 30 วินาที ตรวจสอบ TTL ที่เหลือ แล้วลบการหมดอายุออกเพื่อทำให้ key อยู่ถาวร
+โค้ดด้านล่างตั้ง key พร้อม TTL 30 วินาที ตรวจสอบ TTL ที่เหลือ แล้วลบ expiration ออกเพื่อทำให้ key อยู่ถาวร
 
 export const overviewCode = `SET session:demo "hello" EX 30
 TTL session:demo
@@ -64,7 +64,7 @@ OK
 (integer) -1
 ```
 
-`TTL` คืนค่า `-1` เมื่อ key มีอยู่แต่ไม่มีการหมดอายุ และ `-2` เมื่อ key ไม่มีอยู่เลย
+`TTL` คืนค่า `-1` เมื่อ key มีอยู่แต่ไม่มี expiration และ `-2` เมื่อ key ไม่มีอยู่เลย
 
 <TryRedis client:visible code={overviewCode} />
 

@@ -12,7 +12,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## ทำไมต้องใช้ Redis สำหรับเซสชัน?
 
-Application server ทำงานแบบ stateless ดังนั้นเซสชันต้องถูกจัดเก็บไว้ที่ใดที่หนึ่งภายนอก Redis เหมาะสมอย่างมาก เพราะทำงานได้รวดเร็ว รองรับการหมดอายุของ key โดยธรรมชาติ และ hash type ของ Redis สอดรับกับ session object ที่มีหลายฟิลด์ได้เป็นอย่างดี
+Application server ทำงานแบบ stateless ดังนั้นเซสชันต้องถูกจัดเก็บไว้ที่ใดที่หนึ่งภายนอก Redis เหมาะสมอย่างมาก เพราะทำงานได้รวดเร็ว รองรับ expiration ของ key โดยธรรมชาติ และ hash type ของ Redis สอดรับกับ session object ที่มีหลายฟิลด์ได้เป็นอย่างดี
 
 ## เก็บเซสชันในรูปแบบ hash
 
@@ -74,6 +74,26 @@ HGET session:abc123 role`;
 <Callout title="เก็บเซสชันเป็น hash พร้อม sliding TTL">
 เรียก EXPIRE ในทุกคำขอที่ผ่านการยืนยันตัวตนเพื่อให้เซสชันที่ใช้งานอยู่ยังคงมีผล เมื่อผู้ใช้ logout ให้เรียก DEL session:&lt;id&gt; อย่างชัดเจน Hash ช่วยให้อ่านหรืออัปเดต field แต่ละตัวได้โดยไม่ต้องรับส่ง session blob ทั้งหมด
 </Callout>
+
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| Hash ต่อเซสชัน | อ่าน/อัปเดตทีละ field ได้ ไม่ต้อง deserialize ทั้งก้อน | ต้องรู้ชื่อ field ล่วงหน้า schema ไม่บังคับใน Redis เอง |
+| JSON string เดียว | เขียนอ่านง่าย เก็บโครงสร้างซับซ้อนได้ | ต้อง deserialize/serialize ทั้ง blob แม้แก้แค่ field เดียว |
+| Sliding TTL (`EXPIRE` ทุก request) | เซสชันที่ active ไม่หมดอายุกลางคัน | ต้องเรียก `EXPIRE` เพิ่มทุก request ซึ่งเพิ่ม round-trip |
+
+## Common Mistakes
+
+- **ลืมเรียก `EXPIRE` ซ้ำในทุกคำขอ** — ถ้าตั้ง TTL แค่ตอน login ครั้งเดียว ผู้ใช้ที่ active อยู่จะถูก logout กลางคันเมื่อ TTL เดิมหมดอายุ
+- **ไม่ `DEL` session key ตอน logout** — ถ้าปล่อยให้หมดอายุเองตาม TTL เท่านั้น session token ที่ถูกขโมยจะยังใช้งานได้จนกว่า TTL จะหมด แม้ผู้ใช้จะกด logout ไปแล้ว
+- **เก็บข้อมูลอ่อนไหว (เช่น password) ไว้ใน session hash** — session store ควรเก็บเฉพาะข้อมูลที่จำเป็นสำหรับ authorization ไม่ใช่ credential ดิบ
+
+> 💡 Real World Example
+>
+> **Express + connect-redis** — ใช้ Redis hash เก็บ session ของแอป Node.js แบบเดียวกับบทนี้ พร้อม sliding TTL ต่อ request
+>
+> **Instagram** — ใช้ Redis เป็น session store ระดับ production เพื่อรองรับ session lookup ที่รวดเร็วในสเกลผู้ใช้จำนวนมาก
 
 export const quizSessions = [
   {

@@ -60,6 +60,26 @@ CONFIG SET maxmemory 256mb`;
 
 </Callout>
 
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| `noeviction` | ไม่มี key ไหนถูกลบโดยไม่ตั้งใจ ปลอดภัยสำหรับข้อมูลถาวร | เขียนล้มเหลวทันทีด้วย error เมื่อหน่วยความจำเต็ม ต้อง monitor `maxmemory` เอง |
+| `allkeys-lru` / `allkeys-lfu` | Redis จัดการหน่วยความจำเองอัตโนมัติ เหมาะกับ pure-cache workload | อาจลบ key ที่ยังต้องการอยู่ถ้าประเมิน "ใช้งานน้อย" ผิดพลาด ไม่เหมาะกับข้อมูลที่ต้องอยู่ถาวร |
+| `volatile-*` (lru/lfu/ttl/random) | ลบเฉพาะ key ที่มี TTL เท่านั้น ข้อมูลถาวรปลอดภัย | ถ้า key ทั้งหมดไม่มี TTL policy นี้จะทำงานเหมือน `noeviction` และเขียนล้มเหลวเมื่อเต็ม |
+
+## Common Mistakes
+
+- **รัน production cache ด้วย `noeviction`** — เมื่อหน่วยความจำเต็ม การเขียนทุกครั้งจะได้ error `OOM command not allowed` แทนที่จะปล่อยให้ Redis ลบ key เก่าออกเองตามที่ cache ควรทำ
+- **ใช้ `allkeys-lru` กับข้อมูลที่ต้องอยู่ถาวร** — ถ้า Redis ถูกใช้เป็นทั้ง cache และที่เก็บข้อมูลสำคัญในฐานเดียวกัน นโยบาย `allkeys-*` อาจลบ key สำคัญทิ้งเมื่อหน่วยความจำตึง ควรแยก instance หรือใช้ `volatile-*` แทน
+- **ไม่ตั้ง `maxmemory` เลย** — ถ้าไม่ได้กำหนดขีดจำกัด Redis จะใช้หน่วยความจำเท่าที่ระบบมี จนกระทั่ง OS เริ่ม kill process หรือระบบล่มโดยไม่มีการเตือนล่วงหน้า
+
+> 💡 Real World Example
+>
+> **Instagram** — ใช้ Redis fleet จำนวนมากที่ตั้งค่า `allkeys-lru` เป็นมาตรฐานสำหรับ cache layer เพื่อให้ระบบจัดการหน่วยความจำเองโดยไม่ต้องเขียน eviction logic เอง
+>
+> **Stack Overflow** — แยก Redis instance สำหรับ cache (ตั้ง `allkeys-lru`) ออกจาก instance ที่เก็บข้อมูลสำคัญ (ตั้ง `noeviction`) เพื่อไม่ให้ policy ผิดประเภทกระทบข้อมูลที่ห้ามหาย
+
 export const quizEviction = [
   {
     q: "นโยบาย eviction ใดที่ลบ key ที่ใช้งานน้อยที่สุดล่าสุดจากทุก key?",

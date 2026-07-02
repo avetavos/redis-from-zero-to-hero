@@ -1,6 +1,6 @@
 ---
 title: 'Hashes'
-description: 'HSET, HGET, HMGET, HGETALL, HDEL, HEXISTS, HKEYS, HVALS, และ HLEN — เก็บคู่ field-value หลายรายการไว้ภายใต้คีย์เดียว'
+description: 'HSET, HGET, HMGET, HGETALL, HDEL, HEXISTS, HKEYS, HVALS, และ HLEN — เก็บคู่ field-value หลายรายการไว้ภายใต้ key เดียว'
 sidebar:
   order: 4
 ---
@@ -10,9 +10,9 @@ import Callout from '../../../../components/Callout.astro';
 import Quiz from '../../../../components/Quiz.tsx';
 import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
-## Hashes — dictionary แบบ flat ภายใต้คีย์เดียว
+## Hashes — dictionary แบบ flat ภายใต้ key เดียว
 
-Redis Hashes เก็บคู่ field-value หลายรายการไว้ภายใต้คีย์เดียว ลองนึกถึงมันเหมือน dictionary แบบ flat หรือแถวข้อมูลในฐานข้อมูล — หนึ่งคีย์เก็บได้หลาย field ที่มีชื่อแยกกัน
+Redis Hashes เก็บคู่ field-value หลายรายการไว้ภายใต้ key เดียว ลองนึกถึงมันเหมือน dictionary แบบ flat หรือแถวข้อมูลในฐานข้อมูล — หนึ่ง key เก็บได้หลาย field ที่มีชื่อแยกกัน
 
 ## HSET และ HGET
 
@@ -101,9 +101,29 @@ HLEN product:1`;
 
 <Callout title="A hash stores an object's fields under one key — memory-efficient">
 
-Redis ใช้การเข้ารหัสแบบกระชับ (listpack) สำหรับ hash ขนาดเล็กโดยอัตโนมัติ แทนที่จะเก็บ `product:1:name`, `product:1:price`, และ `product:1:stock` เป็นสาม string key แยกกัน การใช้ `HSET product:1 ...` เพียงครั้งเดียวจะเก็บทั้งหมดไว้ภายใต้คีย์เดียว — ประหยัดหน่วยความจำ ลด round-trip และจัดกลุ่มข้อมูลได้อย่างมีตรรกะ
+Redis ใช้การเข้ารหัสแบบกระชับ (listpack) สำหรับ hash ขนาดเล็กโดยอัตโนมัติ แทนที่จะเก็บ `product:1:name`, `product:1:price`, และ `product:1:stock` เป็นสาม string key แยกกัน การใช้ `HSET product:1 ...` เพียงครั้งเดียวจะเก็บทั้งหมดไว้ภายใต้ key เดียว — ประหยัดหน่วยความจำ ลด round-trip และจัดกลุ่มข้อมูลได้อย่างมีตรรกะ
 
 </Callout>
+
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| Hash (field แยกเป็น field-value) | อ่าน/เขียนทีละ field ได้โดยไม่ต้อง parse ทั้งก้อน (`HGET`/`HSET`) | ไม่มี nested structure ในตัว ต้อง flatten ข้อมูลที่ซับซ้อนเอง |
+| String เก็บ JSON blob | เก็บโครงสร้างซับซ้อน/nested ได้ตามธรรมชาติ | ต้อง `GET` ทั้งก้อนแล้ว parse ทุกครั้ง แม้ต้องการแค่ field เดียว เขียนทับทั้งก้อนเสมอ |
+| `HDEL` ลบทีละ field | ลบเฉพาะ field ที่ไม่ต้องการได้ตรง ๆ โดยไม่กระทบ field อื่น | ต้องรู้ชื่อ field ล่วงหน้า ไม่มี wildcard delete ในตัว |
+
+## Common Mistakes
+
+- **เก็บ object เป็น JSON string แทนที่จะใช้ hash เมื่อ field ส่วนใหญ่เป็น flat key-value** — เสีย round-trip parse/serialize ทุกครั้งที่อ่านหรือเขียนแค่ field เดียว
+- **ใช้ `HGETALL` กับ hash ที่มี field จำนวนมากบ่อย ๆ** — โหลดทุก field เข้าหน่วยความจำ client ทั้งที่ต้องการแค่ 1-2 field ควรใช้ `HMGET` หรือ `HGET` แทน
+- **ลืมว่า `HDEL` คืนค่าเป็นจำนวน field ที่ถูกลบจริง ไม่ใช่ boolean** — เข้าใจผิดว่า return `0` คือ error ทั้งที่จริงหมายถึง field นั้นไม่มีอยู่ตั้งแต่แรก
+
+> 💡 Real World Example
+>
+> **Shopify** — เก็บ attribute ของสินค้า (price, stock, name) เป็น Redis hash ต่อหนึ่ง product ทำให้อัปเดต stock ด้วย field เดียวได้เร็วโดยไม่กระทบ field อื่น
+>
+> **Twitch** — ใช้ hash เก็บ state ของ stream (viewer count, title, category) ต่อหนึ่ง channel เพื่อให้ dashboard อ่านและอัปเดตแต่ละ field แยกกันแบบ real-time
 
 export const quizHashes = [
   {

@@ -1,5 +1,5 @@
 ---
-title: 'การจำลอง Object ด้วย Hashes'
+title: 'การ model Object ด้วย Hashes'
 description: 'จัดเก็บ object เป็น hash ใช้ HINCRBY และ HINCRBYFLOAT สำหรับฟิลด์ตัวเลข และ HSETNX สำหรับการตั้งค่าแบบมีเงื่อนไข'
 sidebar:
   order: 5
@@ -12,7 +12,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## หนึ่ง hash ต่อหนึ่ง object — รูปแบบมาตรฐาน
 
-วิธีที่ถูกต้องในการจำลอง domain object ใน Redis คือการเก็บทุกฟิลด์ไว้ภายใต้ hash key เดียว ตัวอย่างเช่น ข้อมูลผู้ใช้จะอยู่ทั้งหมดภายใต้ `user:1`:
+วิธีที่ถูกต้องในการ model domain object ใน Redis คือการเก็บทุกฟิลด์ไว้ภายใต้ hash key เดียว ตัวอย่างเช่น ข้อมูลผู้ใช้จะอยู่ทั้งหมดภายใต้ `user:1`:
 
 ```text
 127.0.0.1:6379> HSET user:1 name "Ada" email "ada@example.com" age "28" points "0"
@@ -115,6 +115,26 @@ HGET user:1 referrer`;
 การเก็บ `user:1` เป็น hash เดียวใช้หน่วยความจำน้อยกว่าการแยกเป็น `user:1:name`, `user:1:email` ฯลฯ Redis ใช้ encoding แบบ listpack สำหรับ hash ที่มีไม่เกิน 128 ฟิลด์ — ช่วยประหยัดได้ประมาณ 50–80 bytes ต่อออบเจกต์เมื่อเทียบกับ string key แยก สงวน pattern หลาย key ไว้ใช้เฉพาะเมื่อต้องการกำหนด expiration ระดับฟิลด์เท่านั้น
 
 </Callout>
+
+## Trade-offs
+
+| ตัวเลือก | Benefit | Cost |
+|---|---|---|
+| Hash เดียวต่อหนึ่ง object | หน่วยความจำน้อยกว่า อัปเดตทีละ field ได้ด้วย `HGET`/`HSET` โดยไม่แตะ field อื่น | ตั้ง TTL แยกต่อ field ไม่ได้ ต้องหมดอายุทั้ง hash พร้อมกัน |
+| `HINCRBY`/`HINCRBYFLOAT` สำหรับ field ตัวเลข | เพิ่มค่าแบบ atomic ไม่มี race condition จาก read-modify-write | ใช้ได้เฉพาะ field ที่เป็นตัวเลขเท่านั้น field อื่นต้องใช้ `HSET` ตามปกติ |
+| `HSETNX` สำหรับ field แบบมีเงื่อนไข | รับประกันว่ามีเพียง writer ตัวแรกเท่านั้นที่ set ค่าได้ เหมาะกับ `created_at` | ไม่สามารถอัปเดตค่าที่มีอยู่แล้วได้ ต้องใช้ `HSET` ธรรมดาถ้าต้องการ overwrite |
+
+## Common Mistakes
+
+- **แยก field ของ object เดียวออกเป็นหลาย string key** เช่น `user:1:name`, `user:1:email` — เปลืองหน่วยความจำมากกว่า ควรรวมเป็น hash เดียวเสมอ ยกเว้นต้องการ TTL แยกต่อ field จริง ๆ
+- **ใช้ `HSET` ธรรมดาแทน `HINCRBY` เมื่ออัปเดต field ตัวเลข** — ต้อง `HGET` ค่าก่อนแล้วค่อย `HSET` กลับ เปิดช่องให้เกิด race condition เมื่อมี writer พร้อมกันหลายตัว
+- **ลืมว่า `HSETNX` ไม่ overwrite ค่าที่มีอยู่แล้ว** — เข้าใจผิดว่าเป็น "set หรือ update" ทั้งที่จริงมันทำงานเฉพาะตอนที่ field ยังไม่มีอยู่เท่านั้น
+
+> 💡 Real World Example
+>
+> **GitHub** — เก็บ metadata ของ object อย่าง repository stats เป็น hash เดียวต่อหนึ่ง object ใช้ `HINCRBY` อัปเดตตัวนับ เช่น star count แบบ atomic โดยไม่ต้องล็อกฝั่ง application
+>
+> **Instagram** — ใช้ hash เก็บ field ของ media object (like count, view count) รวมกันภายใต้ key เดียว ลด round-trip เมื่อต้องอ่านหลาย field พร้อมกันสำหรับหน้า feed
 
 export const quizHashObjects = [
   {
