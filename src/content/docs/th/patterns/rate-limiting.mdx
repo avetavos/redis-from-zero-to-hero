@@ -64,7 +64,7 @@ INCR + EXPIRE ให้ **fixed window**: คำขอทั้งหมดใ�
 
 สำหรับ **sliding window** ที่แท้จริง คุณจะต้องใช้ sorted set: เก็บ timestamp ของแต่ละคำขอด้วย `ZADD` ตัดรายการเก่าออกด้วย `ZREMRANGEBYSCORE` แล้วนับรายการที่ยังมีผลด้วย `ZCARD` วิธีนี้แม่นยำกว่าแต่มีต้นทุนต่อคำขอสูงกว่าเล็กน้อย
 
-## Trade-offs
+## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
 |---|---|---|
@@ -72,13 +72,13 @@ INCR + EXPIRE ให้ **fixed window**: คำขอทั้งหมดใ�
 | Sliding window (`ZADD` + `ZREMRANGEBYSCORE`) | แม่นยำกว่า ไม่มี edge burst | ใช้ memory และ CPU มากกว่าต่อ request หนึ่งครั้ง |
 | Token bucket | รองรับ burst traffic แบบควบคุมได้ | ต้องคำนวณ refill rate เพิ่มความซับซ้อนของ logic |
 
-## Common Mistakes
+## ข้อผิดพลาดที่พบบ่อย
 
 - **ลืมตั้ง `EXPIRE` ตอน count == 1** — ถ้าไม่ตั้ง TTL ให้ counter key จะไม่มีวันรีเซ็ต ผู้ใช้จะโดน rate limit ถาวรหลังแตะขีดจำกัดครั้งแรก
 - **ใช้ fixed window แล้วคิดว่าป้องกัน burst ได้ 100%** — คำขอที่กระจุกอยู่ปลาย window หนึ่งกับต้น window ถัดไปสามารถรวมกันเกินขีดจำกัดจริงได้ถึงสองเท่า
 - **ไม่คืน HTTP header ที่บอกสถานะ rate limit ให้ client** — ถ้าไม่ส่ง header อย่าง `Retry-After` client จะ retry แบบสุ่มแทนที่จะรอเวลาที่เหมาะสม
 
-> 💡 Real World Example
+> 💡 ตัวอย่างจากของจริง
 >
 > **GitHub API** — ใช้ counter แบบ `INCR`/`EXPIRE` ต่อ token เพื่อจำกัดจำนวน request ต่อชั่วโมง พร้อมส่ง header บอกโควตาที่เหลือ
 >

@@ -125,7 +125,7 @@ Redis transaction รับประกันว่าคำสั่งที�
 
 </Callout>
 
-## Trade-offs
+## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
 |---|---|---|
@@ -133,13 +133,13 @@ Redis transaction รับประกันว่าคำสั่งที�
 | `WATCH` สำหรับ optimistic locking | ตรวจจับ race condition ได้โดยไม่ต้อง lock resource จริง เหมาะกับ contention ต่ำ | ต้องเขียน retry loop เอง และภายใต้ contention สูงอาจ retry ซ้ำหลายรอบ |
 | Lua script แทน transaction เมื่อต้อง branching | ได้ conditional logic แบบ atomic ที่ transaction ทำไม่ได้ | ซับซ้อนกว่า `MULTI`/`EXEC` และต้องเขียน Lua แยกต่างหาก |
 
-## Common Mistakes
+## ข้อผิดพลาดที่พบบ่อย
 
 - **คาดหวังว่า `MULTI`/`EXEC` จะ rollback เหมือน SQL transaction** — Redis transaction ไม่มี rollback runtime error ในคำสั่งหนึ่งจะไม่ยกเลิกคำสั่งอื่นที่สำเร็จไปแล้วใน `EXEC` เดียวกัน ต้องตรวจสอบผลลัพธ์แต่ละคำสั่งเอง
 - **ลืมใช้ `WATCH` เมื่อทำ check-then-set ที่มี race condition** — ถ้าอ่านค่าก่อนแล้ว `MULTI`/`EXEC` เขียนทีหลังโดยไม่ `WATCH` key ที่อ่าน client อื่นอาจแก้ไขค่าระหว่างนั้นได้โดยไม่มีการตรวจจับ
 - **ไม่มี retry logic เมื่อ `EXEC` คืน `(nil)`** — เมื่อ key ที่ `WATCH` ไว้ถูกแก้ไขก่อน `EXEC` transaction จะถูกยกเลิกและคืน `(nil)` โค้ดฝั่ง client ต้อง retry ทั้งลำดับตั้งแต่ `WATCH` ใหม่ ไม่ใช่ปล่อยผ่านเงียบ ๆ
 
-> 💡 Real World Example
+> 💡 ตัวอย่างจากของจริง
 >
 > **ระบบ inventory/stock แบบง่าย** — ใช้ `WATCH` บน key จำนวนสินค้าคงเหลือ ก่อนลดจำนวนด้วย `MULTI`/`EXEC` เพื่อป้องกันการขายเกินสต็อกเมื่อมีคำสั่งซื้อพร้อมกันหลายคำสั่ง
 >

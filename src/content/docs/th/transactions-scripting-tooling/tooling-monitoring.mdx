@@ -148,11 +148,11 @@ RedisInsight คือ GUI อย่างเป็นทางการที�
 
 <Callout title="ใช้ --bigkeys, SLOWLOG และ INFO ในการวินิจฉัย หลีกเลี่ยง MONITOR ใน production">
 
-`MONITOR` มีประโยชน์มากสำหรับ debug แต่มีต้นทุนจริง: มันเพิ่ม write load ของ server ประมาณสองเท่าเพราะ Redis ต้องส่งสำเนาทุกคำสั่งไปยัง monitoring client แต่ละตัว ใช้เพียงสั้นๆ บน staging server หรือ replica ที่ traffic น้อย แล้ว disconnect สำหรับ production diagnostics ให้ใช้ `SLOWLOG`, `INFO stats` และ `--bigkeys` แทน — ออกแบบมาให้ปลอดภัยภายใต้ load
+`MONITOR` มีประโยชน์มากสำหรับ debug แต่มีต้นทุนจริง: `MONITOR` เพิ่ม write load ของ server ประมาณสองเท่าเพราะ Redis ต้องส่งสำเนาทุกคำสั่งไปยัง monitoring client แต่ละตัว ใช้เพียงสั้นๆ บน staging server หรือ replica ที่ traffic น้อย แล้ว disconnect สำหรับ production diagnostics ให้ใช้ `SLOWLOG`, `INFO stats` และ `--bigkeys` แทน — ออกแบบมาให้ปลอดภัยภายใต้ load
 
 </Callout>
 
-## Trade-offs
+## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
 |---|---|---|
@@ -161,13 +161,13 @@ RedisInsight คือ GUI อย่างเป็นทางการที�
 | `--bigkeys` / `--scan` (ใช้ `SCAN` ภายใน) | สแกน keyspace ทั้งหมดได้โดยไม่บล็อก server | ยังคงกิน CPU/network ต่อเนื่องระหว่างสแกน ควรรันตอน traffic ต่ำ |
 | RedisInsight GUI | มองเห็นภาพรวม keyspace, slow log และ memory ได้ง่ายกว่า CLI | ต้องติดตั้งเพิ่มเติมและเปิด network access ไปยัง Redis instance |
 
-## Common Mistakes
+## ข้อผิดพลาดที่พบบ่อย
 
 - **เปิด `MONITOR` ทิ้งไว้ใน production** — คำสั่งนี้เพิ่ม write load ของ server ประมาณสองเท่าเพราะต้องส่งสำเนาทุกคำสั่งไปยัง monitoring client ใช้เฉพาะช่วง debug สั้น ๆ บน staging หรือ replica traffic ต่ำเท่านั้น
-- **ใช้ `KEYS *` แทน `--bigkeys`/`--scan` เพื่อสำรวจ keyspace** — `KEYS *` บล็อก server จนกว่าจะสแกนครบ ในขณะที่ `--bigkeys` และ `--scan` ใช้ `SCAN` ภายในซึ่งไม่บล็อก
+- **ใช้ `KEYS *` แทน `--bigkeys`/`--scan` เพื่อสำรวจ keyspace** — `KEYS *` บล็อก server จนกว่าจะสแกนครบ ส่วน `--bigkeys` และ `--scan` ใช้ `SCAN` ภายในซึ่งไม่บล็อก
 - **ไม่เคยตรวจ `SLOWLOG` หรือ `INFO stats` จนกว่าจะเกิดปัญหา performance จริง** — ควร monitor เป็นประจำเพื่อจับ query ช้าหรือ memory ที่โตผิดปกติตั้งแต่เนิ่น ๆ ไม่ใช่รอให้ระบบล่มก่อน
 
-> 💡 Real World Example
+> 💡 ตัวอย่างจากของจริง
 >
 > **ทีม SRE ทั่วไปที่ดูแล Redis fleet** — ใช้ `INFO stats` และ `SLOWLOG` เป็นส่วนหนึ่งของ dashboard monitoring มาตรฐาน (ต่อกับ Grafana/Prometheus) แทนการเปิด `MONITOR` ซึ่งมีต้นทุนสูงเกินไปสำหรับ production
 >
@@ -182,9 +182,9 @@ export const quizTooling = [
   {
     q: "ทำไมจึงควรหลีกเลี่ยงการเปิด MONITOR ทิ้งไว้ใน production?",
     options: [
-      "มันลบ key",
-      "มันเพิ่ม server write load ประมาณสองเท่าต่อ monitoring client แต่ละตัว",
-      "มันบล็อก client ทั้งหมด",
+      "ลบ key",
+      "เพิ่ม server write load ประมาณสองเท่าต่อ monitoring client แต่ละตัว",
+      "บล็อก client ทั้งหมด",
       "ใช้ได้เฉพาะ Redis 6 และต่ำกว่า",
     ],
     answer: 1,

@@ -83,7 +83,7 @@ LPOP stack`;
 1) "task:A"
 ```
 
-`task:A` อยู่ที่ท้ายของ `pending` (ถูก push เข้ามาก่อนด้วย `RPUSH`) หลังจาก `RPOPLPUSH` มันจะอยู่ที่หัวของ `processing` ในขณะที่ `pending` เหลือเพียงรายการที่เหลืออยู่
+`task:A` อยู่ที่ท้ายของ `pending` (ถูก push เข้ามาก่อนด้วย `RPUSH`) หลังจาก `RPOPLPUSH` จะไปอยู่ที่หัวของ `processing` ส่วน `pending` เหลือแค่รายการที่ยังไม่ถูกหยิบ
 
 export const rpoplpushCode = `DEL pending processing
 RPUSH pending "task:A" "task:B" "task:C"
@@ -115,7 +115,7 @@ LRANGE processing 0 -1`;
 
 </Callout>
 
-## Trade-offs
+## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
 |---|---|---|
@@ -123,13 +123,13 @@ LRANGE processing 0 -1`;
 | Redis List เป็น queue | ตั้งค่าง่าย latency ต่ำ ไม่ต้องติดตั้ง broker แยก | ไม่มี retry, dead-letter, หรือ delivery guarantee ในตัวเหมือน RabbitMQ/Kafka |
 | `RPOPLPUSH` ย้ายไป processing list | ป้องกันงานหายถ้า worker crash ระหว่างประมวลผล | ต้องเขียน logic เคลียร์ processing list เองเมื่อ worker ทำงานเสร็จ |
 
-## Common Mistakes
+## ข้อผิดพลาดที่พบบ่อย
 
 - **ใช้ `RPOPLPUSH` ย้ายงานไป processing list แต่ไม่เคลียร์ออกเมื่อประมวลผลเสร็จ** — processing list โตขึ้นเรื่อย ๆ จนกลายเป็น memory leak
 - **ใช้ Redis List queue แทน message broker เต็มรูปแบบเมื่อจำเป็นต้องมี retry, dead-letter queue หรือ delivery guarantee ที่เข้มงวด** — Redis List ไม่มี feature เหล่านี้ในตัว ต้องเขียนเองทั้งหมด
 - **ปล่อย unbounded list โดยไม่ `LTRIM`** — ถ้า consumer ตามไม่ทัน producer list จะโตไม่มีขีดจำกัดจนหน่วยความจำหมด
 
-> 💡 Real World Example
+> 💡 ตัวอย่างจากของจริง
 >
 > **Sidekiq** — background job library ยอดนิยมของ Ruby ใช้ Redis List เป็น queue หลัก โดยมี worker process วน `BLPOP` รอรับงานใหม่แบบเดียวกับที่เรียนในบทนี้
 >

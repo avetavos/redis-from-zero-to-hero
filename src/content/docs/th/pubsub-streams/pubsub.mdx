@@ -14,11 +14,11 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 Redis Pub/Sub ทำตาม pattern publish-subscribe แบบคลาสสิก:
 
-1. Client เรียก `SUBSCRIBE channel` และเข้าสู่โหมดฟัง มันไม่สามารถออกคำสั่งปกติได้อีกต่อไป — มันจะรับแต่ push message จาก Redis เท่านั้น
+1. Client เรียก `SUBSCRIBE channel` และเข้าสู่โหมดฟัง ไม่สามารถออกคำสั่งปกติได้อีกต่อไป — จะรับแต่ push message จาก Redis เท่านั้น
 2. Client อื่นใดเรียก `PUBLISH channel message` Redis จะส่งต่อข้อความนั้นไปยัง subscriber ที่เชื่อมต่ออยู่ทุกคนของ channel นั้นทันที
-3. ข้อความไม่เคยถูกเก็บไว้ หากไม่มี subscriber เชื่อมต่ออยู่ ข้อความจะถูกทิ้งอย่างเงียบ ๆ หาก subscriber เชื่อมต่ออยู่เมื่อสิบวินาทีก่อนแต่ตัดการเชื่อมต่อไปแล้ว มันจะไม่ได้รับอะไรเลย
+3. ข้อความไม่เคยถูกเก็บไว้ หากไม่มี subscriber เชื่อมต่ออยู่ ข้อความจะถูกทิ้งอย่างเงียบ ๆ หาก subscriber เชื่อมต่ออยู่เมื่อสิบวินาทีก่อนแต่ตัดการเชื่อมต่อไปแล้ว จะไม่ได้รับอะไรเลย
 
-แต่ละ channel เป็นแค่ชื่อ — Redis สร้างและลบ channel โดยปริยายเมื่อ subscriber มาและไป ไม่จำเป็นต้องสร้าง channel ก่อนที่จะ publish ไปยังมัน
+แต่ละ channel เป็นแค่ชื่อ — Redis สร้างและลบ channel โดยปริยายเมื่อ subscriber มาและไป ไม่จำเป็นต้องสร้าง channel ก่อน publish
 
 ## SUBSCRIBE และ PUBLISH — การสาธิตสองเทอร์มินัล
 
@@ -50,7 +50,7 @@ Reading messages... (press Ctrl-C to quit or any command to unsubscribe)
 | 2 | `"news"` | ชื่อ channel |
 | 3 | `(integer) 1` | จำนวน channel ทั้งหมดที่ client นี้ subscribe อยู่ขณะนี้ |
 
-เมื่อข้อความที่ publish มาถึง มันก็มีสามส่วนเช่นกัน: ประเภท event `"message"`, ชื่อ channel และ payload
+ข้อความที่ publish มาถึงก็มีสามส่วนเช่นกัน: ประเภท event `"message"`, ชื่อ channel และ payload
 
 ตัวเลขที่ `PUBLISH` คืนกลับมาคือจำนวน subscriber ที่ได้รับข้อความ ค่าที่คืนมาเป็น `0` หมายความว่าไม่มีใครฟังอยู่
 
@@ -100,24 +100,24 @@ Redis ส่งการตอบกลับยืนยันหนึ่ง�
 
 <Callout title="Pub/Sub แบบ fire-and-forget — ผู้รับที่ออฟไลน์จะไม่ได้รับข้อความ">
 
-ไม่มี buffer ไม่มีการ retry และไม่มีประวัติ ทันทีที่ `PUBLISH` คืนค่า ข้อความก็หายไปแล้ว subscriber ที่ออฟไลน์แม้เพียงหนึ่ง millisecond ในช่วงนั้นจะไม่มีวันเห็นมัน หากแอปพลิเคชันของคุณรับการสูญหายของข้อความไม่ได้ ให้ใช้ Redis Streams แทน
+ไม่มี buffer ไม่มีการ retry และไม่มีประวัติ ทันทีที่ `PUBLISH` คืนค่า ข้อความก็หายไปแล้ว subscriber ที่ออฟไลน์แม้เพียงหนึ่ง millisecond ในช่วงนั้นจะไม่มีทางได้เห็นข้อความนั้นเลย หากแอปพลิเคชันของคุณรับการสูญหายของข้อความไม่ได้ ให้ใช้ Redis Streams แทน
 
 </Callout>
 
-## Trade-offs
+## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
 |---|---|---|
 | Pub/Sub แบบ fire-and-forget | latency ต่ำมาก ไม่มี overhead ของการเก็บ log ลงดิสก์ | ข้อความหายถาวรถ้าไม่มี subscriber เชื่อมต่ออยู่ตอนนั้น ไม่มีทาง replay |
 | SUBSCRIBE หลาย channel บน connection เดียว | ลดจำนวน connection ที่ต้องเปิดกับ Redis | client อยู่ในโหมดฟังทั้ง connection รันคำสั่งอื่นบน connection เดียวกันไม่ได้จนกว่าจะ unsubscribe |
 
-## Common Mistakes
+## ข้อผิดพลาดที่พบบ่อย
 
 - **ใช้ Pub/Sub ส่งข้อความที่ต้องรับประกันการส่งถึง** — เช่น order confirmation หรือ payment event หาก consumer offline ชั่วครู่ข้อความจะหายไปเลย ควรใช้ Streams แทนเมื่อข้อความสำคัญห้ามสูญหาย
 - **ลืมว่า client ที่ SUBSCRIBE อยู่ใช้คำสั่งทั่วไปไม่ได้** — connection จะเข้าสู่โหมดฟังทันที เรียก `GET`/`SET` บน connection เดียวกันไม่ได้ ต้องเปิด connection แยกสำหรับ publish
 - **ไม่ตรวจสอบค่าที่ `PUBLISH` คืนมา** — ค่า `0` แปลว่าไม่มี subscriber รับข้อความเลย ถ้าไม่เช็คค่านี้จะไม่รู้ตัวว่าข้อความหายไปเงียบ ๆ
 
-> 💡 Real World Example
+> 💡 ตัวอย่างจากของจริง
 >
 > **แชทแอป** — ใช้ Pub/Sub ส่งสถานะ "กำลังพิมพ์..." (typing indicator) เพราะข้อมูลนี้ล้าสมัยเร็วและยอมให้หายได้หาก subscriber ไม่ทัน
 >
@@ -135,7 +135,7 @@ export const quizPubsub = [
     answer: 2,
   },
   {
-    q: "client รัน SUBSCRIBE news แล้ว มันสามารถรัน GET mykey โดยไม่ต้อง unsubscribe ก่อนได้ไหม?",
+    q: "client รัน SUBSCRIBE news ไปแล้ว จะรัน GET mykey ต่อโดยไม่ unsubscribe ก่อนได้ไหม?",
     options: [
       "ได้ ทุกคำสั่งใช้ได้ขณะที่ subscribe อยู่",
       "ได้ แต่เฉพาะคำสั่งอ่านเท่านั้น",

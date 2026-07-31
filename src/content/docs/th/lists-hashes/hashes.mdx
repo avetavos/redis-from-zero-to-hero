@@ -12,7 +12,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## Hashes — dictionary แบบ flat ภายใต้ key เดียว
 
-Redis Hashes เก็บคู่ field-value หลายรายการไว้ภายใต้ key เดียว ลองนึกถึงมันเหมือน dictionary แบบ flat หรือแถวข้อมูลในฐานข้อมูล — หนึ่ง key เก็บได้หลาย field ที่มีชื่อแยกกัน
+Redis Hashes เก็บคู่ field-value หลายรายการไว้ภายใต้ key เดียว ลองนึกภาพเป็น dictionary แบบ flat หรือแถวข้อมูลในฐานข้อมูล — หนึ่ง key เก็บได้หลาย field ที่มีชื่อแยกกัน
 
 ## HSET และ HGET
 
@@ -105,7 +105,7 @@ Redis ใช้การเข้ารหัสแบบกระชับ (lis
 
 </Callout>
 
-## Trade-offs
+## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
 |---|---|---|
@@ -113,13 +113,13 @@ Redis ใช้การเข้ารหัสแบบกระชับ (lis
 | String เก็บ JSON blob | เก็บโครงสร้างซับซ้อน/nested ได้ตามธรรมชาติ | ต้อง `GET` ทั้งก้อนแล้ว parse ทุกครั้ง แม้ต้องการแค่ field เดียว เขียนทับทั้งก้อนเสมอ |
 | `HDEL` ลบทีละ field | ลบเฉพาะ field ที่ไม่ต้องการได้ตรง ๆ โดยไม่กระทบ field อื่น | ต้องรู้ชื่อ field ล่วงหน้า ไม่มี wildcard delete ในตัว |
 
-## Common Mistakes
+## ข้อผิดพลาดที่พบบ่อย
 
 - **เก็บ object เป็น JSON string แทนที่จะใช้ hash เมื่อ field ส่วนใหญ่เป็น flat key-value** — เสีย round-trip parse/serialize ทุกครั้งที่อ่านหรือเขียนแค่ field เดียว
 - **ใช้ `HGETALL` กับ hash ที่มี field จำนวนมากบ่อย ๆ** — โหลดทุก field เข้าหน่วยความจำ client ทั้งที่ต้องการแค่ 1-2 field ควรใช้ `HMGET` หรือ `HGET` แทน
 - **ลืมว่า `HDEL` คืนค่าเป็นจำนวน field ที่ถูกลบจริง ไม่ใช่ boolean** — เข้าใจผิดว่า return `0` คือ error ทั้งที่จริงหมายถึง field นั้นไม่มีอยู่ตั้งแต่แรก
 
-> 💡 Real World Example
+> 💡 ตัวอย่างจากของจริง
 >
 > **Shopify** — เก็บ attribute ของสินค้า (price, stock, name) เป็น Redis hash ต่อหนึ่ง product ทำให้อัปเดต stock ด้วย field เดียวได้เร็วโดยไม่กระทบ field อื่น
 >

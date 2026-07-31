@@ -115,11 +115,11 @@ XREAD COUNT 10 STREAMS events 0`;
 
 <Callout title="Streams เก็บข้อมูลไว้ ต่างจาก Pub/Sub ที่อ่านซ้ำได้">
 
-Pub/Sub คือ fire-and-forget: ข้อความที่ publish ในขณะที่ subscriber ออฟไลน์จะหายไปตลอดกาล Stream จะเก็บทุก entry ไว้บนดิสก์ (โดยอาจมีการตัดด้วย `MAXLEN` แบบ optional) ทำให้ consumer ที่มาช้า, worker ที่ crash และเครื่องมือ audit ทุกตัวสามารถอ่านประวัติทั้งหมดได้ นี่ทำให้ stream เป็นตัวเลือกที่เหมาะสมทุกครั้งที่การรับประกันการส่งหรือการเข้าถึงประวัติมีความสำคัญ
+Pub/Sub คือ fire-and-forget: ข้อความที่ publish ตอนที่ subscriber ออฟไลน์อยู่จะหายไปตลอดกาล Stream จะเก็บทุก entry ไว้บนดิสก์ (โดยอาจมีการตัดด้วย `MAXLEN` แบบ optional) ทำให้ consumer ที่มาช้า, worker ที่ crash และเครื่องมือ audit ทุกตัวสามารถอ่านประวัติทั้งหมดได้ นี่ทำให้ stream เป็นตัวเลือกที่เหมาะสมทุกครั้งที่การรับประกันการส่งหรือการเข้าถึงประวัติมีความสำคัญ
 
 </Callout>
 
-## Trade-offs
+## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
 |---|---|---|
@@ -127,13 +127,13 @@ Pub/Sub คือ fire-and-forget: ข้อความที่ publish ใน
 | `XADD` ด้วย ID อัตโนมัติ (`*`) | ได้ ID ที่เรียงตามเวลาให้ทันที ไม่ต้องจัดการเอง | ID ผูกกับ timestamp ของเครื่อง Redis หากต้องการ ID ที่มีความหมายทางธุรกิจต้องกำหนดเอง |
 | `XREAD BLOCK` แบบ long-poll | ได้ event ใหม่ทันทีโดยไม่ต้อง poll ถี่ ๆ | connection ค้างรอระหว่าง block ต้องจัดการ timeout และ reconnect เอง |
 
-## Common Mistakes
+## ข้อผิดพลาดที่พบบ่อย
 
 - **ไม่ตั้ง `MAXLEN` ให้ stream ที่มี throughput สูง** — stream ที่ไม่ trim จะสะสม entry ไปเรื่อย ๆ จนกินหน่วยความจำมหาศาล ควรใช้ `XADD key MAXLEN ~ 10000 * ...` เพื่อจำกัดขนาด
 - **ใช้ `XRANGE - +` แบบไม่จำกัด COUNT บน production stream ขนาดใหญ่** — ดึงข้อมูลทั้งหมดในครั้งเดียวอาจบล็อก server และใช้ memory มาก ควรระบุ `COUNT` และ paginate ด้วย ID ที่ได้จาก entry สุดท้าย
 - **เข้าใจผิดว่า Streams รับประกัน exactly-once** — Redis Streams ให้ at-least-once delivery เท่านั้น หาก consumer ประมวลผลซ้ำได้ (idempotent) ต้องออกแบบ logic ฝั่ง consumer เอง ไม่ใช่พึ่งพา stream ล้วน ๆ
 
-> 💡 Real World Example
+> 💡 ตัวอย่างจากของจริง
 >
 > **Order-event pipeline** — ระบบ e-commerce ใช้ Streams เก็บ event อย่าง `order_created`, `payment_confirmed` ให้ service หลายตัวอ่านและ replay ได้เมื่อต้อง rebuild state
 >

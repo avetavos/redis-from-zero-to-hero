@@ -14,7 +14,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 Redis เก็บทุก key และค่าที่เชื่อมโยงโดยตรงใน **RAM** เมื่อแอปพลิเคชันของคุณ set key ข้อมูลจะอยู่ในหน่วยความจำ — ไม่มีการค้นหาดิสก์ ไม่มี page fault ไม่มี overhead ของ file system เมื่ออ่าน key กลับมา คำตอบก็มาจากหน่วยความจำเดิมนั้น นี่คือเหตุผลที่ความหน่วงของ Redis อยู่ต่ำกว่ามิลลิวินาทีอย่างสม่ำเสมอแม้ภายใต้โหลดหนัก
 
-แต่ละค่ามี type Redis ไม่ใช่แค่ที่เก็บ string ธรรมดา — มันเข้าใจโครงสร้างข้อมูลโดยธรรมชาติ: Strings, Lists, Hashes, Sets, Sorted Sets, Streams และอีกมาก เซิร์ฟเวอร์สามารถทำงานกับโครงสร้างเหล่านั้นแบบ atomic ได้โดยตรง นั่นหมายความว่าคุณสามารถ append ลงใน list, เพิ่มค่า counter, หรือ pop จาก queue ได้โดยไม่ต้องล็อคระดับ application
+แต่ละค่ามี type Redis ไม่ใช่แค่ที่เก็บ string ธรรมดา — แต่เข้าใจโครงสร้างข้อมูลได้โดยตรง: Strings, Lists, Hashes, Sets, Sorted Sets, Streams และอีกมาก เซิร์ฟเวอร์สามารถทำงานกับโครงสร้างเหล่านั้นแบบ atomic ได้โดยตรง นั่นหมายความว่าคุณสามารถ append ลงใน list, เพิ่มค่า counter, หรือ pop จาก queue ได้โดยไม่ต้องล็อคระดับ application
 
 ## Single-threaded event loop
 
@@ -70,26 +70,26 @@ export const pingCode = `PING`;
 
 <Callout title="Redis คือ data-structure server ไม่ใช่แค่ cache">
 
-เนื่องจาก Redis เข้าใจ Lists, Hashes, Sets, Sorted Sets, และ Streams มันจึงสามารถแทนที่เครื่องมือเฉพาะทางหลายตัวในครั้งเดียวได้: queue, leaderboard engine, pub/sub broker, และใช่ cache — ทั้งหมดในรูปแบบ dependency เดียว
+เนื่องจาก Redis เข้าใจ Lists, Hashes, Sets, Sorted Sets, และ Streams จึงแทนที่เครื่องมือเฉพาะทางหลายตัวได้ในคราวเดียว: queue, leaderboard engine, pub/sub broker, และใช่ cache — ทั้งหมดในรูปแบบ dependency เดียว
 
 โครงสร้างข้อมูล built-in ยังหมายความว่าเซิร์ฟเวอร์สามารถบังคับใช้ invariant ที่คุณจะต้องจัดการใน application code เอง Sorted Set จะเรียงลำดับเสมอ Set จะมี member ที่ไม่ซ้ำกันเสมอ การรับประกันความถูกต้องนี้ไม่มีค่าใช้จ่ายใดเพิ่มเติม และยังคงมีผลแม้จะมี writer พร้อมกันหลายตัว
 
 </Callout>
 
-## Trade-offs
+## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
 |---|---|---|
 | เก็บข้อมูลใน RAM (in-memory) | latency ต่ำกว่ามิลลิวินาที อ่าน/เขียนเร็วกว่าดิสก์มาก | ต้นทุน RAM แพงกว่า disk มาก และข้อมูลทั้งหมดต้องพอดีกับหน่วยความจำที่มี |
 | Single-threaded event loop | ไม่มี lock contention ทุกคำสั่ง atomic โดยธรรมชาติ debug ง่าย | ใช้ CPU ได้แค่ core เดียวต่อ instance ไม่มี parallelism ภายใน |
 
-## Common Mistakes
+## ข้อผิดพลาดที่พบบ่อย
 
 - **คิดว่า Redis คือฐานข้อมูลถาวรโดยอัตโนมัติ** — ค่าเริ่มต้นเน้นความเร็ว ไม่ใช่ durability หากต้องการกันข้อมูลหาย ต้องตั้งค่า persistence (RDB/AOF) เอง
 - **ปล่อยให้ dataset โตโดยไม่ตั้ง `maxmemory`** — เพราะทุกอย่างอยู่ใน RAM ถ้าไม่จำกัดขนาดหรือกำหนด eviction policy ไว้ก่อน Redis อาจใช้หน่วยความจำจนเครื่อง OOM
 - **เข้าใจผิดว่า single-threaded แปลว่า "ช้า"** — จริง ๆ แล้ว event loop เดี่ยวคือสิ่งที่ทำให้ Redis เร็วเพราะไม่มี context switching แต่ก็หมายความว่าคำสั่งที่หนัก (เช่น `KEYS *` บน dataset ใหญ่) จะบล็อก client อื่นทั้งหมดจนกว่าจะเสร็จ
 
-> 💡 Real World Example
+> 💡 ตัวอย่างจากของจริง
 >
 > **Twitter** — ใช้ Redis เป็น timeline cache เพื่อเสิร์ฟ tweet ล่าสุดของผู้ใช้แต่ละคนแบบ real-time โดยไม่ต้อง query ฐานข้อมูลหลักซ้ำทุกครั้ง
 >

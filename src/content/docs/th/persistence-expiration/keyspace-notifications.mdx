@@ -92,7 +92,7 @@ Keyspace notifications ช่วยให้ subscriber ใด ๆ ตอบส�
 
 </Callout>
 
-## Trade-offs
+## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
 |---|---|---|
@@ -100,13 +100,13 @@ Keyspace notifications ช่วยให้ subscriber ใด ๆ ตอบส�
 | Flag กว้าง เช่น `KEA` (ทุก event) | ครอบคลุมทุกกรณีโดยไม่ต้องแก้ config เพิ่ม | เพิ่มภาระ CPU ที่วัดได้บน workload ที่เขียนหนัก เพราะ publish ทุก event |
 | Pub/Sub-based notification แทน polling | ไม่ต้อง query ซ้ำ ๆ ลด load บน server | Pub/Sub ไม่มี delivery guarantee — ถ้า subscriber ไม่ได้ online ตอน event เกิด ข้อความนั้นหายไปเลย |
 
-## Common Mistakes
+## ข้อผิดพลาดที่พบบ่อย
 
 - **เข้าใจผิดว่า `expired` event ส่งมาทันทีที่ TTL หมดพอดี** — Redis ใช้ lazy expiry (ตรวจตอนเข้าถึง key) ผสมกับ active expiry (สุ่มตรวจเป็นรอบ) เวลาที่ event ถูก publish จริงอาจช้ากว่าเวลาที่ TTL หมดเล็กน้อย ไม่ควรใช้เป็นนาฬิกาที่แม่นยำ
 - **พึ่งพา keyspace notification เป็นกลไก reliable messaging** — Pub/Sub ไม่เก็บ history และไม่ redeliver หาก subscriber หลุดการเชื่อมต่อชั่วขณะ event ที่เกิดระหว่างนั้นจะหายไปถาวร ถ้าต้องการ delivery guarantee ควรใช้ Streams แทน
 - **เปิด flag `KEA` แบบ catch-all ใน production โดยไม่จำเป็น** — การ publish ทุก event บน workload ที่เขียนหนักเพิ่มภาระ CPU อย่างมีนัยสำคัญ ควรเปิดเฉพาะ event class ที่แอปใช้งานจริง
 
-> 💡 Real World Example
+> 💡 ตัวอย่างจากของจริง
 >
 > **E-commerce cart abandonment** — ระบบ e-commerce หลายเจ้าใช้ `expired` keyspace event เพื่อ trigger การส่งอีเมลเตือนเมื่อ cart session หมดอายุโดยไม่มีการ checkout
 >

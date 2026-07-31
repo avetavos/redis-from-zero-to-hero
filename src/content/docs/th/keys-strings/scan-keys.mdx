@@ -59,7 +59,7 @@ none
 
 ### RENAME
 
-เปลี่ยนชื่อ key ถ้า key ปลายทางมีอยู่แล้ว มันจะถูกเขียนทับ ใช้ `RENAMENX` เพื่อเปลี่ยนชื่อเฉพาะกรณีที่ปลายทางยังไม่มีอยู่
+เปลี่ยนชื่อ key ถ้า key ปลายทางมีอยู่แล้ว จะถูกเขียนทับ ใช้ `RENAMENX` เพื่อเปลี่ยนชื่อเฉพาะกรณีที่ปลายทางยังไม่มีอยู่
 
 ```text
 127.0.0.1:6379> SET old:key "value"
@@ -86,9 +86,9 @@ GET new:key`;
 
 <TryRedis client:visible code={keyOpsCode} />
 
-## KEYS — และทำไมคุณต้องไม่ใช้มันบน production
+## KEYS — และทำไมห้ามใช้บน production
 
-`KEYS pattern` คืน key ทุกตัวที่ตรงกับ pattern แบบ glob มันสะดวกมากสำหรับการพัฒนาและ debug
+`KEYS pattern` คืน key ทุกตัวที่ตรงกับ pattern แบบ glob สะดวกมากสำหรับการพัฒนาและ debug
 
 ```text
 127.0.0.1:6379> MSET user:1 "Ada" user:2 "Bob" session:abc "tok" session:xyz "tok2"
@@ -103,7 +103,7 @@ OK
 4) "session:xyz"
 ```
 
-`KEYS` เป็นการ scan ทั้ง keyspace แบบ **blocking และ O(N)** บน Redis server ที่มี key เป็นล้านตัว มันอาจใช้เวลาหลายวินาที และ block client ตัวอื่นทั้งหมดตลอดช่วงเวลานั้น อย่ารันมันกับ production server เด็ดขาด — ใช้ `SCAN` แทน
+`KEYS` เป็นการ scan ทั้ง keyspace แบบ **blocking และ O(N)** บน Redis server ที่มี key เป็นล้านตัว คำสั่งนี้อาจใช้เวลาหลายวินาที และ block client ตัวอื่นทั้งหมดตลอดช่วงนั้น อย่ารัน `KEYS` กับ production server เด็ดขาด — ใช้ `SCAN` แทน
 
 ## SCAN — การวนไล่ keyspace อย่างปลอดภัย
 
@@ -169,13 +169,13 @@ export const fullScanCode = `SCAN 0 MATCH session:* COUNT 100`;
 
 <Callout title="อย่ารัน KEYS * บน production server — ใช้ SCAN">
 
-`KEYS *` จะ block Redis server ทั้งตัวจนกว่าจะ scan ทุก key เสร็จ บน server ที่มี key 10 ล้านตัว มันอาจ block แอปพลิเคชันของคุณนานหลายวินาที ทำให้เกิด timeout และความล้มเหลวลูกโซ่ลามไปทุก service ที่ใช้ Redis instance นั้นร่วมกัน
+`KEYS *` จะ block Redis server ทั้งตัวจนกว่าจะ scan ทุก key เสร็จ บน server ที่มี key 10 ล้านตัว คำสั่งเดียวก็ block แอปพลิเคชันของคุณได้นานหลายวินาที ทำให้เกิด timeout และความล้มเหลวลูกโซ่ลามไปทุก service ที่ใช้ Redis instance นั้นร่วมกัน
 
-`SCAN` กระจายงานออกเป็นการเรียกเล็ก ๆ หลายครั้ง แต่ละครั้งคืนค่ากลับมาอย่างรวดเร็ว แอปพลิเคชันของคุณจึงยังตอบสนองได้ ข้อแลกเปลี่ยนคือคุณอาจเห็น key ตัวหนึ่งโผล่มา แล้วมันถูกลบไปก่อนที่คุณจะประมวลผลมัน — ออกแบบ consumer ของคุณให้รับมือกรณีนั้นได้อย่างนุ่มนวล
+`SCAN` กระจายงานออกเป็นการเรียกเล็ก ๆ หลายครั้ง แต่ละครั้งคืนค่ากลับมาอย่างรวดเร็ว แอปพลิเคชันของคุณจึงยังตอบสนองได้ ข้อแลกเปลี่ยนคือคุณอาจเห็น key ตัวหนึ่งโผล่มา แล้วถูกลบไปก่อนที่คุณจะได้ประมวลผล — ออกแบบ consumer ของคุณให้รับมือกรณีนั้นได้อย่างนุ่มนวล
 
 </Callout>
 
-## Trade-offs
+## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
 |---|---|---|
@@ -183,13 +183,13 @@ export const fullScanCode = `SCAN 0 MATCH session:* COUNT 100`;
 | `KEYS *` (full blocking scan) | ง่าย เรียกครั้งเดียวได้ผลลัพธ์ครบ เหมาะกับ dataset เล็กใน dev | block event loop จนกว่าจะสแกนครบทุก key ห้ามใช้กับ production ที่มี key จำนวนมาก |
 | ตั้ง `COUNT` สูงใน `SCAN` เพื่อลดจำนวนรอบ | เรียก round-trip น้อยลง เร็วขึ้นในภาพรวม | แต่ละรอบทำงานหนักขึ้น อาจกระทบ latency ของคำสั่งอื่นที่รันคั่นอยู่ |
 
-## Common Mistakes
+## ข้อผิดพลาดที่พบบ่อย
 
 - **ใช้ `KEYS *` เพื่อดู key ทั้งหมดบน production** — คำสั่งนี้ block server จนกว่าจะสแกนครบทุก key บน dataset ใหญ่อาจทำให้ client อื่นค้างหลายวินาที ควรใช้ `SCAN` แทนเสมอ
 - **เข้าใจผิดว่า `COUNT` คือขีดจำกัดตายตัวของจำนวน key ที่คืนมา** — `COUNT` เป็นเพียงคำใบ้ Redis อาจคืน key มากกว่าหรือน้อยกว่านั้นในแต่ละรอบก็ได้
 - **หยุด loop การเรียก `SCAN` ก่อนที่ cursor จะกลับมาเป็น `0`** — ทำให้ได้ผลลัพธ์ไม่ครบ การวนไล่ต้องเรียกต่อเนื่องจนกว่า cursor ที่คืนมาจะเป็น `0` เท่านั้นถึงจะถือว่าสมบูรณ์
 
-> 💡 Real World Example
+> 💡 ตัวอย่างจากของจริง
 >
 > **GitHub-style rate-limit dashboards** — ใช้ `SCAN` แทน `KEYS` เมื่อต้อง audit key ที่ตรงกับ pattern บน production Redis instance ที่มี key นับล้านตัว เพื่อไม่ให้กระทบ traffic จริง
 >
@@ -209,10 +209,10 @@ export const quizScanKeys = [
   {
     q: "ทำไม KEYS ถึงอันตรายบน production Redis server?",
     options: [
-      "มันลบ key ที่ตรงกันออกอย่างถาวร",
-      "มัน block server ตลอดช่วงเวลาที่ scan keyspace ทั้งหมด",
-      "มันต้องใช้สิทธิ์ admin",
-      "มันทำงานได้เฉพาะกับ keyspace ที่เล็กกว่า 1000 key เท่านั้น",
+      "ลบ key ที่ตรงกันออกอย่างถาวร",
+      "block server ตลอดช่วงเวลาที่ scan keyspace ทั้งหมด",
+      "ต้องใช้สิทธิ์ admin",
+      "ทำงานได้เฉพาะกับ keyspace ที่เล็กกว่า 1000 key เท่านั้น",
     ],
     answer: 1,
   },

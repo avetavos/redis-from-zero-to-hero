@@ -97,11 +97,11 @@ GET counter`;
 
 <Callout title="Lua script รันบน server แบบ atomic">
 
-เมื่อคุณรัน `EVAL` หรือ `EVALSHA` script ทั้งหมดรันบน Redis server ในขั้นตอนเดียวโดยไม่ถูกขัดจังหวะ ไม่มีคำสั่ง client อื่นรันระหว่างสองบรรทัดใดๆ ของโค้ด Lua ของคุณ สิ่งนี้ทำให้ Lua เหมาะสำหรับ pattern read-modify-write (rate limiter, distributed lock, conditional update) ที่ไม่สามารถแสดงด้วย `MULTI`/`EXEC` ได้เพราะต้องการ branching logic
+เมื่อคุณรัน `EVAL` หรือ `EVALSHA` script ทั้งหมดรันบน Redis server ในขั้นตอนเดียวโดยไม่ถูกขัดจังหวะ ไม่มีคำสั่ง client อื่นรันระหว่างสองบรรทัดใดๆ ของโค้ด Lua ของคุณ ทำให้ Lua เหมาะสำหรับ pattern read-modify-write (rate limiter, distributed lock, conditional update) ที่ไม่สามารถแสดงด้วย `MULTI`/`EXEC` ได้เพราะต้องการ branching logic
 
 </Callout>
 
-## Trade-offs
+## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
 |---|---|---|
@@ -109,13 +109,13 @@ GET counter`;
 | Cache script ด้วย `EVALSHA` | ไม่ต้องส่ง script text เต็มซ้ำทุก request ประหยัด bandwidth | ต้อง handle `NOSCRIPT` fallback เอง โดยเฉพาะหลัง server restart หรือ `SCRIPT FLUSH` |
 | Script รัน atomic บน server | ไม่มีคำสั่งอื่นแทรกระหว่าง script ทำงาน รับประกัน consistency | Script ที่ยาวหรือมี loop หนักจะบล็อก event loop ทำให้ client อื่นทั้งหมดรอ |
 
-## Common Mistakes
+## ข้อผิดพลาดที่พบบ่อย
 
 - **เขียน Lua script ที่ทำงานหนักหรือวนลูปจำนวนมาก** — Redis เป็น single-threaded ดังนั้น script ที่ช้าจะบล็อกทุกคำสั่งอื่นบน server ทั้งหมด ควรจำกัด script ให้สั้นและ predictable
 - **ไม่ handle error `NOSCRIPT` จาก `EVALSHA`** — หลัง server restart หรือ `SCRIPT FLUSH` hash ที่ cache ไว้จะหายไป client ต้องตรวจ error นี้แล้ว fallback ไปใช้ `EVAL` เพื่ออัปโหลด script ใหม่
 - **ใช้ `redis.call` ทั้งที่ต้องการ handle error เอง** — `redis.call` จะโยน Lua error ทันทีเมื่อคำสั่งล้มเหลว ทำให้ script ทั้งหมดหยุด ถ้าต้องการตรวจสอบและจัดการ error ภายใน script ให้ใช้ `redis.pcall` แทน
 
-> 💡 Real World Example
+> 💡 ตัวอย่างจากของจริง
 >
 > **Stripe** — ใช้ Lua script บน Redis เพื่อทำ atomic idempotency check ก่อนประมวลผล payment request ซ้ำ ป้องกัน race condition ระหว่างการอ่านและเขียนสถานะ
 >
@@ -147,8 +147,8 @@ export const quizLua = [
     options: [
       "ใช้ MULTI/EXEC ภายใน",
       "ไม่มีคำสั่งอื่นรันบน server ขณะที่ script ทำงาน",
-      "มัน lock key ตลอดระยะเวลา",
-      "มันรันใน process แยกต่างหาก",
+      "lock key ตลอดระยะเวลา",
+      "รันใน process แยกต่างหาก",
     ],
     answer: 1,
   },

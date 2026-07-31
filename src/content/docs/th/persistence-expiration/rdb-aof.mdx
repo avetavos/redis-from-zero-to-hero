@@ -96,7 +96,7 @@ Hybrid mode เป็นค่าเริ่มต้นใน Redis 7 เม�
 RDB ให้ snapshot แบบ periodic ที่กะทัดรัด (restart เร็ว ไฟล์เล็ก) แลกกับการอาจสูญเสียข้อมูลที่เขียนหลัง snapshot ล่าสุด AOF ให้ command log ที่ทนทาน (สูญเสียได้มากที่สุดหนึ่งวินาทีด้วย `everysec`) แลกกับไฟล์ที่ใหญ่กว่าและ restart ที่ช้ากว่าเล็กน้อย Production deployment ส่วนใหญ่ใช้ทั้งสองแบบใน hybrid mode สำหรับ cache ล้วน ๆ ที่ไม่ต้องการ persistence ให้ปิดทั้งสองโดยลบบรรทัด `save` ทั้งหมดและตั้งค่า `appendonly no`
 </Callout>
 
-## Trade-offs
+## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
 |---|---|---|
@@ -104,13 +104,13 @@ RDB ให้ snapshot แบบ periodic ที่กะทัดรัด (res
 | AOF only | สูญเสียข้อมูลน้อยกว่า (สูงสุด ~1 วินาทีด้วย `everysec`) | ไฟล์ใหญ่กว่า restart ช้ากว่าเพราะต้อง replay คำสั่งทั้งหมด |
 | Hybrid mode (RDB + AOF, ค่าเริ่มต้นใน Redis 7) | ได้ทั้ง restart เร็วของ RDB และ durability ของ AOF ในไฟล์เดียว | ใช้พื้นที่ดิสก์มากกว่าการเปิดใช้แบบเดียว และต้องดูแล config สองชุด |
 
-## Common Mistakes
+## ข้อผิดพลาดที่พบบ่อย
 
 - **ใช้ RDB เพียงอย่างเดียวแล้วคาดหวัง durability สูง** — RDB snapshot ตามรอบเวลา (`save 60 10000` เป็นต้น) หมายความว่าข้อมูลที่เขียนหลัง snapshot ล่าสุดจะหายทั้งหมดถ้า Redis crash ก่อนถึงรอบถัดไป
 - **รัน `SAVE` แบบ blocking ใน production แทน `BGSAVE`** — `SAVE` บล็อกเซิร์ฟเวอร์จนกว่าจะเขียนไฟล์เสร็จ ทำให้ client อื่นค้างระหว่างนั้น ควรใช้ `BGSAVE` ที่ fork child process เพื่อเขียนในพื้นหลังเสมอ
 - **ปล่อยให้ AOF โตโดยไม่ทำ `BGREWRITEAOF`** — ไฟล์ AOF สะสมคำสั่งทุกคำสั่งไปเรื่อย ๆ หากไม่บีบอัดเป็นระยะ ไฟล์จะใหญ่ขึ้นจนกินพื้นที่ดิสก์และทำให้ restart ช้าลงมาก
 
-> 💡 Real World Example
+> 💡 ตัวอย่างจากของจริง
 >
 > **Instagram** — ใช้ RDB snapshot เป็นพื้นฐานของกลยุทธ์ backup สำหรับ Redis fleet ขนาดใหญ่ เพราะไฟล์ขนาดกะทัดรัดและกู้คืนได้เร็วเมื่อต้อง restore
 >

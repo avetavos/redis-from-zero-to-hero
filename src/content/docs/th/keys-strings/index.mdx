@@ -15,7 +15,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## key ใน Redis คืออะไร?
 
-Redis เป็น key–value server ทุกข้อมูลที่คุณเก็บ — ไม่ว่าจะเป็น counter, หน้าเว็บที่ cache ไว้ หรือ session token — ล้วนอยู่ภายใต้ **key** key เป็น string ที่ binary-safe และมีขนาดได้ถึง 512 MB แต่ในทางปฏิบัติคุณควรทำให้มันสั้นและสื่อความหมาย
+Redis เป็น key–value server ทุกข้อมูลที่คุณเก็บ — ไม่ว่าจะเป็น counter, หน้าเว็บที่ cache ไว้ หรือ session token — ล้วนอยู่ภายใต้ **key** key เป็น string ที่ binary-safe และมีขนาดได้ถึง 512 MB แต่ในทางปฏิบัติควรตั้งชื่อ key ให้สั้นและสื่อความหมาย
 
 ค่าใน Redis จะอยู่ในหนึ่งใน **type** ที่มีมาให้เสมอ ได้แก่ String, List, Hash, Set, Sorted Set, Stream และอื่น ๆ โดย type **String** เป็น type ที่เรียบง่ายที่สุด: key หนึ่งจับคู่กับค่าเดียวตรง ๆ ซึ่งอาจเป็นข้อความ, ตัวเลข หรือ binary ดิบก็ได้
 
@@ -63,7 +63,7 @@ convention ที่นิยมที่สุดคือ `object:id` หร�
 - `session:abc123` — session token
 - `ratelimit:ip:203.0.113.5` — counter สำหรับ rate-limit ต่อ IP
 
-เลือก convention หนึ่งแล้วใช้มันให้สม่ำเสมอตลอดทั้งแอปพลิเคชันของคุณ
+เลือก convention มาหนึ่งแบบแล้วใช้ให้สม่ำเสมอตลอดทั้งแอปพลิเคชันของคุณ
 
 </Callout>
 

@@ -63,7 +63,7 @@ Streams เหมาะสมเมื่อ:
 (integer) 0
 ```
 
-การตอบกลับ `(integer) 0` หมายความว่ามี subscriber ศูนย์คนที่เชื่อมต่ออยู่ในขณะที่ publish เปิด session `redis-cli` ที่สอง รัน `SUBSCRIBE chat` แล้ว publish อีกครั้งเพื่อดูการส่งข้อความแบบ live
+การตอบกลับ `(integer) 0` หมายความว่าตอนที่ publish ไม่มี subscriber เชื่อมต่ออยู่เลย เปิด session `redis-cli` ที่สอง รัน `SUBSCRIBE chat` แล้ว publish อีกครั้งเพื่อดูการส่งข้อความแบบ live
 
 export const overviewCode = `PUBLISH chat "hello"`;
 
@@ -77,7 +77,7 @@ Streams เก็บข้อมูลไว้; Pub/Sub ไม่เก็บ �
 
 export const quizOverview = [
   {
-    q: "subscriber ตัดการเชื่อมต่อ 5 วินาที โมเดลใดรับประกันว่ามันสามารถอ่านข้อความที่พลาดไปได้?",
+    q: "subscriber ตัดการเชื่อมต่อ 5 วินาที โมเดลใดรับประกันว่าสามารถอ่านข้อความที่พลาดไปได้?",
     options: ["Pub/Sub", "Streams", "ทั้งคู่", "ไม่มีทั้งคู่"],
     answer: 1,
   },
