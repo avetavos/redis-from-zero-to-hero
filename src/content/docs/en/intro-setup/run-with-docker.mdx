@@ -1,6 +1,6 @@
 ---
 title: 'Run Redis with Docker'
-description: 'Start a Redis 7 container, connect with redis-cli, and manage the container lifecycle.'
+description: 'Start a Redis 8 container, connect with redis-cli, and manage the container lifecycle.'
 sidebar:
   order: 3
 ---
@@ -20,7 +20,7 @@ You do not need to install Redis on your machine. A single `docker run` command 
 ## The default command explained
 
 ```bash
-docker run -d --name redis -p 6379:6379 redis:7-alpine
+docker run -d --name redis -p 6379:6379 redis:8-alpine
 ```
 
 | Flag | What it does |
@@ -28,7 +28,7 @@ docker run -d --name redis -p 6379:6379 redis:7-alpine
 | `-d` | Run in detached (background) mode so your terminal stays free |
 | `--name redis` | Give the container a stable name you can reference in later commands |
 | `-p 6379:6379` | Publish port 6379 from the container to your host on the same port |
-| `redis:7-alpine` | Use the official Redis 7 image built on Alpine Linux — small and fast |
+| `redis:8-alpine` | Use the official Redis 8 image built on Alpine Linux — small and fast |
 
 ## Connecting with redis-cli
 
@@ -51,7 +51,7 @@ docker exec -it redis redis-cli
 By default the container stores data in a temporary layer that disappears when you remove the container. Attach a named volume to keep your data across restarts:
 
 ```bash
-docker run -d --name redis -p 6379:6379 -v redisdata:/data redis:7-alpine
+docker run -d --name redis -p 6379:6379 -v redisdata:/data redis:8-alpine
 ```
 
 Docker creates the `redisdata` volume automatically. The `/data` path is where the official Redis image writes its `dump.rdb` snapshot file.
@@ -81,7 +81,7 @@ docker logs -f redis
 
 The logs show the Redis startup banner, the port it is listening on, and any warnings — useful for diagnosing configuration issues.
 
-export const dockerCode = `docker run -d --name redis -p 6379:6379 redis:7-alpine
+export const dockerCode = `docker run -d --name redis -p 6379:6379 redis:8-alpine
 docker exec -it redis redis-cli`;
 
 <TryRedis client:visible code={dockerCode} />

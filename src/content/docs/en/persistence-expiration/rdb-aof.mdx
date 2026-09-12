@@ -90,7 +90,7 @@ Enable hybrid mode in `redis.conf`:
 aof-use-rdb-preamble yes
 ```
 
-Hybrid mode is the default in Redis 7 when both RDB and AOF are enabled. It is the recommended persistence setup for most production workloads that need both speed and durability.
+Hybrid mode has been the default since Redis 7 when both RDB and AOF are enabled. It is the recommended persistence setup for most production workloads that need both speed and durability.
 
 <Callout title="RDB vs AOF — which to use">
 RDB gives compact periodic snapshots (fast restarts, small files) at the cost of potentially losing writes made since the last snapshot. AOF gives a durable command log (loss of at most one second with `everysec`) at the cost of a larger file and slightly slower restart. Most production deployments run both in hybrid mode. For a pure cache with no persistence requirement, disable both by removing all `save` lines and setting `appendonly no`.

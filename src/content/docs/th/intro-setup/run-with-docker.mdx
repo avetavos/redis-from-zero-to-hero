@@ -1,6 +1,6 @@
 ---
 title: 'รัน Redis ด้วย Docker'
-description: 'เริ่มต้น Redis 7 container เชื่อมต่อด้วย redis-cli และจัดการวงจรชีวิตของ container'
+description: 'เริ่มต้น Redis 8 container เชื่อมต่อด้วย redis-cli และจัดการวงจรชีวิตของ container'
 sidebar:
   order: 3
 ---
@@ -20,7 +20,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 ## อธิบายคำสั่งพื้นฐาน
 
 ```bash
-docker run -d --name redis -p 6379:6379 redis:7-alpine
+docker run -d --name redis -p 6379:6379 redis:8-alpine
 ```
 
 | Flag | ความหมาย |
@@ -28,7 +28,7 @@ docker run -d --name redis -p 6379:6379 redis:7-alpine
 | `-d` | รันในโหมด detached (background) เพื่อให้ terminal ของคุณยังคงใช้งานได้ |
 | `--name redis` | ตั้งชื่อให้ container เพื่อให้อ้างอิงได้ในคำสั่งต่อ ๆ ไป |
 | `-p 6379:6379` | เผยแพร่ port 6379 จาก container ไปยัง host บน port เดียวกัน |
-| `redis:7-alpine` | ใช้ official Redis 7 image ที่สร้างบน Alpine Linux — เล็กและเร็ว |
+| `redis:8-alpine` | ใช้ official Redis 8 image ที่สร้างบน Alpine Linux — เล็กและเร็ว |
 
 ## เชื่อมต่อด้วย redis-cli
 
@@ -51,7 +51,7 @@ docker exec -it redis redis-cli
 โดยค่าเริ่มต้น container จะเก็บข้อมูลในเลเยอร์ชั่วคราวที่จะหายไปเมื่อคุณลบ container แนบ named volume เพื่อเก็บข้อมูลข้ามการรีสตาร์ท:
 
 ```bash
-docker run -d --name redis -p 6379:6379 -v redisdata:/data redis:7-alpine
+docker run -d --name redis -p 6379:6379 -v redisdata:/data redis:8-alpine
 ```
 
 Docker สร้าง volume `redisdata` โดยอัตโนมัติ path `/data` คือที่ที่ official Redis image เขียนไฟล์ snapshot `dump.rdb`
@@ -81,7 +81,7 @@ docker logs -f redis
 
 logs จะแสดง Redis startup banner, port ที่กำลัง listen อยู่, และคำเตือนต่าง ๆ — มีประโยชน์มากในการวินิจฉัยปัญหาการตั้งค่า
 
-export const dockerCode = `docker run -d --name redis -p 6379:6379 redis:7-alpine
+export const dockerCode = `docker run -d --name redis -p 6379:6379 redis:8-alpine
 docker exec -it redis redis-cli`;
 
 <TryRedis client:visible code={dockerCode} />

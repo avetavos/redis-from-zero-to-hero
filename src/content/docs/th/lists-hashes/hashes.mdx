@@ -99,6 +99,57 @@ HLEN product:1`;
 (integer) 2
 ```
 
+## ตั้งเวลาหมดอายุรายตัวให้แต่ละ field
+
+`EXPIRE` ทำงานกับทั้ง key ดังนั้นเป็นเวลานานที่ hash เป็นแบบทั้งหมดหรือไม่เอาเลย: ทุก field เกิดและตายพร้อมกัน Redis 7.4 เปลี่ยนเรื่องนี้ด้วย **field-level TTL** และ Redis 8 เพิ่มคำสั่งอีกสามตัวที่รวม TTL เข้าไปในการอ่านหรือเขียนเลย
+
+`HEXPIRE key seconds [NX | XX | GT | LT] FIELDS numfields field [field ...]` ใช้ตั้ง TTL สังเกต keyword `FIELDS` และ **จำนวน** field ก่อนรายชื่อ — ทุกคำสั่งในตระกูลนี้ต้องใส่ ค่าที่คืนมาคือหนึ่งตัวเลขต่อหนึ่ง field: `1` เมื่อตั้ง TTL สำเร็จ, `-2` เมื่อไม่มี field นั้น, `0` เมื่อเงื่อนไข `NX`/`XX`/`GT`/`LT` ไม่ผ่าน `HTTL` อ่านวินาทีที่เหลือ และ `HPERSIST` ลบ TTL ออก
+
+```text
+127.0.0.1:6379> HSET session:42 user "ana" csrf "t0ken"
+(integer) 2
+127.0.0.1:6379> HEXPIRE session:42 600 FIELDS 1 csrf
+1) (integer) 1
+127.0.0.1:6379> HTTL session:42 FIELDS 2 csrf user
+1) (integer) 600
+2) (integer) -1
+```
+
+`-1` หมายถึง field นั้นไม่มีวันหมดอายุ เมื่อ TTL หมด field จะหายไปเอง และเมื่อ field สุดท้ายหายไป key ก็หายตามไปด้วย
+
+### HGETEX, HSETEX และ HGETDEL
+
+คำสั่งสามตัวของ Redis 8 นี้แทนที่ชุดคำสั่งหลายขั้นตอนได้ตัวละชุด:
+
+| คำสั่ง | รูปแบบ | แทนที่ |
+|---------|-------|----------|
+| `HGETEX key [EX seconds \| PERSIST] FIELDS numfields field [field ...]` | อ่านแล้วต่ออายุ TTL | `HGET` + `HEXPIRE` |
+| `HSETEX key [FNX \| FXX] [EX seconds \| KEEPTTL] FIELDS numfields field value [field value ...]` | เขียนพร้อม TTL | `HSET` + `HEXPIRE` |
+| `HGETDEL key FIELDS numfields field [field ...]` | อ่านแล้วลบ | `HGET` + `HDEL` |
+
+`HGETEX` คือเครื่องมือพื้นฐานของ sliding session: อ่านค่า field แล้วเลื่อนเวลาหมดอายุออกไปใน call เดียวแบบ atomic `HSETEX` รับ `FNX` (ตั้งเฉพาะเมื่อยังไม่มี field เหล่านั้นเลย) หรือ `FXX` (ตั้งเฉพาะเมื่อมีครบทุก field) พร้อม `KEEPTTL` เพื่อคง TTL เดิมไว้ ส่วน `HGETDEL` คือการอ่านครั้งเดียวจบสำหรับค่าที่ใช้แล้วทิ้ง เช่น one-time token
+
+```text
+127.0.0.1:6379> HSETEX session:42 EX 900 FIELDS 1 csrf "fresh-token"
+(integer) 1
+127.0.0.1:6379> HGETEX session:42 EX 900 FIELDS 1 csrf
+1) "fresh-token"
+127.0.0.1:6379> HGETDEL session:42 FIELDS 1 csrf
+1) "fresh-token"
+127.0.0.1:6379> HGET session:42 csrf
+(nil)
+```
+
+export const hashTtlCode = `HSET session:42 user "ana" csrf "t0ken"
+HEXPIRE session:42 600 FIELDS 1 csrf
+HTTL session:42 FIELDS 2 csrf user
+HSETEX session:42 EX 900 FIELDS 1 csrf "fresh-token"
+HGETEX session:42 EX 900 FIELDS 1 csrf
+HGETDEL session:42 FIELDS 1 csrf
+HGET session:42 csrf`;
+
+<TryRedis client:visible code={hashTtlCode} />
+
 <Callout title="A hash stores an object's fields under one key — memory-efficient">
 
 Redis ใช้การเข้ารหัสแบบกระชับ (listpack) สำหรับ hash ขนาดเล็กโดยอัตโนมัติ แทนที่จะเก็บ `product:1:name`, `product:1:price`, และ `product:1:stock` เป็นสาม string key แยกกัน การใช้ `HSET product:1 ...` เพียงครั้งเดียวจะเก็บทั้งหมดไว้ภายใต้ key เดียว — ประหยัดหน่วยความจำ ลด round-trip และจัดกลุ่มข้อมูลได้อย่างมีตรรกะ
@@ -144,6 +195,11 @@ export const quizHashes = [
   {
     q: "คำสั่งใดนับจำนวน field ใน hash?",
     options: ["HCOUNT", "HLEN", "HSIZE", "HHOW"],
+    answer: 1,
+  },
+  {
+    q: "ต้องการอ่านค่า field ของ session แล้วเลื่อนเวลาหมดอายุออกไปใน call เดียวแบบ atomic ใช้คำสั่งใด?",
+    options: ["HGET ตามด้วย HEXPIRE", "HGETEX", "HGETDEL", "HSETEX"],
     answer: 1,
   },
 ];

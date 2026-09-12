@@ -40,6 +40,24 @@ Redis ประมวลผลคำสั่งผ่าน **single-threaded e
 
 เนื่องจาก operation เกิดขึ้นฝั่งเซิร์ฟเวอร์ คุณจึงหลีกเลี่ยง round trip แทนที่จะ GET → แก้ไข locally → SET คุณใช้ LPUSH หรือ ZINCRBY ใน network call เดียว
 
+## Redis 8 — distribution เดียว ไม่มี module
+
+หลายปีที่ผ่านมา ความสามารถเสริมอยู่ใน **module** ที่ต้องติดตั้งแยก และ "Redis Stack" คือชุดที่รวม module เหล่านั้นมาให้ Redis 8 รวมสองอย่างนี้เข้าด้วยกัน: สิ่งที่เคยเรียกว่า Redis Community Edition ตอนนี้ชื่อ **Redis Open Source** และฟีเจอร์ที่เคยเป็น module ถูกสร้างไว้ในเซิร์ฟเวอร์เลย image ที่คุณจะ pull ในบทถัดไปมีครบแล้ว — ไม่ต้องติดตั้งเพิ่ม ไม่ต้องจับคู่เวอร์ชัน
+
+| มีมาให้ตั้งแต่ Redis 8 | ได้อะไร |
+|------|-------------|
+| JSON | เก็บและแก้ไข JSON document ในที่เดิมด้วย JSONPath |
+| Search and query | secondary index, full-text search และ vector search บน hash หรือ JSON |
+| Time series | downsampling, aggregation และ retention สำหรับ sample ที่มี timestamp |
+| Probabilistic | Bloom filter, Cuckoo filter, Count-Min sketch, Top-K, t-digest |
+| Vector set (beta) | type ของ Redis เองสำหรับ vector similarity search |
+
+Redis 8 ยังเป็นการกระโดดด้านประสิทธิภาพครั้งใหญ่ที่สุดในประวัติของโปรเจกต์ — กว่า 30 การปรับปรุง, ลด latency ของคำสั่งได้ถึง 87% และ replication เร็วขึ้นถึง 18% — พร้อมคำสั่ง hash ใหม่สามตัวที่คุณจะเจอในบท Hashes
+
+<Callout title="คุณยังเรียนทุกอย่างในคอร์สนี้บน Redis 8 ธรรมดาได้">
+คอร์สนี้เน้นโครงสร้างข้อมูลหลัก ซึ่งทำงานเหมือนเดิมมาหลายปี ของเสริมด้านบนน่ารู้ไว้เพราะตอนนี้มัน *มีอยู่แล้วโดยค่าเริ่มต้น* — วันที่คุณต้องการ secondary index หรือ vector search คุณไม่ต้องเปลี่ยน deployment เพื่อให้ได้มันมา
+</Callout>
+
 ## Use case ทั่วไป
 
 | Use case | Redis feature |

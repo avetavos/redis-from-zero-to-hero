@@ -35,6 +35,15 @@ Redis ยังรองรับ **TTL (Time To Live)**: ทุก key สา�
 
 คำสั่ง `SET key value NX PX milliseconds` จะตั้งค่า key **เฉพาะเมื่อยังไม่มี key นั้นอยู่** และกำหนดเวลาหมดอายุให้ นี่คือรากฐานของ distributed lock: มีเพียงผู้เรียกรายเดียวที่ชนะการแข่งขัน และ lock จะถูกปล่อยแน่นอนแม้ว่าผู้ถือ lock จะ crash
 
+## อีกสอง pattern ที่ Redis 8 แถมมาให้ฟรี
+
+สี่ pattern ด้านบนใช้แค่โครงสร้างข้อมูลหลักล้วน ๆ Redis 8 รวม module เสริมเดิมเข้ามาไว้ในเซิร์ฟเวอร์แล้ว จึงมีอีกสอง pattern ที่ใช้ได้บน instance เดียวกันโดยไม่ต้องติดตั้งอะไรเพิ่ม:
+
+- **Secondary index และ full-text search** — `FT.CREATE` สร้าง index บน hash หรือ JSON document ที่คุณมีอยู่แล้ว และ `FT.SEARCH` ค้นด้วย filter, range, tag และ stemming ได้ นี่คือทางออกของข้อจำกัดคลาสสิกที่ว่า Redis ค้นข้อมูลได้จาก key เท่านั้น
+- **Vector similarity search** — search index รองรับ vector field สำหรับ semantic search และ retrieval-augmented generation Redis 8 ยังเพิ่ม **vector set** ซึ่งเป็น data type เฉพาะสำหรับงานเดียวกัน แต่ยังเป็น **beta** อยู่ API จึงอาจเปลี่ยนได้ เหมาะกับการทดลอง ยังไม่ควรใช้กับโค้ดที่ย้ายออกยาก
+
+ทั้งสองอย่างควรรู้ว่ามีอยู่ แต่ไม่ได้มาแทนที่สี่ pattern ด้านล่าง ซึ่งยังเป็นเหตุผลหลักที่ทีมส่วนใหญ่ใช้ Redis
+
 <Callout title="หนึ่งเซิร์ฟเวอร์ สี่ patterns">
 ทั้งสี่ patterns ทำงานบน Redis instance เดียวโดยไม่ต้องใช้ปลั๊กอินหรือส่วนขยายใด ๆ primitives ที่ใช้ ได้แก่ strings, hashes, atomic commands, และ TTL — มีอยู่ใน Redis ทุกเวอร์ชัน
 </Callout>

@@ -27,7 +27,7 @@ OK
 
 ## SET options
 
-Redis 7 `SET` supports several options in one command:
+`SET` supports several options in one command:
 
 | Option | Meaning |
 |--------|---------|
@@ -69,7 +69,7 @@ GET city`;
 
 ## SETEX and SETNX
 
-These are older convenience aliases — `SET` with `EX` or `NX` is preferred in Redis 7, but you will still see them in legacy code:
+These are older convenience aliases — `SET` with `EX` or `NX` is preferred in modern Redis, but you will still see them in legacy code:
 
 ```text
 127.0.0.1:6379> SETEX session:user1 3600 "token-xyz"

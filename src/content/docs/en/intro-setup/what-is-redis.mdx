@@ -40,6 +40,24 @@ The phrase "Redis is a cache" is common but incomplete. A plain cache maps keys 
 
 Because operations happen server-side, you avoid round trips. Instead of GET → modify locally → SET, you do LPUSH or ZINCRBY in one network call.
 
+## Redis 8 — one distribution, no modules
+
+For years the extra capabilities lived in **modules** you installed separately, and "Redis Stack" was the bundle that shipped them together. Redis 8 merges the two: what used to be Redis Community Edition is now called **Redis Open Source**, and the formerly modular features are built into the server itself. The image you pull in the next lesson already has all of it — nothing to install, nothing to version-match.
+
+| Also built in since Redis 8 | What it gives you |
+|------|-------------|
+| JSON | Store and update JSON documents in place with JSONPath |
+| Search and query | Secondary indexes, full-text search, and vector search over hashes or JSON |
+| Time series | Downsampling, aggregation, and retention for timestamped samples |
+| Probabilistic | Bloom filter, Cuckoo filter, Count-Min sketch, Top-K, t-digest |
+| Vector set (beta) | A native type for vector similarity search |
+
+Redis 8 also landed the largest performance jump in the project's history — over 30 optimizations, up to 87% lower command latency and up to 18% faster replication — plus the three hash commands you will meet in the Hashes lesson.
+
+<Callout title="You can still learn everything in this course on a plain Redis 8">
+This course sticks to the core data structures, which have worked the same way for years. The extras above are worth knowing about because they are now *there by default* — the moment you need a secondary index or a vector search, you do not have to change your deployment to get one.
+</Callout>
+
 ## Common use cases
 
 | Use case | Redis feature |

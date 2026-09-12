@@ -35,6 +35,15 @@ User sessions are stored as Redis hashes — one key per session, with individua
 
 The `SET key value NX PX milliseconds` command sets a key **only if it does not already exist** and gives it a timeout. This is the foundation of a distributed lock: only one caller wins the race, and the lock is guaranteed to release even if the holder crashes.
 
+## Two more patterns Redis 8 hands you for free
+
+The four patterns above use nothing but core data structures. Redis 8 folded the old add-on modules into the server, so two more patterns are now available on the same instance without installing anything:
+
+- **Secondary indexes and full-text search.** `FT.CREATE` defines an index over your existing hashes or JSON documents, and `FT.SEARCH` queries it with filters, ranges, tags, and stemming. This is the escape hatch for the classic Redis complaint that you can only look data up by key.
+- **Vector similarity search.** Search indexes support vector fields for semantic search and retrieval-augmented generation. Redis 8 also added **vector sets**, a dedicated data type for the same job — it is still **beta**, so its API may change; reach for it in experiments, not yet in code you cannot easily migrate.
+
+Both are worth knowing exist. Neither replaces the four patterns below, which remain the reason most teams run Redis at all.
+
 <Callout title="One server, four patterns">
 All four patterns run on a single Redis instance with no plugins or extensions. The primitives — strings, hashes, atomic commands, and TTL — are built into every Redis version.
 </Callout>

@@ -90,7 +90,7 @@ Redis 4 แนะนำ hybrid mode และ Redis 7 ปรับปรุง�
 aof-use-rdb-preamble yes
 ```
 
-Hybrid mode เป็นค่าเริ่มต้นใน Redis 7 เมื่อเปิดใช้ทั้ง RDB และ AOF เป็น setup persistence ที่แนะนำสำหรับ production workload ส่วนใหญ่ที่ต้องการทั้งความเร็วและ durability
+Hybrid mode เป็นค่าเริ่มต้นตั้งแต่ Redis 7 เมื่อเปิดใช้ทั้ง RDB และ AOF เป็น setup persistence ที่แนะนำสำหรับ production workload ส่วนใหญ่ที่ต้องการทั้งความเร็วและ durability
 
 <Callout title="RDB vs AOF — ควรใช้อะไร">
 RDB ให้ snapshot แบบ periodic ที่กะทัดรัด (restart เร็ว ไฟล์เล็ก) แลกกับการอาจสูญเสียข้อมูลที่เขียนหลัง snapshot ล่าสุด AOF ให้ command log ที่ทนทาน (สูญเสียได้มากที่สุดหนึ่งวินาทีด้วย `everysec`) แลกกับไฟล์ที่ใหญ่กว่าและ restart ที่ช้ากว่าเล็กน้อย Production deployment ส่วนใหญ่ใช้ทั้งสองแบบใน hybrid mode สำหรับ cache ล้วน ๆ ที่ไม่ต้องการ persistence ให้ปิดทั้งสองโดยลบบรรทัด `save` ทั้งหมดและตั้งค่า `appendonly no`
