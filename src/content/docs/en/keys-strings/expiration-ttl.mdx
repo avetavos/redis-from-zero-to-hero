@@ -120,6 +120,26 @@ A common bug is checking `TTL key == 0` to detect missing keys. It is never 0; o
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Set a TTL on every cache/session key | Memory is reclaimed automatically, no cleanup job to write | A miscalculated TTL can expire data too early while the system still needs it |
+| Rely on lazy expiry (checked on access) | No extra overhead if nobody ever reads that key | An expired key nobody accesses keeps consuming memory until the active-expiry cycle finds it |
+| Use `PERSIST` to cancel an existing TTL | Extends the life of important data without creating a new key | Easy to forget the key was meant to be temporary, letting memory grow unchecked |
+
+## Common mistakes
+
+- **Checking `TTL key == 0` to detect a missing key** — the correct value for a nonexistent key is `-2`, never `0`, because TTL never sits at zero. Branch on `-2` (missing) and `-1` (persistent) correctly.
+- **Forgetting to set a TTL on a key that should be temporary** — if you `SET` a cache or session value with no `EX`/`PX`, it becomes persistent and accumulates until `maxmemory` is full.
+- **Confusing `EXPIRE` (relative) with `EXPIREAT` (absolute timestamp)** — using the wrong one shifts the TTL away from what you intended, especially when the client and server clocks disagree.
+
+> 💡 Real-world example
+>
+> **Stack Overflow** ran an L1/L2 cache (local memory plus Redis) in front of SQL Server at a reported scale of roughly 160 billion Redis operations a month ([Stack Overflow: The Architecture – 2016 Edition](https://nickcraver.com/blog/2016/02/17/stack-overflow-the-architecture-2016-edition/), Nick Craver, 2016). Expiring cached values with a TTL, as shown in this lesson, is exactly the mechanism that keeps that kind of cache from serving stale data forever.
+>
+> **General pattern** — session stores commonly attach a TTL to the session key so an inactive user is logged out automatically, instead of running a background job to sweep old sessions.
+
 export const quizTTL = [
   {
     q: "What does TTL return for a key that exists but has no expiration set?",

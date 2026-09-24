@@ -144,9 +144,7 @@ LRANGE recent 0 -1`;
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Twitter (X)** — ใช้ Redis List คู่กับ `LTRIM` เก็บ timeline cache ของแต่ละ user ให้มีขนาดคงที่ ไม่ให้โตไม่มีที่สิ้นสุดเมื่อมี tweet ใหม่เข้ามาเรื่อย ๆ
->
-> **Instagram** — ใช้ List pattern คล้ายกันเก็บ recent activity feed ต่อ user ผสาน `LPUSH` สำหรับ event ใหม่และ `LTRIM` ตัดให้เหลือ N รายการล่าสุดเสมอ
+> **หลักการทั่วไป** — ฟีเจอร์ feed และ timeline มักผูก Redis List เข้ากับ `LTRIM` เพื่อให้ feed ของแต่ละ user มีขนาดคงที่ ไม่ให้โตไม่มีที่สิ้นสุดเมื่อมีรายการใหม่เข้ามาเรื่อย ๆ ใช้ `LPUSH` + `LTRIM` แบบเดียวกันนี้เก็บ recent activity feed ต่อ user โดยเหลือแค่ N รายการล่าสุดเสมอ
 
 export const quizLists = [
   {

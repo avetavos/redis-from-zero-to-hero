@@ -104,6 +104,12 @@ Redis ส่งการตอบกลับยืนยันหนึ่ง�
 
 </Callout>
 
+<Callout title="Sharded Pub/Sub — SPUBLISH / SSUBSCRIBE (Redis 7.0+)">
+
+ใน Redis Cluster ข้อความ `PUBLISH` ธรรมดาต้องถูก broadcast ซ้ำไปยังทุก node เพื่อให้ถึง subscriber ไม่ว่าจะต่ออยู่ที่ shard ไหน — ซึ่งแพงมากเมื่อสเกลใหญ่ ตั้งแต่ Redis 7.0 `SPUBLISH channel message` และ `SSUBSCRIBE channel` จำกัดการส่งไว้เฉพาะ shard ที่เป็นเจ้าของ hash slot ของ channel นั้น ทำให้ปริมาณข้อความสเกลไปตาม cluster แทนที่จะกระทบทุก node นอก cluster mode, sharded กับ regular Pub/Sub ทำงานเหมือนกัน ใช้ sharded Pub/Sub เมื่อรัน Cluster mode และต้องการกระจายโหลด Pub/Sub ไปตาม shard
+
+</Callout>
+
 ## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |

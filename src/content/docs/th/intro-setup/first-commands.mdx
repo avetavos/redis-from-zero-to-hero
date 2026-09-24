@@ -10,11 +10,71 @@ import Callout from '../../../../components/Callout.astro';
 import Quiz from '../../../../components/Quiz.tsx';
 import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
-Redis ทำงานบนโมเดล **key-value** ที่เรียบง่าย — คุณเก็บข้อมูลโดยการผูก value เข้ากับ key จากนั้นดึงข้อมูลกลับมาด้วย key เดิมนั้น ไม่มี schema ไม่มีตาราง เพียงแค่ key และ value เท่านั้น
+## แนวคิดพื้นฐานของ key-value
 
-## SET, GET และ Friends
+Redis คือ key-value store ที่แก่นแท้ ข้อมูลทุกชิ้นอยู่ใต้ **key** หนึ่งตัว key เป็น string เสมอ ส่วน value จะมี **type** — string, list, hash, set, sorted set หรือ stream — และ type นี้เองที่กำหนดว่าใช้คำสั่งอะไรกับ value นั้นได้
 
-คำสั่งพื้นฐานที่สุดใน Redis คือ `SET` และ `GET` ลองดูตัวอย่างด้านล่างเพื่อทำความเข้าใจว่าคำสั่งเหล่านี้ทำงานร่วมกับ `EXISTS`, `TYPE`, `KEYS` และ `DEL` อย่างไร
+ลองนึกภาพเหมือน dictionary ขนาดใหญ่: คุณค้นหา key แล้วได้ value กลับมา คุณยังถามได้ว่า key นั้นมีอยู่ไหม value เป็น type อะไร หรือจะลบมันทิ้งไปเลยก็ได้
+
+## SET และ GET
+
+`SET key value` เก็บค่า `GET key` ดึงค่ากลับมา ถ้า key มีอยู่แล้ว `SET` จะเขียนทับค่าเดิม
+
+```text
+127.0.0.1:6379> SET name "Redis"
+OK
+127.0.0.1:6379> GET name
+"Redis"
+127.0.0.1:6379> SET score 100
+OK
+```
+
+## DEL — ลบ key หนึ่งตัวหรือมากกว่า
+
+`DEL key [key ...]` ลบ key หนึ่งตัวหรือมากกว่า และคืนค่าเป็น **จำนวน key ที่ถูกลบจริง** ถ้า key ไม่มีอยู่ Redis จะข้ามไปเฉยๆ และไม่นับรวมในค่าที่คืนกลับมา
+
+```text
+127.0.0.1:6379> DEL name
+(integer) 1
+127.0.0.1:6379> GET name
+(nil)
+```
+
+## EXISTS — เช็กว่า key มีอยู่หรือไม่
+
+`EXISTS key` คืนค่า `1` ถ้า key มีอยู่ และ `0` ถ้าไม่มี คุณส่ง key ได้หลายตัวพร้อมกัน — ค่าที่คืนกลับมาคือจำนวน key ที่มีอยู่จริง
+
+```text
+127.0.0.1:6379> EXISTS name
+(integer) 1
+127.0.0.1:6379> EXISTS missing
+(integer) 0
+```
+
+## TYPE — ตรวจสอบ type ของ value
+
+`TYPE key` คืนค่า type ของ value ที่เก็บอยู่ใน key นั้น: `string`, `list`, `hash`, `set`, `zset`, หรือ `stream` และคืนค่า `none` ถ้า key ไม่มีอยู่
+
+```text
+127.0.0.1:6379> TYPE name
+string
+```
+
+## KEYS — แสดง key ตาม pattern
+
+`KEYS pattern` คืนค่า key ทั้งหมดที่ตรงกับ glob pattern `KEYS *` จะจับคู่กับทุก key
+
+```text
+127.0.0.1:6379> KEYS *
+1) "score"
+2) "name"
+```
+
+> **คำเตือน:** ห้ามใช้ `KEYS *` ใน production เด็ดขาด Redis เป็น single-threaded — `KEYS` จะบล็อกทั้ง server จนกว่าจะสแกน key ครบทุกตัว บน dataset ใหญ่อาจทำให้แอปพลิเคชันค้างไปหลายวินาที ใช้ `SCAN` แทน เพราะมันวนแบบ batch เล็กๆ ที่ไม่บล็อก
+
+## ตัวอย่างการใช้งานแบบเต็ม
+
+รวมทุกคำสั่งข้างต้นไว้ใน session เดียวต่อเนื่องกัน:
 
 ```text
 127.0.0.1:6379> SET name "Redis"
@@ -46,12 +106,28 @@ EXISTS missing
 TYPE name
 KEYS *
 DEL name
-GET name`
+GET name`;
 
 <TryRedis client:visible code={firstCmdsCode} />
 
+## แนวปฏิบัติในการตั้งชื่อ key
+
+Key เป็นแค่ string ดังนั้นจะตั้งชื่ออะไรก็ได้ — แต่ชื่อที่มีความหมายจะช่วยให้ debug และ monitor ง่ายขึ้นมาก แนวปฏิบัติมาตรฐานคือ **การแบ่ง namespace ด้วยเครื่องหมายโคลอน**:
+
+| Pattern | ตัวอย่าง |
+|---------|---------|
+| `object:id` | `user:42` |
+| `object:id:field` | `user:42:email` |
+| `type:identifier` | `session:abc123` |
+
+รูปแบบนี้ช่วยให้จัดกลุ่ม key ที่เกี่ยวข้องกันได้ง่าย ใช้ glob pattern ได้อย่างปลอดภัย และเข้าใจได้ทันทีว่า key แต่ละตัวเก็บอะไรไว้เมื่อดูผ่านเครื่องมืออย่าง RedisInsight
+
 <Callout title="ทุก value ถูกเก็บไว้ใต้ key — เลือกชื่อ key ที่ชัดเจน">
-  แนวปฏิบัติที่นิยมใช้กันใน Redis คือการตั้งชื่อ key โดยใช้เครื่องหมายโคลอน (`:`) เป็นตัวคั่น เช่น `user:42:email` หรือ `session:abc123` รูปแบบนี้ช่วยให้ key มีความหมายชัดเจน จัดกลุ่มได้ง่าย และหลีกเลี่ยงการชนกันของชื่อ key ในระบบที่มีข้อมูลหลายประเภท
+
+ชื่อ key ที่มีความหมายจะคุ้มค่ามากตอน debug ระบบจริง `user:42:email` บอกทันทีว่า key นี้เก็บอะไรและเป็นของใคร ในขณะที่ key ที่ไม่มีความหมายอย่าง `e42` บอกอะไรไม่ได้เลย
+
+ใช้ namespace แบบคั่นด้วยโคลอนอย่างสม่ำเสมอทั่วทั้ง codebase หลายทีมใช้รูปแบบอย่าง `object:id:field` และบังคับใช้ผ่านไฟล์ constants กลาง เพื่อไม่ให้การตั้งชื่อ key เพี้ยนไปคนละทาง
+
 </Callout>
 
 ## ข้อแลกเปลี่ยน
@@ -70,9 +146,9 @@ GET name`
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Twitter** — ใช้โครงสร้าง key-value แบบเดียวกับที่เรียนในบทนี้เป็นพื้นฐานของ timeline cache โดยผูก key อย่าง `user:<id>:timeline` เข้ากับข้อมูล tweet ล่าสุด
+> **Stack Overflow** — ใช้ `SET`/`GET` ง่าย ๆ แบบนี้เป็นส่วนหนึ่งของ L1/L2 cache หน้า SQL Server เพื่อลด query ซ้ำสำหรับหน้าเว็บที่มีคนอ่านพร้อมกันเยอะ ที่สเกลราว 160 พันล้าน operation ต่อเดือน ([Stack Overflow: The Architecture – 2016 Edition](https://nickcraver.com/blog/2016/02/17/stack-overflow-the-architecture-2016-edition/), Nick Craver, 2016)
 >
-> **Stack Overflow** — ใช้ `SET`/`GET` ง่าย ๆ แบบนี้เป็นส่วนหนึ่งของ cache layer หน้า SQL Server เพื่อลด query ซ้ำสำหรับหน้าเว็บที่มีคนอ่านพร้อมกันเยอะ
+> **หลักการทั่วไป** — แอปที่ต้องอ่านข้อมูลล่าสุดของ user บ่อยๆ (เช่น feed หรือ timeline) มักผูก key อย่าง `user:<id>:timeline` เข้ากับข้อมูลล่าสุดโดยตรง แทนที่จะ query ฐานข้อมูลหลักซ้ำทุกครั้ง
 
 export const quizFirst = [
   {

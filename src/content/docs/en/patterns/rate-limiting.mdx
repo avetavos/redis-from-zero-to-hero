@@ -64,6 +64,26 @@ INCR + EXPIRE gives a **fixed window**: all requests in the same 60-second bucke
 
 For a true **sliding window** you would use a sorted set: store each request timestamp with `ZADD`, trim old entries with `ZREMRANGEBYSCORE`, then count live entries with `ZCARD`. This is more precise but slightly more expensive per request.
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Fixed window (`INCR` + `EXPIRE`) | Simple, fast, just two commands per request | The allowed rate can effectively double at the window boundary |
+| Sliding window (`ZADD` + `ZREMRANGEBYSCORE`) | More precise, no edge-burst effect | More memory and CPU per request |
+| Token bucket | Handles bursty traffic in a controlled way | Needs a refill-rate calculation, adding logic complexity |
+
+## Common mistakes
+
+- **Forgetting to call `EXPIRE` when `count == 1`** — without a TTL, the counter key never resets and the user stays rate-limited forever after the first time they hit the limit.
+- **Using a fixed window and assuming it fully prevents bursts** — requests clustered at the end of one window and the start of the next can together exceed the real limit by up to double.
+- **Not returning HTTP headers that tell the client the rate-limit status** — without something like `Retry-After`, the client retries at random instead of waiting the appropriate amount of time.
+
+> 💡 Real-world example
+>
+> **GitHub's REST API** documents rate limits enforced per token, with response headers reporting the remaining quota, and its engineering blog has described using Redis-backed counters for this kind of limiting before migrating some persistent counter workloads elsewhere as they scaled ([Moving persistent data out of Redis](https://github.blog/engineering/moving-persistent-data-out-of-redis/), GitHub Engineering, 2015).
+>
+> **General pattern** — CDN and edge providers commonly apply rate limiting based on the same sliding-window principle shown here, to stop DDoS and abuse traffic before it reaches the origin server.
+
 export const quizRateLimiting = [
   {
     q: "Why do we call EXPIRE only when count == 1?",

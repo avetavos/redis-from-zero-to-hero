@@ -21,7 +21,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 ```text
 127.0.0.1:6379> INFO server
 # Server
-redis_version:7.2.4
+redis_version:8.10.2
 redis_mode:standalone
 os:Linux 5.15.0 x86_64
 ...
@@ -151,6 +151,25 @@ RedisInsight is the official free GUI from Redis Ltd. It provides a visual keysp
 `MONITOR` is extremely useful for debugging but has a real cost: it roughly doubles the server's write load because Redis must send a copy of every command to each monitoring client. Use it briefly on a staging server or a low-traffic replica, then disconnect. For production diagnostics, prefer `SLOWLOG`, `INFO stats`, and `--bigkeys` — they are designed to be safe under load.
 
 </Callout>
+
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| `SLOWLOG` + `INFO stats` for routine diagnostics | Safe to leave running in production, adds no load | No real-time view of commands — you must poll or query after the fact |
+| `MONITOR` for real-time debugging | See exactly what the app is sending, immediately — great for a short debug session | Roughly doubles server write load — dangerous if left running in production |
+| `--bigkeys` / `--scan` (using `SCAN` internally) | Scans the entire keyspace without blocking the server | Still consumes CPU/network continuously while scanning; run it during low traffic |
+| RedisInsight GUI | Easier visual overview of the keyspace, slow log, and memory than the CLI | Requires an extra install and network access to the Redis instance |
+
+## Common mistakes
+
+- **Leaving `MONITOR` running in production** — it roughly doubles the server's write load because it has to send a copy of every command to each monitoring client. Use it only for a short debug session on staging or a low-traffic replica.
+- **Using `KEYS *` instead of `--bigkeys`/`--scan` to explore the keyspace** — `KEYS *` blocks the server until it finishes scanning, while `--bigkeys` and `--scan` use `SCAN` internally and do not block.
+- **Never checking `SLOWLOG` or `INFO stats` until a real performance problem hits** — monitor them regularly to catch slow queries or abnormal memory growth early, instead of waiting for an outage.
+
+> 💡 Real-world example
+>
+> **General pattern** — SRE teams operating a Redis fleet commonly wire `INFO stats` and `SLOWLOG` into a standard monitoring dashboard (feeding Grafana/Prometheus) instead of leaving `MONITOR` on, since `MONITOR` is too costly for production. Dev teams commonly use RedisInsight as a day-to-day debugging tool to spot abnormally large keys and slow queries during development, before the problem ever reaches production.
 
 export const quizTooling = [
   {

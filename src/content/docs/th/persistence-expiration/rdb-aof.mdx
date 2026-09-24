@@ -57,6 +57,12 @@ appendfsync everysec
 
 เมื่อเวลาผ่านไป ไฟล์ AOF จะขยายใหญ่ขึ้น Redis จะบีบอัดด้วย `BGREWRITEAOF` ซึ่ง fork child เพื่อเขียน log ใหม่โดยใช้ชุดคำสั่งขั้นต่ำที่จำเป็นในการสร้างชุดข้อมูลปัจจุบันขึ้นใหม่
 
+<Callout title="AOF สมัยใหม่เป็น directory ไม่ใช่ไฟล์แบนไฟล์เดียว">
+
+ตั้งแต่ Redis 7.0 `appendfilename` เป็นแค่ *base name* — ไฟล์จริงอยู่ใน `appenddirname` (ค่าเริ่มต้นคือ `appendonlydir`) instance จริงที่เปิด AOF จะมีไฟล์ประมาณ `appendonly.aof.1.base.rdb` (snapshot ในรูปแบบ RDB), `appendonly.aof.1.incr.aof` (command log แบบ incremental นับจาก base นั้น) และ `appendonly.aof.manifest` (ไฟล์ที่เชื่อมทุกส่วนเข้าด้วยกัน) `BGREWRITEAOF` จะเขียน base file ใหม่และเริ่ม incremental file ใหม่ แทนที่จะเขียนไฟล์ text ก้อนใหญ่ไฟล์เดียวซ้ำ — โครงสร้างแบบ multi-part นี้เองที่ทำให้ rewrite ถูกกว่าและปลอดภัยกว่าเมื่อ crash เมื่อเทียบกับ AOF ไฟล์เดียวแบบเก่า
+
+</Callout>
+
 ## การตรวจสอบสถานะ Persistence ด้วย redis-cli
 
 ```text
@@ -112,9 +118,7 @@ RDB ให้ snapshot แบบ periodic ที่กะทัดรัด (res
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Instagram** — ใช้ RDB snapshot เป็นพื้นฐานของกลยุทธ์ backup สำหรับ Redis fleet ขนาดใหญ่ เพราะไฟล์ขนาดกะทัดรัดและกู้คืนได้เร็วเมื่อต้อง restore
->
-> **Production workload ทั่วไปที่ต้องการทั้งความเร็วและ durability** — ใช้ hybrid mode (ค่าเริ่มต้นใน Redis 7) เพื่อได้ประโยชน์ของทั้ง RDB และ AOF ในไฟล์เดียว โดยไม่ต้องเลือกอย่างใดอย่างหนึ่ง
+> **หลักการทั่วไป** — ทีมที่ดูแล Redis fleet ขนาดใหญ่มักใช้ RDB snapshot เป็นพื้นฐานของกลยุทธ์ backup เพราะไฟล์ขนาดกะทัดรัดและกู้คืนได้เร็วเมื่อต้อง restore Production workload ทั่วไปที่ต้องการทั้งความเร็วและ durability ใช้ hybrid mode (ค่าเริ่มต้นใน Redis 7) เพื่อได้ประโยชน์ของทั้ง RDB และ AOF ในไฟล์เดียว โดยไม่ต้องเลือกอย่างใดอย่างหนึ่ง
 
 export const quizRdbAof = [
   {

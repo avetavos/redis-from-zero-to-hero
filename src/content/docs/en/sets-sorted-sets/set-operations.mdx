@@ -113,6 +113,24 @@ With `SINTER`, `SUNION`, and `SDIFF`, Redis does all the computation in-process.
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Compute set algebra server-side (`SINTER`/`SUNION`/`SDIFF`) | No need to ship every member to the client to compute it yourself — much faster on large Sets | These commands block the server while computing; a very large Set can affect other clients' latency |
+| `*STORE` variants (`SINTERSTORE`, etc.) | Materializes the result as a new key you can re-read instantly without recomputing | The result is a snapshot at run time — if the source Sets change later, the result key does not update automatically |
+| Using a Set instead of a SQL JOIN for a simple relationship | Avoids a slow JOIN on large tables | Only fits simple many-to-many relationships, not complex relational queries |
+
+## Common mistakes
+
+- **Calling `SINTER`/`SUNION`/`SDIFF` repeatedly on every request instead of caching the result** — if the result doesn't change often, use a `*STORE` variant to save it into a key with a TTL instead of recomputing every time.
+- **Forgetting that `SDIFF` cares about the order of the keys you pass** — `SDIFF A B` and `SDIFF B A` give different results, since the first Set is the base you're subtracting from. Swapping the order flips the result unintentionally.
+- **Using a `*STORE` variant against a destination key that already holds other data** — these commands overwrite the destination key entirely. If that key was being used for something else, that data is gone immediately.
+
+> 💡 Real-world example
+>
+> **General pattern** — social platforms commonly use `SINTER` between two users' follower Sets to find mutual friends in real time, without a heavy JOIN against a relational database. Marketing teams commonly use `SUNION`/`SINTERSTORE` to combine or filter audience segments from multiple campaigns on the server, before sending the result to a notification pipeline.
+
 export const quizSetOps = [
   {
     q: "Which command returns members present in ALL listed sets?",

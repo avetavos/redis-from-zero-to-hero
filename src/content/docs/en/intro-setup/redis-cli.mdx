@@ -132,6 +132,24 @@ SELECT 0`;
 
 <TryRedis client:visible code={cliCode} />
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Use `redis-cli` interactively | Fast to test commands, immediate feedback, great for debugging | No connection pooling, retries, or error handling that a real app needs |
+| Use a client library in application code | Handles connection lifecycle, pipelining, and retries automatically | More code to write, an extra library dependency |
+| Switch databases with `SELECT` | Convenient for separating scratch data during dev | Not real multi-tenancy — every database still shares the same instance, memory, and performance |
+
+## Common mistakes
+
+- **Connecting `redis-cli` directly to production to run fix-up commands** — a typo can turn into a `FLUSHDB` or `DEL` against real keys. Use a reviewed script or a client library instead when touching production data.
+- **Assuming `SELECT` is safe tenant isolation** — the 16 logical databases still share CPU, memory, and a single `FLUSHALL` affects all of them at once. It is not a substitute for real per-tenant isolation.
+- **Treating `redis-cli` as the only way application code talks to Redis** — the healthy pattern is `redis-cli` for debugging/exploration only, with production code going through a client library that manages connection pooling and retries.
+
+> 💡 Real-world example
+>
+> **General pattern** — infra teams operating large Redis fleets commonly reach for `redis-cli` to `PING` and inspect the keyspace ad hoc during a latency issue or incident, before turning to a metrics dashboard. Production code paths still go through a client library, not the CLI.
+
 export const quizCli = [
   {
     q: "Which flag selects a specific Redis database when connecting with redis-cli?",

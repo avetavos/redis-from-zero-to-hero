@@ -175,6 +175,24 @@ export const fullScanCode = `SCAN 0 MATCH session:* COUNT 100`;
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| `SCAN` (cursor-based iteration) | Never blocks the server, spreads work into small batches, safe for production | No exact snapshot — keys added/removed mid-scan may appear twice or be skipped |
+| `KEYS *` (full blocking scan) | Simple, one call gets the complete result, fine for a small dev dataset | Blocks the event loop until every key is scanned; never use on production with many keys |
+| Set a high `COUNT` in `SCAN` to reduce round trips | Fewer round trips, faster overall | Each round does more work, which can affect the latency of other commands running concurrently |
+
+## Common mistakes
+
+- **Using `KEYS *` to see all keys in production** — this blocks the server until every key is scanned. On a large dataset it can stall other clients for seconds. Always use `SCAN` instead.
+- **Assuming `COUNT` is a hard limit on how many keys come back** — `COUNT` is only a hint. Redis may return more or fewer keys per round.
+- **Stopping the `SCAN` loop before the cursor returns to `0`** — this produces an incomplete result. The iteration is only complete once the returned cursor is `0`.
+
+> 💡 Real-world example
+>
+> **General pattern** — teams auditing keys matching a pattern on a production Redis instance with millions of keys use `SCAN` instead of `KEYS` so the audit does not affect live traffic; ops teams commonly script a `SCAN` loop to find keys matching a pattern (e.g. `cache:user:*`) and delete them in batches, rather than risk blocking the server with `KEYS`.
+
 export const quizScanKeys = [
   {
     q: "What does SCAN return when the full iteration is complete?",

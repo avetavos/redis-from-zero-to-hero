@@ -125,6 +125,24 @@ Redis transactions guarantee that the queued commands run without interruption, 
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| `MULTI`/`EXEC` transaction | Guarantees queued commands run back-to-back with no interruption | No rollback — a runtime error in one command does not undo commands that already succeeded |
+| `WATCH` for optimistic locking | Detects a race condition without locking the resource itself — good fit for low contention | You must write the retry loop yourself, and under high contention you may retry many times |
+| A Lua script instead of a transaction when you need branching | Gets atomic conditional logic that a transaction cannot express | More complex than `MULTI`/`EXEC`, and requires writing separate Lua code |
+
+## Common mistakes
+
+- **Expecting `MULTI`/`EXEC` to roll back like a SQL transaction** — Redis transactions have no rollback. A runtime error in one command does not cancel other commands that already succeeded in the same `EXEC`. You must check each result yourself.
+- **Forgetting to use `WATCH` for a check-then-set with a race condition** — if you read a value, then `MULTI`/`EXEC` a write later without `WATCH`ing the key you read, another client can change it in between with no detection.
+- **Having no retry logic for when `EXEC` returns `(nil)`** — when a watched key changes before `EXEC`, the transaction is aborted and returns `(nil)`. Client code must retry the whole sequence from `WATCH`, not silently move on.
+
+> 💡 Real-world example
+>
+> **General pattern** — a simple inventory/stock system commonly uses `WATCH` on the remaining-stock key before decrementing it with `MULTI`/`EXEC`, to prevent overselling when multiple orders arrive at once. Sidekiq and other background-job frameworks commonly use a `WATCH` + `MULTI`/`EXEC`-style pattern for optimistic concurrency control when multiple workers compete to claim jobs from the same queue.
+
 export const quizTransactions = [
   {
     q: "What does a Redis command return while inside a MULTI block?",

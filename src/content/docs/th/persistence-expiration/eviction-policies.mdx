@@ -76,9 +76,9 @@ CONFIG SET maxmemory 256mb`;
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Instagram** — ใช้ Redis fleet จำนวนมากที่ตั้งค่า `allkeys-lru` เป็นมาตรฐานสำหรับ cache layer เพื่อให้ระบบจัดการหน่วยความจำเองโดยไม่ต้องเขียน eviction logic เอง
+> **Stack Overflow** รัน Redis หลาย instance แยกกัน — instance หลักสำหรับ cache ของทุกไซต์ และอีก instance แยกสำหรับ ML recommendation engine ("Providence") — ที่รวมกันกว่า 500GB ของ RAM ([Stack Overflow: The Architecture – 2016 Edition](https://nickcraver.com/blog/2016/02/17/stack-overflow-the-architecture-2016-edition/), Nick Craver, 2016) การแยก instance แบบนี้คือสิ่งที่ทำให้ตั้ง eviction policy ต่างกันต่อ workload ได้โดยไม่กระทบกัน
 >
-> **Stack Overflow** — แยก Redis instance สำหรับ cache (ตั้ง `allkeys-lru`) ออกจาก instance ที่เก็บข้อมูลสำคัญ (ตั้ง `noeviction`) เพื่อไม่ให้ policy ผิดประเภทกระทบข้อมูลที่ห้ามหาย
+> **หลักการทั่วไป** — ทีมที่ใช้ Redis เป็น pure cache layer มักตั้งค่า `allkeys-lru` เป็นมาตรฐาน เพื่อให้ระบบจัดการหน่วยความจำเองโดยไม่ต้องเขียน eviction logic เอง
 
 export const quizEviction = [
   {

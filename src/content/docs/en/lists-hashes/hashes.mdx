@@ -156,6 +156,24 @@ Redis uses a compact encoding (listpack) for small hashes automatically. Instead
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Hash (fields as field-value pairs) | Read/write one field without parsing the whole blob (`HGET`/`HSET`) | No built-in nested structure — you must flatten complex data yourself |
+| String holding a JSON blob | Naturally handles complex/nested data | Must `GET` the whole thing and parse it every time, even for one field; always overwrites the whole blob |
+| `HDEL` one field at a time | Removes exactly the field you don't want, without touching the others | You need to know the field name up front — no built-in wildcard delete |
+
+## Common mistakes
+
+- **Storing an object as a JSON string when most fields are flat key-value pairs** — this pays a parse/serialize round trip every time you read or write even a single field.
+- **Calling `HGETALL` on a hash with many fields, repeatedly** — this loads every field into client memory when you only needed one or two. Use `HMGET` or `HGET` instead.
+- **Forgetting that `HDEL` returns the count of fields actually deleted, not a boolean** — a return of `0` is easy to mistake for an error, but it just means the field did not exist in the first place.
+
+> 💡 Real-world example
+>
+> **General pattern** — e-commerce platforms commonly store a product's attributes (price, stock, name) as one Redis hash per product, so updating stock touches a single field quickly without affecting the others. Streaming platforms use the same pattern to hold per-channel stream state (viewer count, title, category), letting a dashboard read and update each field independently in real time.
+
 export const quizHashes = [
   {
     q: "Which command returns ALL field-value pairs of a hash?",

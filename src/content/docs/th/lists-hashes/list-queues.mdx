@@ -67,26 +67,26 @@ LPOP stack`;
 
 ## RPOPLPUSH — ย้ายข้อมูลระหว่างลิสต์แบบ atomic
 
-`RPOPLPUSH source destination` จะดึงข้อมูลจากท้ายของ `source` และเพิ่มไปที่หัวของ `destination` ในการทำงาน atomic เพียงครั้งเดียว นี่คือ pattern คลาสสิกสำหรับ **reliable queue**: งานจะถูกย้ายจากลิสต์ `pending` ไปยัง `processing` ในขั้นตอนเดียว จึงไม่มีทางเกิดปัญหาหากเกิด crash ขึ้นระหว่างกลาง
+`RPOPLPUSH source destination` จะดึงข้อมูลจากท้ายของ `source` และเพิ่มไปที่หัวของ `destination` ในการทำงาน atomic เพียงครั้งเดียว เมื่อรวมกับ pattern ที่ producer ใช้ `LPUSH` จาก FIFO queue ด้านบน รายการที่เก่าที่สุดจะอยู่ที่ท้ายเสมอ — `RPOPLPUSH` จึงหยิบรายการถัดไปที่ต้องประมวลผลได้ถูกต้องเสมอ นี่คือ pattern คลาสสิกสำหรับ **reliable queue**: งานจะถูกย้ายจากลิสต์ `pending` ไปยัง `processing` ในขั้นตอนเดียว จึงไม่มีทางเกิดปัญหาหากเกิด crash ขึ้นระหว่างกลาง
 
 ```text
 127.0.0.1:6379> DEL pending processing
 (integer) 0
-127.0.0.1:6379> RPUSH pending "task:A" "task:B" "task:C"
+127.0.0.1:6379> LPUSH pending "task:A" "task:B" "task:C"
 (integer) 3
 127.0.0.1:6379> RPOPLPUSH pending processing
 "task:A"
 127.0.0.1:6379> LRANGE pending 0 -1
-1) "task:B"
-2) "task:C"
+1) "task:C"
+2) "task:B"
 127.0.0.1:6379> LRANGE processing 0 -1
 1) "task:A"
 ```
 
-`task:A` อยู่ที่ท้ายของ `pending` (ถูก push เข้ามาก่อนด้วย `RPUSH`) หลังจาก `RPOPLPUSH` จะไปอยู่ที่หัวของ `processing` ส่วน `pending` เหลือแค่รายการที่ยังไม่ถูกหยิบ
+`task:A` ถูก push เข้ามาก่อนด้วย `LPUSH` และการ `LPUSH` แต่ละครั้งถัดมาจะแทรกที่หัวเสมอ — `task:A` จึงไปจบที่ท้ายลิสต์ หลังจาก `RPOPLPUSH` จะไปอยู่ที่หัวของ `processing` ส่วน `pending` เหลือรายการที่เหลือตามลำดับที่ push เข้ามา
 
 export const rpoplpushCode = `DEL pending processing
-RPUSH pending "task:A" "task:B" "task:C"
+LPUSH pending "task:A" "task:B" "task:C"
 RPOPLPUSH pending processing
 LRANGE pending 0 -1
 LRANGE processing 0 -1`;
@@ -115,6 +115,12 @@ LRANGE processing 0 -1`;
 
 </Callout>
 
+<Callout title="RPOPLPUSH ถูก deprecate แล้ว — ใช้ LMOVE แทน">
+
+ตั้งแต่ Redis 6.2 `LMOVE source destination LEFT|RIGHT LEFT|RIGHT` มาแทนที่ `RPOPLPUSH`: ทำงาน atomic move แบบเดียวกันแต่เลือกได้ว่าจะใช้ปลายไหนของแต่ละลิสต์ แทนที่จะเป็น tail-to-head เสมอ `RPOPLPUSH source destination` ก็คือ `LMOVE source destination RIGHT LEFT` นั่นเอง และยังใช้งานได้อยู่ แต่โค้ดใหม่ควรใช้ `LMOVE` แทน
+
+</Callout>
+
 ## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
@@ -131,9 +137,9 @@ LRANGE processing 0 -1`;
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Sidekiq** — background job library ยอดนิยมของ Ruby ใช้ Redis List เป็น queue หลัก โดยมี worker process วน `BLPOP` รอรับงานใหม่แบบเดียวกับที่เรียนในบทนี้
+> **Sidekiq** background job library ยอดนิยมของ Ruby ระบุไว้ในเอกสารว่าใช้โครงสร้างข้อมูลของ Redis — รวมถึง List — เป็นที่เก็บงาน โดย worker process ดึงงานจาก Redis คล้ายกับ pattern `BLPOP` ในบทนี้ ([Sidekiq FAQ](https://github.com/sidekiq/sidekiq/wiki/FAQ), Sidekiq Wiki)
 >
-> **GitHub** — ใช้ Redis-backed queue (ผ่าน Sidekiq) ประมวลผล background job อย่างการส่ง notification และ webhook นับล้านครั้งต่อวัน
+> **หลักการทั่วไป** — แพลตฟอร์มที่สร้างบน Ruby on Rails หลายเจ้ารัน Redis-backed queue (มักผ่าน Sidekiq) เพื่อประมวลผล background job อย่างการส่ง notification และ webhook ที่ volume สูง
 
 export const listQueuesQuiz = [
   {

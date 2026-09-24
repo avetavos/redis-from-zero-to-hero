@@ -76,6 +76,12 @@ EVAL "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]
 
 สำหรับ Redis node เดียว `SET NX PX` เพียงพอแล้ว สำหรับ high availability ที่ครอบคลุม Redis หลายโหนด — เพื่อรับมือกับความล้มเหลวของโหนดโดยไม่ปลดล็อกโดยไม่ได้ตั้งใจ — ให้ใช้ **Redlock algorithm**: พยายาม acquire ล็อกบน N โหนดอิสระและถือว่าล็อกสำเร็จก็ต่อเมื่อส่วนใหญ่ (N/2+1) ยืนยันการ acquire ภายในระยะเวลาที่กำหนด ไลบรารีอย่าง `ioredis-redlock` (Node.js) implement algorithm นี้ไว้แล้ว ดังนั้นคุณไม่ต้องจัดการ quorum logic เอง
 
+<Callout title="Redlock ยังเป็นที่ถกเถียง — ต้องรู้ว่ามันการันตีอะไรได้และไม่ได้">
+
+Redlock ไม่ได้เป็นที่ยอมรับว่าปลอดภัย 100% บทวิเคราะห์ปี 2016 ของ Martin Kleppmann ["How to do distributed locking"](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html) ชี้ว่า Redlock ไม่ได้ให้ guarantee แบบ fencing-token ที่จำเป็นต่อความถูกต้องเมื่อ process หยุดชะงัก (GC, scheduling delay) หรือ clock กระโดด ทำให้ lock holder อาจยังทำงานต่อได้ทั้งที่จริงไม่ได้ถือล็อกแล้ว ฝั่ง antirez ตอบโต้ใน ["Is Redlock safe?"](http://antirez.com/news/101) โดยปกป้อง assumption ของ algorithm และโต้แย้งความเกี่ยวข้องเชิงปฏิบัติของ failure mode เหล่านั้น ถ้าคุณต้องการให้ล็อกนี้เป็นด่านสุดท้ายของความถูกต้อง (ไม่ใช่แค่ optimization ลดงานซ้ำ) ควรอ่านทั้งสองฝั่งแล้วเพิ่ม fencing token ที่ตัว resource เอง — Redlock อย่างเดียวไม่ใช่ตัวทดแทนสิ่งนั้น
+
+</Callout>
+
 <Callout title="Acquire ด้วย SET NX PX; ปลดล็อกด้วย Lua script ที่ตรวจสอบ token">
 อย่าใช้ DEL ธรรมดาในการปลดล็อก เพราะ TTL ของคุณอาจหมดอายุไปแล้วและ worker อื่นอาจ acquire ล็อกนั้นแล้ว Lua script ทำให้ GET และ DEL แบบมีเงื่อนไขเป็น atomic เพื่อให้แน่ใจว่าคุณจะไม่ลบล็อกที่คุณไม่ได้เป็นเจ้าของ
 </Callout>
@@ -96,9 +102,7 @@ EVAL "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Sidekiq** — ใช้ pattern แบบ `SET NX` เพื่อกันไม่ให้ job เดียวกันถูกประมวลผลซ้ำโดย worker หลายตัวพร้อมกัน
->
-> **Stripe** — ใช้ lock ที่มี token ตรวจสอบความเป็นเจ้าของแบบเดียวกับบทนี้ เพื่อรับประกันว่า operation ที่เกี่ยวกับเงินจะไม่ทำงานซ้ำจากหลาย process
+> **หลักการทั่วไป** — ระบบ background job มักใช้ pattern แบบ `SET NX` เพื่อกันไม่ให้ job เดียวกันถูกประมวลผลซ้ำโดย worker หลายตัวพร้อมกัน และระบบที่เกี่ยวกับเงินมักใช้ lock ที่มี token ตรวจสอบความเป็นเจ้าของแบบเดียวกับบทนี้ เพื่อรับประกันว่า operation ที่เกี่ยวกับเงินจะไม่ทำงานซ้ำจากหลาย process
 
 export const quizLocks = [
   {

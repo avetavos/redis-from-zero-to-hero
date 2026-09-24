@@ -57,6 +57,12 @@ The `appendfsync` option controls how often Redis calls `fsync()` to flush the O
 
 Over time the AOF file grows. Redis compacts it with `BGREWRITEAOF`, which forks a child to rewrite the log using the minimal set of commands needed to recreate the current dataset.
 
+<Callout title="Modern AOF is a directory, not one flat file">
+
+Since Redis 7.0, `appendfilename` is only the *base name* — the actual files live under `appenddirname` (default `appendonlydir`). A real instance with AOF on shows something like `appendonly.aof.1.base.rdb` (a snapshot in RDB format), `appendonly.aof.1.incr.aof` (the incremental command log since that base), and `appendonly.aof.manifest` (which ties the parts together). `BGREWRITEAOF` writes a fresh base file and starts a new incremental file instead of rewriting one giant text file in place — this multi-part layout is what makes rewrites cheaper and crash-safer than the old single-file AOF.
+
+</Callout>
+
 ## Checking Persistence State with redis-cli
 
 ```text
@@ -95,6 +101,24 @@ Hybrid mode has been the default since Redis 7 when both RDB and AOF are enabled
 <Callout title="RDB vs AOF — which to use">
 RDB gives compact periodic snapshots (fast restarts, small files) at the cost of potentially losing writes made since the last snapshot. AOF gives a durable command log (loss of at most one second with `everysec`) at the cost of a larger file and slightly slower restart. Most production deployments run both in hybrid mode. For a pure cache with no persistence requirement, disable both by removing all `save` lines and setting `appendonly no`.
 </Callout>
+
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| RDB only | Small, compact files, fastest restart | Data loss back to the last snapshot — better suited to backups than high durability |
+| AOF only | Less data loss (at most ~1 second with `everysec`) | Larger file, slower restart since it has to replay commands |
+| Hybrid mode (RDB + AOF, default since Redis 7) | Gets both RDB's fast restart and AOF's durability in one setup | Uses more disk than either alone, and there are two mechanisms to keep configured correctly |
+
+## Common mistakes
+
+- **Using RDB alone and expecting high durability** — periodic snapshots (like `save 60 10000`) mean everything written after the last snapshot is gone if Redis crashes before the next one.
+- **Running blocking `SAVE` in production instead of `BGSAVE`** — `SAVE` blocks the server until the file is written, stalling every other client. Always use `BGSAVE`, which forks a child to write in the background.
+- **Letting AOF grow without ever running `BGREWRITEAOF`** — the AOF accumulates every command indefinitely if it's never compacted, eating disk space and slowing restarts significantly.
+
+> 💡 Real-world example
+>
+> **General pattern** — teams operating a large Redis fleet commonly use RDB snapshots as the base of their backup strategy, since the files are compact and restore quickly. Most production workloads that need both speed and durability run hybrid mode (the default since Redis 7) to get the benefits of both RDB and AOF without having to choose one.
 
 export const quizRdbAof = [
   {

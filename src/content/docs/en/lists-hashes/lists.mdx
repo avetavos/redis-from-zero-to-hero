@@ -128,6 +128,24 @@ Combining `LPUSH` and `LTRIM` keeps a fixed-size "last N" list in O(1) amortized
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Redis List (doubly linked list) | O(1) push/pop at both ends — good fit for queues, stacks, feeds | Accessing a middle element with `LINDEX` is O(N) |
+| `LPUSH` + `LTRIM` for a recent-items feed | Keeps a fixed-size list automatically, no separate cleanup job | You must call `LTRIM` after every push — forget it and the list grows without bound |
+| `LREM` to remove by value | Deletes an item you don't know the index of | Scans the whole list, O(N) — not a good fit for a large list with frequent deletes |
+
+## Common mistakes
+
+- **Repeatedly using `LINDEX` or looping `LRANGE` one index at a time to read the middle of a list** — each call is O(N). If you need frequent random access, consider a different data structure.
+- **Using `LPUSH` for an activity feed without a following `LTRIM`** — the list grows without bound and consumes memory, when you only ever needed the last N items.
+- **Expecting `LSET` to behave like "insert at index"** — it only overwrites an element that already exists there; if the index doesn't exist, you get an error.
+
+> 💡 Real-world example
+>
+> **General pattern** — feed and timeline features commonly pair a Redis List with `LTRIM` to keep each user's feed at a fixed size, so it never grows unbounded as new items arrive; the same `LPUSH` + `LTRIM` combination is used for a recent-activity feed, keeping only the most recent N entries per user.
+
 export const quizLists = [
   {
     q: "What does `LRANGE tasks 0 -1` return?",

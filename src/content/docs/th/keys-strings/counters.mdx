@@ -153,9 +153,9 @@ TTL ratelimit:ip:203.0.113.5`;
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **GitHub** — ใช้ counter แบบ `INCR` เก็บ API rate-limit ต่อ token ผูกกับ `EXPIRE` เพื่อ reset window อัตโนมัติโดยไม่ต้องมี cron job มาล้างข้อมูลเก่า
+> **GitHub** เคยเปิดเผยว่าใช้ counter แบบ `INCR` + `EXPIRE` บน Redis สำหรับ API rate-limit และข้อมูล transient/cache อื่น ๆ ก่อนจะย้ายส่วนที่เป็น persistent counter บางส่วนไปเก็บบน MySQL แทนเมื่อระบบโตขึ้น ([Moving persistent data out of Redis](https://github.blog/engineering/moving-persistent-data-out-of-redis/), GitHub Engineering, 2015)
 >
-> **Reddit/YouTube-style platforms** — ใช้ `INCR` นับ view count และ upvote count แบบ near-real-time แทนการอัปเดตแถวใน relational DB ทุกครั้งที่มีคนดู
+> **หลักการทั่วไป** — แพลตฟอร์มที่มี traffic สูงหลายเจ้าใช้ counter แบบ `INCR` นับ view count และ upvote count แบบ near-real-time แทนการอัปเดตแถวใน relational DB ทุกครั้งที่มีคนดู
 
 export const quizCounters = [
   {

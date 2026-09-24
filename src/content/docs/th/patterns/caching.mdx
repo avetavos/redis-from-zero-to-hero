@@ -94,9 +94,9 @@ GET cache:user:42`;
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Twitter** — ใช้ cache-aside pattern แบบเดียวกับบทนี้เป็นแกนของ timeline cache โดยเก็บ tweet ล่าสุดไว้ใน Redis แล้ว fallback ไป storage ชั้นในเมื่อ miss
+> **Stack Overflow** วาง L1 (local)/L2 (Redis) cache-aside ไว้หน้า SQL Server เพื่อลด query ซ้ำสำหรับหน้าที่มีคนอ่านพร้อมกันจำนวนมาก ที่สเกลราว 160 พันล้าน operation ต่อเดือน ([Stack Overflow: The Architecture – 2016 Edition](https://nickcraver.com/blog/2016/02/17/stack-overflow-the-architecture-2016-edition/), Nick Craver, 2016)
 >
-> **Stack Overflow** — วาง Redis cache-aside ไว้หน้า SQL Server เพื่อลด query ซ้ำสำหรับหน้าที่มีคนอ่านพร้อมกันจำนวนมาก
+> **หลักการทั่วไป** — โปรดักต์ feed ที่มี traffic สูงมักใช้ cache-aside เป็นแกนของ timeline/feed cache เก็บรายการล่าสุดไว้ใน Redis แล้ว fallback ไป storage ที่ช้ากว่าเมื่อ miss
 
 export const quizCaching = [
   {

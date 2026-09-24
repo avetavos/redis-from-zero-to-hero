@@ -82,15 +82,15 @@ Re-sending the full script text every request wastes bandwidth. `SCRIPT LOAD` up
 
 ```text
 127.0.0.1:6379> SCRIPT LOAD "return redis.call('INCR', KEYS[1])"
-"2068d9c36e28e0f50d70bedb00173c36e5f4f39d"
-127.0.0.1:6379> EVALSHA 2068d9c36e28e0f50d70bedb00173c36e5f4f39d 1 counter
+"61636018f4e6b5817b89791bbed242f93fa089e3"
+127.0.0.1:6379> EVALSHA 61636018f4e6b5817b89791bbed242f93fa089e3 1 counter
 (integer) 3
 ```
 
-The script is cached in Redis memory for the lifetime of the server (or until `SCRIPT FLUSH`). If the script is not found — e.g., after a server restart — `EVALSHA` returns a `NOSCRIPT` error and your client should fall back to `EVAL` to re-upload it.
+The hash is a SHA1 digest of the exact script text — the same script always hashes to the same value, so any client that has loaded it can call it by hash without resending the source. The script is cached in Redis memory for the lifetime of the server (or until `SCRIPT FLUSH`, which clears the whole script cache). If the script is not found — e.g., after a server restart or a `SCRIPT FLUSH` — `EVALSHA` returns a `NOSCRIPT` error and your client should fall back to `EVAL` to re-upload it.
 
 export const evalShaCode = `SCRIPT LOAD "return redis.call('INCR', KEYS[1])"
-EVALSHA 2068d9c36e28e0f50d70bedb00173c36e5f4f39d 1 counter
+EVALSHA 61636018f4e6b5817b89791bbed242f93fa089e3 1 counter
 GET counter`;
 
 <TryRedis client:visible code={evalShaCode} />
@@ -100,6 +100,32 @@ GET counter`;
 When you run `EVAL` or `EVALSHA`, the entire script executes on the Redis server in one uninterrupted step. No other client command can run between any two lines of your Lua code. This makes Lua ideal for read-modify-write patterns (rate limiters, distributed locks, conditional updates) that cannot be expressed with `MULTI`/`EXEC` because they require branching logic.
 
 </Callout>
+
+<Callout title="Redis Functions (7.0+) — the maintained alternative to raw EVAL scripts">
+
+`EVAL`/`EVALSHA` scripts are cached per-connection-pool state that can vanish on `SCRIPT FLUSH` or a restart, and they're not designed to be organized as a library. Since Redis 7.0, `FUNCTION LOAD` registers a named library of Lua functions (declared with `redis.register_function`) that persists like any other write — it's included in RDB/AOF and replicated to replicas — and you call one with `FCALL name numkeys [key ...] [arg ...]`. For anything beyond a one-off script, Functions are the better-maintained building block; `EVAL` still exists and is fine for quick, ad hoc atomic logic like the rate limiter above.
+
+</Callout>
+
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Lua script (`EVAL`) instead of `MULTI`/`EXEC` | Atomic conditional/branching logic — something a transaction cannot do | Harder to write and debug than a single command; you must distinguish Lua errors from Redis errors yourself |
+| Caching a script with `EVALSHA` | No need to resend the full script text every request, saves bandwidth | You must handle the `NOSCRIPT` fallback yourself, especially after a restart or `SCRIPT FLUSH` |
+| A script running atomically on the server | No other command interleaves while the script runs, guaranteeing consistency | A long or loop-heavy script blocks the event loop, making every other client wait |
+
+## Common mistakes
+
+- **Writing a Lua script that does heavy work or loops a lot** — Redis is single-threaded, so a slow script blocks every other command on the server. Keep scripts short and predictable.
+- **Not handling the `NOSCRIPT` error from `EVALSHA`** — after a restart or `SCRIPT FLUSH`, the cached hash is gone. Your client needs to catch this error and fall back to `EVAL` to re-upload the script.
+- **Using `redis.call` when you want to handle the error yourself** — `redis.call` throws a Lua error immediately when a command fails, aborting the whole script. Use `redis.pcall` instead if you need to inspect and handle the error inside the script.
+
+> 💡 Real-world example
+>
+> **Stripe's public idempotency-key documentation** describes storing the first request's result and replaying it for retries within 24 hours ([Idempotent requests](https://docs.stripe.com/api/idempotent_requests), Stripe Docs) — the same kind of atomic check-then-act guarantee a Lua script gives you on Redis, even though Stripe does not publicly document Redis or Lua as their internal mechanism.
+>
+> **General pattern** — many rate limiters wrap the same pattern shown in this lesson (`INCR` + `EXPIRE` + a threshold check) in Lua, so the check and the counter update happen as a single atomic operation.
 
 export const quizLua = [
   {

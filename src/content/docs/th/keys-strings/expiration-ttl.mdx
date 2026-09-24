@@ -136,9 +136,9 @@ bug ที่พบบ่อยคือการเช็ก `TTL key == 0` เ
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Twitter timeline cache** — ผูก TTL กับ key แคช timeline เพื่อให้ข้อมูลเก่าถูกล้างอัตโนมัติ แล้ว regenerate ใหม่จาก source of truth เมื่อมีคน request เข้ามาหลัง cache หมดอายุ
+> **Stack Overflow** วาง L1/L2 cache (local memory บวก Redis) ไว้หน้า SQL Server ที่สเกลราว 160 พันล้าน operation ต่อเดือน ([Stack Overflow: The Architecture – 2016 Edition](https://nickcraver.com/blog/2016/02/17/stack-overflow-the-architecture-2016-edition/), Nick Craver, 2016) การให้ค่าที่ cache ไว้หมดอายุด้วย TTL แบบที่บทนี้สอน คือกลไกที่ทำให้ cache แบบนี้ไม่เสิร์ฟข้อมูลเก่าค้างตลอดไป
 >
-> **Stack Overflow** — ใช้ TTL กับ session key เพื่อ log out ผู้ใช้อัตโนมัติหลังไม่มี activity ในช่วงเวลาที่กำหนด แทนที่จะต้องมี background job มาลบ session เก่า
+> **หลักการทั่วไป** — session store ทั่วไปมักผูก TTL เข้ากับ session key เพื่อให้ user ที่ไม่มี activity ถูก log out อัตโนมัติ แทนที่จะต้องรัน background job มากวาดล้าง session เก่า
 
 export const quizTTL = [
   {

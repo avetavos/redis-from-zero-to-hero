@@ -30,7 +30,7 @@ OK
 
 Redis client library ส่วนใหญ่เปิด pipelining โดยตรง ตัวอย่างใน Node.js (ioredis):
 
-```bash
+```js
 const pipeline = redis.pipeline();
 pipeline.set('a', 1);
 pipeline.set('b', 2);
@@ -43,7 +43,7 @@ const results = await pipeline.exec();
 `redis-cli` มาพร้อม flag `--pipe` ที่รับ Redis protocol (RESP) จาก stdin และส่งเป็น pipeline:
 
 ```bash
-# สร้าง RESP inline และส่งผ่าน pipe ไปยัง Redis
+# Generate RESP inline and pipe it to Redis
 printf "*3\r\n\$3\r\nSET\r\n\$2\r\nk1\r\n\$5\r\nhello\r\n*3\r\n\$3\r\nSET\r\n\$2\r\nk2\r\n\$5\r\nworld\r\n" \
   | redis-cli --pipe
 ```
@@ -53,7 +53,7 @@ printf "*3\r\n\$3\r\nSET\r\n\$2\r\nk1\r\n\$5\r\nhello\r\n*3\r\n\$3\r\nSET\r\n\$2
 คุณยังสามารถสร้างไฟล์คำสั่งและส่งผ่าน pipe:
 
 ```bash
-# commands.txt มีคำสั่ง redis-cli หนึ่งบรรทัดต่อหนึ่งคำสั่ง
+# commands.txt contains one redis-cli command per line
 cat commands.txt | redis-cli --pipe
 ```
 

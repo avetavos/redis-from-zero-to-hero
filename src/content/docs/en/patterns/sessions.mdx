@@ -75,6 +75,26 @@ HGET session:abc123 role`;
 Call EXPIRE on every authenticated request to keep active sessions alive. When the user logs out, call DEL session:&lt;id&gt; explicitly. Hashes let you read or update individual fields without round-tripping the full session blob.
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| One hash per session | Read/update individual fields without deserializing the whole thing | You must know field names up front — Redis enforces no schema of its own |
+| One JSON string | Simple to write and read, naturally holds complex structure | Must deserialize/serialize the whole blob even to change one field |
+| Sliding TTL (`EXPIRE` on every request) | An active session never expires mid-use | Requires an extra `EXPIRE` call per request, adding a round trip |
+
+## Common mistakes
+
+- **Forgetting to call `EXPIRE` again on every request** — if the TTL is only set once at login, an active user gets logged out mid-session when that original TTL runs out.
+- **Not calling `DEL` on the session key at logout** — if you rely on the TTL alone, a stolen session token keeps working until the TTL expires, even after the user explicitly logged out.
+- **Storing sensitive data (like a password) in the session hash** — a session store should hold only what's needed for authorization, not raw credentials.
+
+> 💡 Real-world example
+>
+> **connect-redis**, a widely used session store for Express/`express-session`, stores each session as a Redis hash the same way this lesson does, with a sliding TTL refreshed per request.
+>
+> **General pattern** — production systems with large numbers of concurrent users commonly rely on Redis as a session store specifically because key lookups stay fast even at that scale.
+
 export const quizSessions = [
   {
     q: "Which command reads all fields and values of a hash?",

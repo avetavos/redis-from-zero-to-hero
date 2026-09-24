@@ -67,26 +67,26 @@ LPOP stack`;
 
 ## RPOPLPUSH — atomically move between lists
 
-`RPOPLPUSH source destination` pops from the tail of `source` and pushes to the head of `destination` in a single atomic operation. This is the classic pattern for a **reliable queue**: a job moves from a `pending` list to a `processing` list in one step, so a crash between the two operations is impossible.
+`RPOPLPUSH source destination` pops from the tail of `source` and pushes to the head of `destination` in a single atomic operation. Combined with the `LPUSH` producer pattern from the FIFO queue above, the oldest item always ends up at the tail — so `RPOPLPUSH` reliably picks up the next item to process. This is the classic pattern for a **reliable queue**: a job moves from a `pending` list to a `processing` list in one step, so a crash between the two operations is impossible.
 
 ```text
 127.0.0.1:6379> DEL pending processing
 (integer) 0
-127.0.0.1:6379> RPUSH pending "task:A" "task:B" "task:C"
+127.0.0.1:6379> LPUSH pending "task:A" "task:B" "task:C"
 (integer) 3
 127.0.0.1:6379> RPOPLPUSH pending processing
 "task:A"
 127.0.0.1:6379> LRANGE pending 0 -1
-1) "task:B"
-2) "task:C"
+1) "task:C"
+2) "task:B"
 127.0.0.1:6379> LRANGE processing 0 -1
 1) "task:A"
 ```
 
-`task:A` was at the tail of `pending` (it was pushed first with `RPUSH`). After `RPOPLPUSH`, it sits at the head of `processing` while `pending` only has the remaining items.
+`task:A` was pushed first with `LPUSH`, and each later `LPUSH` inserts at the head — so `task:A` ends up at the tail. After `RPOPLPUSH`, it sits at the head of `processing` while `pending` keeps the remaining items in push order.
 
 export const rpoplpushCode = `DEL pending processing
-RPUSH pending "task:A" "task:B" "task:C"
+LPUSH pending "task:A" "task:B" "task:C"
 RPOPLPUSH pending processing
 LRANGE pending 0 -1
 LRANGE processing 0 -1`;
@@ -114,6 +114,32 @@ In a worker process you run `BLPOP jobs 0` in a loop. When a producer calls `LPU
 `BLPOP` blocks until an item arrives — no polling loop required. A worker process loops on `BLPOP jobs 0`, and a producer wakes it instantly with `LPUSH`. This is a production-grade pattern for lightweight background workers that don't need a full message broker.
 
 </Callout>
+
+<Callout title="RPOPLPUSH is deprecated — prefer LMOVE">
+
+Since Redis 6.2, `LMOVE source destination LEFT|RIGHT LEFT|RIGHT` replaces `RPOPLPUSH`: it does the same atomic move but lets you choose which end of each list to use, instead of always tail-to-head. `RPOPLPUSH source destination` is exactly `LMOVE source destination RIGHT LEFT` and still works, but new code should reach for `LMOVE`.
+
+</Callout>
+
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| `BLPOP`/`BRPOP` (blocking pop) | No polling loop to write; a worker wakes immediately when work arrives | Requires holding a blocking connection open per worker |
+| Redis List as a queue | Simple to set up, low latency, no separate broker to install | No built-in retry, dead-letter queue, or delivery guarantees like RabbitMQ/Kafka |
+| `RPOPLPUSH`/`LMOVE` to a processing list | Prevents job loss if a worker crashes mid-processing | You must write the logic that clears the processing list once a worker finishes |
+
+## Common mistakes
+
+- **Moving a job to a processing list with `RPOPLPUSH`/`LMOVE` but never clearing it once processed** — the processing list grows without bound, effectively a memory leak.
+- **Using a Redis List as a queue when you need strict retry, dead-letter queues, or delivery guarantees** — a Redis List has none of these built in; you would have to build all of it yourself.
+- **Letting a list grow unbounded with no `LTRIM`** — if consumers fall behind producers, the list grows without limit until memory runs out.
+
+> 💡 Real-world example
+>
+> **Sidekiq**, a popular Ruby background-job library, documents using Redis's data structures — including Lists — as its job storage, with worker processes pulling jobs off Redis much like the `BLPOP` pattern in this lesson ([Sidekiq FAQ](https://github.com/sidekiq/sidekiq/wiki/FAQ), Sidekiq Wiki).
+>
+> **General pattern** — many Ruby-on-Rails-based platforms run a Redis-backed queue (often via Sidekiq) to process background jobs such as sending notifications and webhooks at high volume.
 
 export const listQueuesQuiz = [
   {

@@ -111,6 +111,24 @@ When you `SADD` a value that already exists, Redis silently ignores it and retur
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Set for tags/deduplication | Uniqueness is guaranteed with no existence check needed; `SADD` acts as its own upsert | Unordered — if you need insertion order or sorting by value, use a List or Sorted Set instead |
+| `SISMEMBER` for membership checks | O(1) lookup regardless of how many millions of members the Set has | Only answers "is it a member or not" — no other data about that member; store metadata in a separate key |
+| `SPOP` for random sampling | Atomically samples and removes in one step, good for prizes or job assignment | A popped member is gone permanently; log separately if you need a history of what was drawn |
+
+## Common mistakes
+
+- **Calling `SMEMBERS` on a Set with millions of members** — this pulls back every member at once and blocks the server while it works. Use `SSCAN` instead to iterate a large Set with a cursor.
+- **Confusing `SADD`'s return value with the Set's total size** — `SADD` returns only the count of **new** members added, not the Set's size. Call `SCARD` separately for the total.
+- **Using a Set when you actually need order** — if the business logic depends on insertion order (e.g. "most recent first"), a Set won't do, since it guarantees no order. Use a List or a Sorted Set (with a timestamp as the score) instead.
+
+> 💡 Real-world example
+>
+> **General pattern** — news sites and e-commerce platforms commonly use a Set to hold the tags for an item, since `SADD` automatically prevents duplicate tags and `SISMEMBER` quickly checks whether an item has a given tag. Deduplication systems commonly use a Set to hold the IDs of already-processed events, checking with `SISMEMBER` before reprocessing to prevent duplicate work in an at-least-once delivery pipeline.
+
 export const quizSets = [
   {
     q: "What does SADD return when you add a member that already exists?",

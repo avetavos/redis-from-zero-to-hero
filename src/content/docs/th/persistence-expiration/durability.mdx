@@ -19,13 +19,13 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 - `no`: OS ตัดสินใจเองว่าจะ flush เมื่อใด — throughput สูงที่สุด, การสูญหายของข้อมูลไม่แน่นอน
 
 ```ini
-# ความทนทานสูงสุด — ทุก write ถูก fsync
+# Maximum durability — every write fsynced
 appendfsync always
 
-# สมดุล — สูญเสียข้อมูลได้มากที่สุด 1 วินาที (แนะนำ)
+# Balance — at most 1 second of data loss (recommended)
 appendfsync everysec
 
-# เร็วที่สุด — OS ควบคุมการ flush, สูญหายไม่แน่นอน
+# Fastest — OS controls flushing, unpredictable loss
 appendfsync no
 ```
 
@@ -65,6 +65,12 @@ CONFIG GET appendfsync`;
 
 </Callout>
 
+<Callout title="AOF ปิดอยู่โดยค่าเริ่มต้น และ AOF สมัยใหม่เป็น directory ไม่ใช่ไฟล์เดียว">
+
+`appendonly` มีค่าเริ่มต้นเป็น `no` — Redis instance ใหม่จะ persist ผ่าน RDB snapshot เท่านั้น เว้นแต่คุณจะ `CONFIG SET appendonly yes` เอง (หรือตั้งใน `redis.conf`) ตั้งแต่ Redis 7.0 การเปิด AOF จะสร้างโครงสร้างแบบ multi-part ไว้ใน directory (`appenddirname` ค่าเริ่มต้นคือ `appendonlydir`): ไฟล์ base, ไฟล์ incremental หนึ่งไฟล์ขึ้นไป และ manifest ที่เชื่อมทั้งหมดเข้าด้วยกัน — นี่คือสิ่งที่ทำให้ background rewrite ทำได้ถูกกว่าไฟล์เดียวที่โตขึ้นเรื่อย ๆ แบบเดิม
+
+</Callout>
+
 ## ข้อแลกเปลี่ยน
 
 | ตัวเลือก | Benefit | Cost |
@@ -81,7 +87,7 @@ CONFIG GET appendfsync`;
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **GitHub** — ใช้ `appendfsync everysec` เป็นค่ามาตรฐานสำหรับ Redis instance ที่เก็บข้อมูลสำคัญ เพื่อรักษาสมดุลระหว่าง durability กับ write throughput บน workload ที่มีการเขียนหนัก
+> **หลักการทั่วไป** — ทีมที่ดูแล Redis instance ที่เก็บข้อมูลสำคัญมักตั้ง `appendfsync everysec` เป็นค่ามาตรฐาน เพื่อรักษาสมดุลระหว่าง durability กับ write throughput บน workload ที่มีการเขียนหนัก
 >
 > **Financial-grade queue systems** — ระบบที่เกี่ยวกับธุรกรรมทางการเงินมักเลือก `appendfsync always` แม้ throughput จะต่ำลง เพราะยอมรับการสูญหายข้อมูลแม้แต่คำสั่งเดียวไม่ได้
 

@@ -112,7 +112,7 @@ HGET user:1 referrer`;
 
 <Callout title="Prefer one hash per object over many string keys">
 
-การเก็บ `user:1` เป็น hash เดียวใช้หน่วยความจำน้อยกว่าการแยกเป็น `user:1:name`, `user:1:email` ฯลฯ Redis ใช้ encoding แบบ listpack สำหรับ hash ที่มีไม่เกิน 128 ฟิลด์ — ช่วยประหยัดได้ประมาณ 50–80 bytes ต่อออบเจกต์เมื่อเทียบกับ string key แยก สงวน pattern หลาย key ไว้ใช้เฉพาะเมื่อต้องการกำหนด expiration ระดับฟิลด์เท่านั้น
+การเก็บ `user:1` เป็น hash เดียวใช้หน่วยความจำน้อยกว่าการแยกเป็น `user:1:name`, `user:1:email` ฯลฯ Redis ใช้ encoding แบบ listpack สำหรับ hash ที่มีไม่เกิน 512 ฟิลด์โดยค่าเริ่มต้น (`hash-max-listpack-entries` แต่ละค่าไม่เกิน 64 bytes) — ช่วยประหยัดได้ประมาณ 50–80 bytes ต่อออบเจกต์เมื่อเทียบกับ string key แยก เกินเกณฑ์นี้ Redis จะแปลงเป็น hash table ปกติให้อัตโนมัติ สงวน pattern หลาย key ไว้ใช้เฉพาะเมื่อต้องการกำหนด expiration ระดับฟิลด์เท่านั้น
 
 </Callout>
 
@@ -132,9 +132,9 @@ HGET user:1 referrer`;
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **GitHub** — เก็บ metadata ของ object อย่าง repository stats เป็น hash เดียวต่อหนึ่ง object ใช้ `HINCRBY` อัปเดตตัวนับ เช่น star count แบบ atomic โดยไม่ต้องล็อกฝั่ง application
+> **คำแนะนำจาก Redis เอง** ([Memory optimization](https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/memory-optimization/), Redis Docs) แนะนำแนวทางนี้ตรง ๆ: model key-value store ธรรมดาด้วย hash เพราะ hash ขนาดใหญ่จำนวนน้อยกินหน่วยความจำน้อยกว่า key แยกจำนวนมาก เนื่องจาก hash ขนาดเล็กใช้ listpack encoding แบบกะทัดรัดตามที่กล่าวไปข้างต้น
 >
-> **Instagram** — ใช้ hash เก็บ field ของ media object (like count, view count) รวมกันภายใต้ key เดียว ลด round-trip เมื่อต้องอ่านหลาย field พร้อมกันสำหรับหน้า feed
+> **หลักการทั่วไป** — แอปประเภท feed หรือ media มักรวม field ของ object เดียวกัน (like count, view count, metadata) ไว้ภายใต้ hash key เดียว เพื่อลด round-trip เมื่อต้องอ่านหลาย field พร้อมกันสำหรับหน้า feed
 
 export const quizHashObjects = [
   {

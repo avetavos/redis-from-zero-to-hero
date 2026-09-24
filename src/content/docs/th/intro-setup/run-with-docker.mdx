@@ -59,23 +59,23 @@ Docker สร้าง volume `redisdata` โดยอัตโนมัติ p
 ## วงจรชีวิตของ Container
 
 ```bash
-# หยุด container ที่กำลังทำงาน (Redis จะ shutdown อย่างสะอาด)
+# Stop the running container (Redis shuts down cleanly)
 docker stop redis
 
-# เริ่มใหม่อีกครั้ง — ข้อมูลใน named volume ยังคงอยู่
+# Start it again — data in the named volume is preserved
 docker start redis
 
-# ลบ container ทั้งหมด (volume ยังคงอยู่เว้นแต่คุณจะลบด้วย)
+# Remove the container entirely (volume survives unless you also delete it)
 docker rm redis
 ```
 
 ## ดู logs
 
 ```bash
-# แสดง log ทั้งหมดที่มีจนถึงตอนนี้
+# Print all logs produced so far
 docker logs redis
 
-# ติดตาม log แบบ real-time (กด Ctrl-C เพื่อหยุด)
+# Follow logs in real time (Ctrl-C to stop)
 docker logs -f redis
 ```
 
@@ -102,9 +102,7 @@ docker exec -it redis redis-cli`;
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **GitHub** — ใช้ Redis สำหรับงาน caching และ session หลายส่วนในระบบ โดยใน environment สำหรับ dev/test มักรันผ่าน container คล้ายกับที่สอนในบทนี้ ก่อนขึ้น production จริงบน infrastructure ที่ hardened แล้ว
->
-> **Twitter** — แม้ production จะรันบน infrastructure ขนาดใหญ่ แต่ทีม dev ภายในมักใช้ Redis container เดียวกันนี้เพื่อจำลอง timeline cache ตอนพัฒนาและทดสอบ local
+> **หลักการทั่วไป** — ทีมที่ใช้ Redis ในระบบ production ระดับใหญ่ มักรัน Redis container แบบเดียวกับที่สอนในบทนี้ใน environment สำหรับ dev/test เพื่อจำลองพฤติกรรมของ production ก่อนขึ้นจริงบน infrastructure ที่ hardened และมี auth/TLS ครบ
 
 export const quizDocker = [
   {

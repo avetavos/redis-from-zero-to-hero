@@ -94,6 +94,25 @@ The built-in data structures also mean the server can enforce invariants you wou
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Store data in RAM (in-memory) | Sub-millisecond latency; reads and writes are far faster than disk | RAM costs much more than disk, and the whole dataset must fit in available memory |
+| Single-threaded event loop | No lock contention; every command is atomic by construction; easy to reason about | Only one CPU core is used per instance; no parallelism inside a single Redis process |
+
+## Common mistakes
+
+- **Assuming Redis is durable by default** — the defaults favor speed, not durability. If you need data to survive a restart, you must configure persistence (RDB/AOF) yourself.
+- **Letting the dataset grow without setting `maxmemory`** — because everything lives in RAM, an unbounded dataset with no eviction policy configured can use up all available memory and OOM the machine.
+- **Assuming single-threaded means "slow"** — the single event loop is exactly what makes Redis fast, since there is no context switching. But it also means one expensive command (e.g. `KEYS *` on a large dataset) blocks every other client until it finishes.
+
+> 💡 Real-world example
+>
+> **Stack Overflow** ran an L1 (local memory)/L2 (Redis) cache in front of SQL Server: a request checks local cache, then Redis, and only queries the database on a miss — at a reported scale of roughly 160 billion Redis operations a month across their fleet ([Stack Overflow: The Architecture – 2016 Edition](https://nickcraver.com/blog/2016/02/17/stack-overflow-the-architecture-2016-edition/), Nick Craver, 2016).
+>
+> **General pattern** — many high-traffic, read-heavy products put an in-memory data-structure store in front of their primary database so the "give me the latest data for this user" query never has to hit the database on every read.
+
 export const quizWhat = [
   {
     q: "Why is Redis so fast compared to disk-based databases?",

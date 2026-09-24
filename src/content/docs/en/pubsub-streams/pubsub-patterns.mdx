@@ -96,6 +96,23 @@ A single `PSUBSCRIBE news.*` replaces a dozen individual `SUBSCRIBE` calls. The 
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| `PSUBSCRIBE` with a glob pattern | Subscribe to many channels in one call, no need to know every channel name up front | Redis must match the pattern against every published message, adding overhead when there are many active patterns |
+| Keyspace notifications over Pub/Sub | Real-time events with no polling | Adds load to Redis's own Pub/Sub, and is still fire-and-forget like regular Pub/Sub |
+
+## Common mistakes
+
+- **Using an overly broad pattern like `*`** — this matches every message in the system against it, wasting CPU. Keep patterns as narrow as you actually need.
+- **Confusing `message` with `pmessage`** — a client subscribed via `PSUBSCRIBE` must parse a four-part reply (with the extra pattern field). Reusing the parsing logic for plain `SUBSCRIBE` reads the wrong fields.
+- **Enabling keyspace notifications and forgetting to scope them down in a high-throughput production system** — `notify-keyspace-events` adds CPU overhead to every command that touches a key. Enable only the event types you actually need, not `KEA` (everything) by default.
+
+> 💡 Real-world example
+>
+> **General pattern** — multi-category alerting systems commonly use `PSUBSCRIBE alerts.*` to receive alerts from every category (`alerts.security`, `alerts.billing`, etc.) with a single subscription instead of subscribing channel by channel. Services that cache data in another layer commonly subscribe to `__keyevent@0__:expired` via keyspace notifications to learn the instant a source key expires, then invalidate the related cache entry.
+
 export const quizPsubscribe = [
   {
     q: "Which glob wildcard matches exactly one character in a PSUBSCRIBE pattern?",

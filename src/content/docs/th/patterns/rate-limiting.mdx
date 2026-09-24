@@ -80,9 +80,9 @@ INCR + EXPIRE ให้ **fixed window**: คำขอทั้งหมดใ�
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **GitHub API** — ใช้ counter แบบ `INCR`/`EXPIRE` ต่อ token เพื่อจำกัดจำนวน request ต่อชั่วโมง พร้อมส่ง header บอกโควตาที่เหลือ
+> **GitHub REST API** เอกสารระบุ rate limit ต่อ token พร้อม response header บอกโควตาที่เหลือ และ engineering blog ของ GitHub เคยเล่าถึงการใช้ counter บน Redis สำหรับ rate limiting แบบนี้ ก่อนย้าย persistent counter บางส่วนไปที่อื่นเมื่อระบบโตขึ้น ([Moving persistent data out of Redis](https://github.blog/engineering/moving-persistent-data-out-of-redis/), GitHub Engineering, 2015)
 >
-> **Cloudflare** — ใช้กลไก rate limiting ที่อิงหลักการเดียวกับ sliding window เพื่อป้องกัน DDoS และ abuse ที่ edge ก่อนถึง origin server
+> **หลักการทั่วไป** — ผู้ให้บริการ CDN/edge มักใช้ rate limiting ที่อิงหลักการเดียวกับ sliding window ในบทนี้ เพื่อป้องกัน DDoS และ abuse ที่ edge ก่อนถึง origin server
 
 export const quizRateLimiting = [
   {

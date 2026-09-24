@@ -60,6 +60,26 @@ As a cache, set `maxmemory` plus an `allkeys-lru` or `allkeys-lfu` policy so Red
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| `noeviction` | No key is ever removed without your say-so — safe for durable data | Writes fail outright with an error once memory is full; you have to monitor `maxmemory` yourself |
+| `allkeys-lru` / `allkeys-lfu` | Redis manages memory automatically — a good fit for a pure-cache workload | Can evict a key you still needed if "least useful" is misjudged; not safe for data that must persist |
+| `volatile-*` (lru/lfu/ttl/random) | Only evicts keys that have a TTL, so persistent data stays safe | If no keys have a TTL, this policy behaves like `noeviction` and writes fail once full |
+
+## Common mistakes
+
+- **Running a production cache with `noeviction`** — once memory is full, every write gets an `OOM command not allowed` error instead of Redis quietly evicting old keys the way a cache should.
+- **Using `allkeys-lru` on data that must persist** — if Redis holds both cache and important data in the same instance, an `allkeys-*` policy can evict critical keys under memory pressure. Use a separate instance or a `volatile-*` policy instead.
+- **Never setting `maxmemory` at all** — with no limit, Redis uses as much memory as the system has, until the OS starts killing processes or the system fails with no warning.
+
+> 💡 Real-world example
+>
+> **Stack Overflow** runs several separate Redis instances — one main cluster for site-wide caching and a separate one for their ML recommendation engine ("Providence") — together totaling over 500GB of RAM ([Stack Overflow: The Architecture – 2016 Edition](https://nickcraver.com/blog/2016/02/17/stack-overflow-the-architecture-2016-edition/), Nick Craver, 2016). Splitting instances like this is exactly what lets you set a different eviction policy per workload without one affecting the other.
+>
+> **General pattern** — teams that use Redis purely as a cache layer commonly default to `allkeys-lru`, letting the server manage memory automatically instead of writing their own eviction logic.
+
 export const quizEviction = [
   {
     q: "Which eviction policy evicts the least recently used key from ALL keys?",

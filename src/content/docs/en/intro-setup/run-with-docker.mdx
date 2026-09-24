@@ -86,6 +86,24 @@ docker exec -it redis redis-cli`;
 
 <TryRedis client:visible code={dockerCode} />
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Run without mounting a volume | Fastest to start, good for throwaway experiments | Data disappears the moment you `docker rm` the container |
+| Attach a named volume (`-v redisdata:/data`) | Data survives container restart/recreate | You own the volume lifecycle yourself (backup, cleanup) — more moving parts |
+| Run the container with `docker run` defaults | Convenient, fine for local dev | No password, no TLS — not something you deploy to production as-is |
+
+## Common mistakes
+
+- **Forgetting to attach a volume, then wondering why data disappeared** — without mounting `/data` to a named volume, all data lives only in the container's writable layer. `docker rm` destroys it permanently.
+- **Publishing `-p 6379:6379` to the internet with no firewall** — the official image ships with no authentication configured. If it is bound to `0.0.0.0` with no network filtering, anyone can connect and run commands.
+- **Running the container without `--requirepass`** — fine for local experimentation only. Set a password or use ACLs before anything resembling real use.
+
+> 💡 Real-world example
+>
+> **General pattern** — teams running Redis in large production systems commonly run a container just like the one in this lesson in dev/test environments to mirror production behavior, before deploying to hardened infrastructure with auth and TLS in place.
+
 export const quizDocker = [
   {
     q: "What does the `-d` flag do in `docker run -d`?",

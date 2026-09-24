@@ -79,6 +79,23 @@ Consumer groups give you at-least-once delivery. If a consumer crashes before ca
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Consumer groups splitting work across workers | Scales processing horizontally; each entry goes to exactly one consumer, no duplicate work | You must manage `XACK` for every entry yourself, more complex than a plain `XREAD` |
+| At-least-once delivery via the PEL | No entry is lost even if a consumer crashes mid-processing | Consumer logic must be idempotent, since an entry can be redelivered after being reclaimed |
+
+## Common mistakes
+
+- **Not calling `XACK` after successfully processing an entry** — it sits in the PEL forever, growing without bound, and you lose visibility into which entries are actually done.
+- **Calling `XACK` before processing finishes** — if the worker crashes after acking but before finishing the real work, that entry vanishes from tracking even though the job never completed. Only ack after the result is safely recorded.
+- **Having no process to claim entries stuck from a dead consumer** — without periodically checking the PEL with `XCLAIM`/`XAUTOCLAIM`, entries belonging to a crashed consumer are never processed again.
+
+> 💡 Real-world example
+>
+> **General pattern** — Sidekiq-style background job processing (sending emails, resizing images) uses a consumer-group pattern to distribute work across multiple workers with a guarantee that work is not lost even if one worker crashes. Teams doing distributed log/event processing commonly have multiple consumer groups read the same stream in parallel, relying on the PEL plus `XCLAIM`/`XAUTOCLAIM` to guarantee no event is skipped even if an instance fails mid-stream.
+
 export const quizConsumerGroups = [
   {
     q: "What does `XREADGROUP GROUP g consumer STREAMS s >` mean?",

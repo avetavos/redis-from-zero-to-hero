@@ -165,7 +165,7 @@ SET lock:resource "worker-id" NX EX 30
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Stripe-style idempotency keys** — ใช้ `SET key val NX EX <ttl>` เพื่อกันไม่ให้ request เดิมถูกประมวลผลซ้ำสองครั้ง โดย key ที่ set สำเร็จเพียงครั้งเดียวคือ request ที่ผ่านเข้าไปจริง
+> **Stripe API สาธารณะ** เอกสารอัลกอริทึม idempotency key ไว้ว่า: client ส่ง header `Idempotency-Key` มา แล้ว server จะบันทึกผลลัพธ์ของ request แรกไว้ภายใต้ key นั้น และส่งผลลัพธ์เดิมกลับให้ทุก retry ที่ใช้ key เดียวกันภายใน 24 ชั่วโมง ([Idempotent requests](https://docs.stripe.com/api/idempotent_requests), Stripe Docs) การ implement guarantee แบบเดียวกันนี้บน Redis ด้วย `SET key val NX EX <ttl>` คือ pattern สไตล์ Stripe — key จะ set สำเร็จเพียงครั้งเดียว request ที่ set สำเร็จจึงเป็น request เดียวที่ผ่านเข้าไปจริง
 >
 > **Feature-flag/config caches** — ใช้ `MSET`/`MGET` ดึงค่า config หลายตัวพร้อมกันในคำสั่งเดียว แทนที่จะยิง `GET` แยกทีละ key ซึ่งเพิ่ม network round-trip โดยไม่จำเป็น
 

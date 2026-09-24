@@ -21,7 +21,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 ```text
 127.0.0.1:6379> INFO server
 # Server
-redis_version:7.2.4
+redis_version:8.10.2
 redis_mode:standalone
 os:Linux 5.15.0 x86_64
 ...
@@ -95,10 +95,10 @@ Biggest hash   found 'user:profile:1' has 312 fields
 ## --scan และ --pattern — วนซ้ำ keyspace
 
 ```bash
-# แสดง key ทั้งหมดที่ตรง pattern (ใช้ SCAN ภายใน ไม่บล็อก)
+# List all keys matching a pattern (uses SCAN internally, non-blocking)
 redis-cli --scan --pattern "session:*"
 
-# นับ key ที่ตรง
+# Count matching keys
 redis-cli --scan --pattern "cache:*" | wc -l
 ```
 
@@ -106,7 +106,7 @@ redis-cli --scan --pattern "cache:*" | wc -l
 
 ```bash
 redis-cli --latency
-redis-cli --latency-history   # sample ทุก 15 วินาที
+redis-cli --latency-history   # sample every 15 seconds
 redis-cli --latency-dist      # ASCII histogram
 ```
 

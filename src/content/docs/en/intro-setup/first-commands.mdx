@@ -130,6 +130,26 @@ Use colon-separated namespaces consistently across your codebase. Many teams ado
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Schema-less key-value model | Simple to start — store anything immediately without defining tables up front | No server-side schema or type enforcement; type mismatches surface at runtime |
+| Using `KEYS *` to see everything | Convenient for experimenting on a small dev dataset | Blocks the event loop until every key has been scanned; never use it on a large production dataset |
+| Storing keys with no TTL | Data does not disappear on its own — good for data that must persist | If you forget to set an expiry on data that should be a cache, memory grows without bound |
+
+## Common mistakes
+
+- **Using `KEYS *` in production to see all keys** — this command blocks the server until it finishes scanning. On a large dataset it can stall every other client. Use `SCAN` instead when working with real data.
+- **Not setting a TTL on a key that should be temporary** — if you `SET` a cache value without an expiry, memory accumulates until it hits your `maxmemory` limit.
+- **Testing commands through `redis-cli` and assuming the behavior is identical in real application code** — a client library may have different serialization, encoding, or error handling than what you see in the CLI. Test through the real library before shipping to production.
+
+> 💡 Real-world example
+>
+> **Stack Overflow** uses this same simple `SET`/`GET` as part of an L1/L2 cache in front of SQL Server, cutting repeated queries for pages with heavy concurrent reads, at a scale of roughly 160 billion operations a month ([Stack Overflow: The Architecture – 2016 Edition](https://nickcraver.com/blog/2016/02/17/stack-overflow-the-architecture-2016-edition/), Nick Craver, 2016).
+>
+> **General pattern** — apps that need to read a user's latest data often (a feed or a timeline) commonly attach a key like `user:<id>:timeline` directly to the latest data, instead of querying the primary database on every read.
+
 export const quizFirst = [
   {
     q: "What does `DEL` return?",

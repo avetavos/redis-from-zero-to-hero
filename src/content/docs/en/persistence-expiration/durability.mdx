@@ -65,6 +65,30 @@ Most production deployments use `appendfsync everysec`. You get AOF durability w
 
 </Callout>
 
+<Callout title="AOF is off by default, and modern AOF is a directory, not one file">
+
+`appendonly` defaults to `no` — a fresh Redis instance only persists via RDB snapshots unless you explicitly `CONFIG SET appendonly yes` (or set it in `redis.conf`). Since Redis 7.0, enabling AOF creates a multi-part layout under a directory (`appenddirname`, default `appendonlydir`): a base file, one or more incremental files, and a manifest that ties them together — this is what makes background rewrites cheaper than the old single growing file.
+
+</Callout>
+
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| `appendfsync always` | No data loss even on crash | `fsync()` on every command, the lowest throughput of the three modes |
+| `appendfsync everysec` | Balances durability and throughput — fits most production workloads | Up to ~1 second of data loss on crash |
+| `appendfsync no` | Highest throughput, no fsync overhead | The OS decides when to flush; data loss is unpredictable if the disk hasn't flushed yet |
+
+## Common mistakes
+
+- **Assuming a replica replaces the need for persistence** — a replica that crashes and restarts still has to reload from its own persistence files (or resync from the primary). Enable persistence on replicas independently rather than relying on the primary alone.
+- **Using `appendfsync no` on a system that cannot tolerate data loss** — this mode gives the highest throughput but lets the OS decide when to flush; a crash before that flush loses everything since the last one.
+- **Never testing recovery after a real crash** — a correct `appendfsync` setting is useless if you've never actually `kill -9`'d the process and confirmed Redis restarts and reloads the data you expected.
+
+> 💡 Real-world example
+>
+> **General pattern** — teams operating Redis instances that hold important data commonly set `appendfsync everysec` as their default, balancing durability against write throughput for write-heavy workloads.
+
 export const quizDurability = [
   {
     q: "Which `appendfsync` mode guarantees zero data loss on crash?",

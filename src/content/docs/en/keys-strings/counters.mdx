@@ -137,6 +137,26 @@ In a multi-threaded application, a naive counter looks like: read the value, add
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Use `INCR`/`INCRBY` for a counter in Redis | Atomic by default, no application-side locking, handles high throughput | The value lives in a single key — no history or audit trail like a database table would give you |
+| Attach `EXPIRE` to a counter (rate limiter) | Free rolling window; no cleanup job needed to delete old counters | If you forget to set `EXPIRE` on the first increment, the counter becomes permanent and never resets |
+| Use `INCRBYFLOAT` instead of client-side read-modify-write | Avoids the race condition, same as `INCR` | No `DECRBYFLOAT` — you must pass a negative value, and floating-point can accumulate small rounding errors over many increments |
+
+## Common mistakes
+
+- **Reading the current value with `GET`, adding to it locally, and writing it back with `SET`** — this opens the door to the classic race condition when multiple clients write concurrently. Always use `INCR`/`INCRBY` for atomicity.
+- **Forgetting to set `EXPIRE` on a counter that should be a rolling window (e.g. a rate limiter)** — without a TTL on the first increment, the counter never resets and the key stays in memory forever.
+- **Assuming `INCR` requires the key to already exist** — it doesn't. `INCR` automatically initializes a missing key to `0` before incrementing; there is no need to `SET key 0` first.
+
+> 💡 Real-world example
+>
+> **GitHub** has documented using Redis-backed counters (`INCR` + `EXPIRE`) for API rate limiting, alongside other transient/cached data, before later migrating some of that persistent counter workload to a MySQL-backed store as they scaled ([Moving persistent data out of Redis](https://github.blog/engineering/moving-persistent-data-out-of-redis/), GitHub Engineering, 2015).
+>
+> **General pattern** — many high-traffic content platforms use `INCR`-style counters for near-real-time view and vote counts instead of updating a row in a relational database on every read.
+
 export const quizCounters = [
   {
     q: "What value does INCR use when the key does not exist yet?",

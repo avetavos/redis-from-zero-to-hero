@@ -109,9 +109,9 @@ export const pingCode = `PING`;
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Twitter** — ใช้ Redis เป็น timeline cache เพื่อเสิร์ฟ tweet ล่าสุดของผู้ใช้แต่ละคนแบบ real-time โดยไม่ต้อง query ฐานข้อมูลหลักซ้ำทุกครั้ง
+> **Stack Overflow** — วาง L1 (local memory)/L2 (Redis) cache ไว้หน้า SQL Server: request จะเช็ก local cache ก่อน แล้วค่อยเช็ก Redis และ query ฐานข้อมูลก็ต่อเมื่อ miss ทั้งสองชั้น ที่สเกลราว 160 พันล้าน operation ต่อเดือนทั้ง fleet ([Stack Overflow: The Architecture – 2016 Edition](https://nickcraver.com/blog/2016/02/17/stack-overflow-the-architecture-2016-edition/), Nick Craver, 2016)
 >
-> **Stack Overflow** — วาง Redis ไว้เป็น cache layer หน้า SQL Server เพื่อลดโหลดการ query และลด latency ของหน้าเว็บที่มีคนอ่านพร้อมกันจำนวนมาก
+> **หลักการทั่วไป** — โปรดักต์ที่มี traffic สูงและอ่านหนักหลายเจ้าวาง in-memory data-structure store ไว้หน้าฐานข้อมูลหลัก เพื่อให้ query แบบ "ข้อมูลล่าสุดของ user นี้" ไม่ต้อง query ฐานข้อมูลทุกครั้ง
 
 export const quizWhat = [
   {

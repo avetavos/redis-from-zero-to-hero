@@ -76,9 +76,33 @@ EVAL "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]
 
 For a single Redis node, `SET NX PX` is sufficient. For high availability across multiple Redis nodes — to survive a node failure without falsely releasing a lock — use the **Redlock algorithm**: try to acquire the lock on N independent nodes and consider it held only when a majority (N/2+1) confirm the acquisition within a time bound. Libraries like `ioredis-redlock` (Node.js) implement this algorithm so you do not have to coordinate the quorum logic yourself.
 
+<Callout title="Redlock is disputed — know what it does and does not guarantee">
+
+Redlock is not universally accepted as safe. Martin Kleppmann's 2016 analysis ["How to do distributed locking"](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html) argues Redlock does not provide the fencing-token guarantee needed for correctness under process pauses (GC, scheduling delays) or clock jumps, so a lock holder can still act after it believes it holds the lock but no longer does. Antirez's reply, ["Is Redlock safe?"](http://antirez.com/news/101), defends the algorithm's assumptions and disputes the practical relevance of the failure modes. If you need this lock to be the last line of defense for correctness (not just an optimization to reduce duplicate work), read both sides and add a fencing token at the resource itself — Redlock alone is not a substitute for that.
+
+</Callout>
+
 <Callout title="Acquire with SET NX PX; release with a token-check Lua script">
 Never use plain DEL to release a lock — your TTL may have expired and another worker may have acquired it. The Lua script makes the GET and conditional DEL atomic, so you can never delete a lock you do not own.
 </Callout>
+
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| `SET NX PX` on a single Redis node | Simple, fast, one command | If that node fails over to a replica that hasn't synced yet, two workers can end up holding the same lock |
+| Redlock (multiple nodes) | Tolerates a single node failure | More complex, and depends on reasonably synchronized clocks across nodes and quorum logic |
+| A DB-level lock (e.g. `SELECT ... FOR UPDATE`) | Ties directly into the data's own transaction | Much slower than Redis, and adds load to the DB's connection pool |
+
+## Common mistakes
+
+- **Releasing a lock with a plain `DEL`, without checking the token** — if the TTL already expired and another worker acquired the lock, an unconditional `DEL` deletes their lock.
+- **Setting a TTL shorter than the critical section actually needs** — if the work isn't done when the lock expires, another worker can acquire it and start working on the same thing.
+- **Using single-node `SET NX PX` and expecting Redlock-level safety** — for anything that genuinely needs high availability (e.g. payments), use Redlock or another real quorum mechanism, not a single node.
+
+> 💡 Real-world example
+>
+> **General pattern** — background-job systems commonly use a `SET NX`-style pattern to stop the same job from being processed twice by multiple workers at once, and payment-critical systems commonly use a token-checked lock like the one in this lesson to guarantee a money-related operation cannot run twice from different processes.
 
 export const quizLocks = [
   {

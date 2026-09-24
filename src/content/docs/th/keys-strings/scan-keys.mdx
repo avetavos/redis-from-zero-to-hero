@@ -191,9 +191,7 @@ export const fullScanCode = `SCAN 0 MATCH session:* COUNT 100`;
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **GitHub-style rate-limit dashboards** — ใช้ `SCAN` แทน `KEYS` เมื่อต้อง audit key ที่ตรงกับ pattern บน production Redis instance ที่มี key นับล้านตัว เพื่อไม่ให้กระทบ traffic จริง
->
-> **Cache invalidation tooling** — ทีม ops มักเขียน script ที่ loop `SCAN` เพื่อหา key ที่ตรงกับ pattern (เช่น `cache:user:*`) แล้วลบเป็น batch แทนที่จะเสี่ยง block server ด้วย `KEYS`
+> **หลักการทั่วไป** — ทีมที่ต้อง audit key ตาม pattern บน production Redis instance ที่มี key นับล้านตัว ใช้ `SCAN` แทน `KEYS` เพื่อไม่ให้กระทบ traffic จริง ทีม ops มักเขียน script ที่ loop `SCAN` เพื่อหา key ที่ตรงกับ pattern (เช่น `cache:user:*`) แล้วลบเป็น batch แทนที่จะเสี่ยง block server ด้วย `KEYS`
 
 export const quizScanKeys = [
   {

@@ -104,6 +104,29 @@ There is no buffer, no retry, and no history. The moment `PUBLISH` returns, the 
 
 </Callout>
 
+<Callout title="Sharded Pub/Sub — SPUBLISH / SSUBSCRIBE (Redis 7.0+)">
+
+In a Redis Cluster, a plain `PUBLISH` message has to be re-broadcast to every node so it reaches subscribers regardless of which shard they're connected to — expensive at scale. Since Redis 7.0, `SPUBLISH channel message` and `SSUBSCRIBE channel` restrict delivery to the shard that owns the channel's hash slot, so message traffic scales with your cluster instead of hitting every node. Outside a cluster, sharded and regular Pub/Sub behave the same; use sharded Pub/Sub when you are running Cluster mode and want Pub/Sub load spread across shards.
+
+</Callout>
+
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Fire-and-forget Pub/Sub | Very low latency, no overhead from writing a log to disk | A message is gone forever if no subscriber was connected at that moment — no replay |
+| Subscribing to multiple channels on one connection | Fewer connections to open against Redis | The connection is in listening mode entirely — you cannot run other commands on it until you unsubscribe |
+
+## Common mistakes
+
+- **Using Pub/Sub for messages that must be guaranteed to arrive** — like order confirmations or payment events. If a consumer is briefly offline, the message is gone. Use Streams instead when a message cannot be lost.
+- **Forgetting that a subscribed client cannot run regular commands** — the connection enters listening mode immediately; you cannot call `GET`/`SET` on that same connection. Open a separate connection to publish.
+- **Not checking the value `PUBLISH` returns** — a `0` means no subscriber received the message. Ignoring this return value means you won't notice messages silently disappearing.
+
+> 💡 Real-world example
+>
+> **General pattern** — chat apps commonly use Pub/Sub to send a "typing..." indicator, since that data goes stale quickly and it's fine for it to be lost if a subscriber misses it. Real-time dashboards use the same mechanism to broadcast a metric that updates every second to many open browser tabs, without worrying about a missed update since the next one arrives so soon.
+
 export const quizPubsub = [
   {
     q: "What does `PUBLISH channel message` return?",

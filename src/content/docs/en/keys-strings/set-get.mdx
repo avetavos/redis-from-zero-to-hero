@@ -149,6 +149,26 @@ If two workers race, only one gets `OK`. The `EX 30` ensures the lock auto-relea
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| `SET key val NX` (conditional set) | Atomic check-then-set in one command; enough for a basic lock/dedup | No ownership token built in — you must design that yourself for safe unlocking |
+| `MSET`/`MGET` (batch operations) | Fewer round trips when setting/getting several keys at once | Not atomic across different key types like a full transaction (use `MULTI`/`EXEC` for real isolation) |
+| Plain unconditional `SET key val` | Simple, overwrites immediately with no pre-check | Risk of accidentally overwriting another client's data if key names are not unique enough |
+
+## Common mistakes
+
+- **Using a plain `SET` when you meant "set only if it doesn't exist"** — forgetting `NX` silently overwrites existing data. Use `SET key val NX` when the logic needs an atomic check-then-set.
+- **Forgetting that a plain `SET` resets a key's existing TTL** — if you want to keep the existing expiry while updating the value, add `KEEPTTL`; otherwise the key becomes persistent again.
+- **Mixing the legacy `SETNX`/`SETEX` commands with `SET ... NX/EX` in the same codebase** — this produces inconsistent style. Standardize on `SET` with options, as recommended since Redis 7+.
+
+> 💡 Real-world example
+>
+> **Stripe's public API** documents an idempotency-key algorithm: a client sends an `Idempotency-Key` header, the server saves the result of the first request under that key, and replays the same result for any retry with the same key within 24 hours ([Idempotent requests](https://docs.stripe.com/api/idempotent_requests), Stripe Docs). Implementing that same guarantee in Redis with `SET key val NX EX <ttl>` is a Stripe-style idempotency pattern — the key succeeds exactly once, so only the request that set it is the one that actually runs.
+>
+> **General pattern** — feature-flag and config caches often use `MSET`/`MGET` to fetch several config values in a single command, instead of firing a separate `GET` per key and paying the network round-trip for each one.
+
 export const quizSetGet = [
   {
     q: "What does `SET key val NX` return when the key already exists?",

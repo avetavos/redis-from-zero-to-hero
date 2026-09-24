@@ -59,7 +59,7 @@ GET counter`;
 นี่คือ pattern ที่ set key เฉพาะเมื่อค่าปัจจุบันต่ำกว่า threshold — สิ่งที่ทำไม่ได้แบบ atomic ด้วย `MULTI`/`EXEC` เพราะต้องการ branching logic:
 
 ```lua
--- rate-limiter: เพิ่ม counter; คืน 1 ถ้าต่ำกว่า limit, 0 ถ้าเกิน
+-- rate-limiter: increment counter; return 1 if under limit, 0 if over
 local current = redis.call('INCR', KEYS[1])
 if current == 1 then
   redis.call('EXPIRE', KEYS[1], ARGV[1])
@@ -82,15 +82,15 @@ end
 
 ```text
 127.0.0.1:6379> SCRIPT LOAD "return redis.call('INCR', KEYS[1])"
-"2068d9c36e28e0f50d70bedb00173c36e5f4f39d"
-127.0.0.1:6379> EVALSHA 2068d9c36e28e0f50d70bedb00173c36e5f4f39d 1 counter
+"61636018f4e6b5817b89791bbed242f93fa089e3"
+127.0.0.1:6379> EVALSHA 61636018f4e6b5817b89791bbed242f93fa089e3 1 counter
 (integer) 3
 ```
 
-script ถูก cache ใน Redis memory ตลอด lifetime ของ server (หรือจนกว่าจะ `SCRIPT FLUSH`) หาก script ไม่ถูกพบ — เช่น หลัง server restart — `EVALSHA` คืน error `NOSCRIPT` และ client ควร fallback ไปใช้ `EVAL` เพื่ออัปโหลดใหม่
+hash เป็น SHA1 digest ของ script text ตรงตัว — script เดียวกันจะได้ hash เดียวกันเสมอ ดังนั้น client ตัวใดก็ตามที่โหลด script นี้แล้วเรียกด้วย hash ได้เลยโดยไม่ต้องส่ง source ซ้ำ script ถูก cache ใน Redis memory ตลอด lifetime ของ server (หรือจนกว่าจะ `SCRIPT FLUSH` ซึ่งล้าง script cache ทั้งหมด) หาก script ไม่ถูกพบ — เช่น หลัง server restart หรือ `SCRIPT FLUSH` — `EVALSHA` คืน error `NOSCRIPT` และ client ควร fallback ไปใช้ `EVAL` เพื่ออัปโหลดใหม่
 
 export const evalShaCode = `SCRIPT LOAD "return redis.call('INCR', KEYS[1])"
-EVALSHA 2068d9c36e28e0f50d70bedb00173c36e5f4f39d 1 counter
+EVALSHA 61636018f4e6b5817b89791bbed242f93fa089e3 1 counter
 GET counter`;
 
 <TryRedis client:visible code={evalShaCode} />
@@ -98,6 +98,12 @@ GET counter`;
 <Callout title="Lua script รันบน server แบบ atomic">
 
 เมื่อคุณรัน `EVAL` หรือ `EVALSHA` script ทั้งหมดรันบน Redis server ในขั้นตอนเดียวโดยไม่ถูกขัดจังหวะ ไม่มีคำสั่ง client อื่นรันระหว่างสองบรรทัดใดๆ ของโค้ด Lua ของคุณ ทำให้ Lua เหมาะสำหรับ pattern read-modify-write (rate limiter, distributed lock, conditional update) ที่ไม่สามารถแสดงด้วย `MULTI`/`EXEC` ได้เพราะต้องการ branching logic
+
+</Callout>
+
+<Callout title="Redis Functions (7.0+) — ทางเลือกที่ดูแลรักษาง่ายกว่า EVAL script ดิบ">
+
+script แบบ `EVAL`/`EVALSHA` ถูก cache เป็น state ที่หายได้เมื่อ `SCRIPT FLUSH` หรือ restart และไม่ได้ออกแบบมาให้จัดเป็น library ตั้งแต่ Redis 7.0 `FUNCTION LOAD` จะลงทะเบียน library ของ Lua function ที่มีชื่อ (ประกาศด้วย `redis.register_function`) ซึ่ง persist เหมือนการเขียนข้อมูลทั่วไป — รวมอยู่ใน RDB/AOF และ replicate ไปยัง replica ด้วย — แล้วเรียกใช้ด้วย `FCALL name numkeys [key ...] [arg ...]` สำหรับอะไรที่มากกว่า script ใช้ครั้งเดียว Functions คือ building block ที่ดูแลรักษาง่ายกว่า ส่วน `EVAL` ก็ยังมีอยู่และเหมาะกับ atomic logic แบบเร็วๆ ใช้ครั้งเดียวอย่าง rate limiter ด้านบน
 
 </Callout>
 
@@ -117,9 +123,9 @@ GET counter`;
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Stripe** — ใช้ Lua script บน Redis เพื่อทำ atomic idempotency check ก่อนประมวลผล payment request ซ้ำ ป้องกัน race condition ระหว่างการอ่านและเขียนสถานะ
+> **เอกสาร idempotency-key สาธารณะของ Stripe** อธิบายว่าจะเก็บผลลัพธ์ของ request แรกไว้และส่งกลับผลเดิมสำหรับ retry ภายใน 24 ชั่วโมง ([Idempotent requests](https://docs.stripe.com/api/idempotent_requests), Stripe Docs) — เป็น guarantee แบบ atomic check-then-act ชนิดเดียวกับที่ Lua script บน Redis ให้ได้ แม้ Stripe จะไม่ได้เปิดเผยต่อสาธารณะว่าใช้ Redis หรือ Lua เป็นกลไกภายในจริงหรือไม่
 >
-> **Rate limiter ทั่วไปในหลายบริษัท** — ใช้ pattern แบบเดียวกับในบทนี้ (`INCR` + `EXPIRE` + threshold check) ห่อด้วย Lua เพื่อให้การตรวจสอบและอัปเดต counter เป็น atomic operation เดียว
+> **หลักการทั่วไป** — rate limiter หลายระบบห่อ pattern แบบเดียวกับในบทนี้ (`INCR` + `EXPIRE` + threshold check) ด้วย Lua เพื่อให้การตรวจสอบและอัปเดต counter เป็น atomic operation เดียว
 
 export const quizLua = [
   {

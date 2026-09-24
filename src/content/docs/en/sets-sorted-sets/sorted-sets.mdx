@@ -138,6 +138,24 @@ A Sorted Set will never contain the same member twice. When you `ZADD` a member 
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Sorted Set instead of a SQL table with `ORDER BY` | O(log N) inserts and range reads, with no separately maintained index | The score is a single float64 — you cannot sort by multiple relational columns directly |
+| `ZRANGEBYSCORE` for range queries | Fetch a score range directly without scanning everything | You must design the score up front to cover your query needs; changing it later costs a re-score |
+| Lexicographic tie-break when scores are equal | Deterministic behavior, no extra logic needed for tied scores | Unless member names are deliberately designed to sort meaningfully, tie order can look arbitrary to users |
+
+## Common mistakes
+
+- **Assuming `ZADD` on an existing member creates a duplicate** — a Sorted Set never has duplicate members. `ZADD` on an existing member just updates its score and returns 0, not a new entry.
+- **Using `ZRANGE` when you want highest-first order** — `ZRANGE` always sorts ascending. For "highest score first," use `ZREVRANGE`, or the result comes back backwards.
+- **Forgetting `-inf`/`+inf` for an open-ended range** — hardcoding a fixed bound in `ZRANGEBYSCORE` instead of using `-inf`/`+inf` causes the query to miss members with a lower/higher score than expected.
+
+> 💡 Real-world example
+>
+> **General pattern** — leaderboards and game ranking systems commonly attach a score directly to each player so "top N" and "my rank" queries run in real time with no batch recomputation. Priority queues and scheduled-job systems commonly use a Sorted Set with a timestamp as the score, to query "jobs that are due now" with `ZRANGEBYSCORE` instead of repeatedly polling a relational database.
+
 export const quizSortedSets = [
   {
     q: "What does ZREVRANGE return compared to ZRANGE?",

@@ -78,6 +78,26 @@ Two common mitigations: use `SET ... NX` so only the first writer populates the 
 Use a short TTL (seconds to minutes) so stale data does not accumulate. Always invalidate (DEL) when the source-of-truth changes.
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Cache-aside | The app controls exactly what enters the cache; the DB is never loaded for data nobody asked for | The first cache miss is slower than normal (query DB + write cache) |
+| Write-through | Cache and DB always stay in sync — no stale reads | Every write is slower, since it must write to both before returning |
+| Probabilistic early expiration | Reduces thundering herd when a popular key expires | Requires computing a probability per request — extra logic in the app |
+
+## Common mistakes
+
+- **Not setting a TTL on a cache key** — forget `EX` and the data sticks around forever even after the source of truth changes, becoming a permanently stale cache.
+- **Letting a cache stampede happen with no protection** — when a popular key expires, thousands of requests can hit the DB at once. Use `SET ... NX` or probabilistic early expiration.
+- **Forgetting to invalidate the cache when the underlying data changes** — if you update the DB but don't `DEL` the old cache key, users see stale data until the TTL runs out.
+
+> 💡 Real-world example
+>
+> **Stack Overflow** placed an L1 (local)/L2 (Redis) cache-aside layer in front of SQL Server to cut repeated queries for heavily-read pages, at a reported scale of roughly 160 billion Redis operations a month ([Stack Overflow: The Architecture – 2016 Edition](https://nickcraver.com/blog/2016/02/17/stack-overflow-the-architecture-2016-edition/), Nick Craver, 2016).
+>
+> **General pattern** — high-traffic feed products commonly use cache-aside as the core of a timeline/feed cache, keeping the latest items in Redis and falling back to slower storage on a miss.
+
 export const quizCaching = [
   {
     q: "In cache-aside, when does the app write to Redis?",

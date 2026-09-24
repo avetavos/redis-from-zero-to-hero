@@ -30,7 +30,7 @@ OK
 
 Most Redis client libraries expose pipelining directly. In Node.js (ioredis), for example:
 
-```bash
+```js
 const pipeline = redis.pipeline();
 pipeline.set('a', 1);
 pipeline.set('b', 2);
@@ -82,6 +82,24 @@ MGET a b c`;
 A pipeline cuts the number of network round-trips, which can dramatically increase throughput for bulk writes or reads. However, between each command in the pipeline, other clients can still execute their own commands. If you need the batch to be uninterruptible, wrap it in `MULTI`/`EXEC` — not just a pipeline.
 
 </Callout>
+
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Pipeline (batch several commands in one request) | Cuts network round-trips down to nearly one, a big throughput win for bulk operations | No atomicity — other clients can interleave commands between the ones in your pipeline |
+| `redis-cli --pipe` for bulk import | Loads millions of keys in seconds over a single connection | You must build the RESP protocol yourself or use a command file, harder to debug than one command at a time |
+| Wrapping `MULTI`/`EXEC` inside a pipeline | Get both fewer round-trips and an atomicity guarantee | More client-side code complexity — you need to understand both concepts together |
+
+## Common mistakes
+
+- **Assuming a pipeline gives atomicity like a transaction** — a pipeline is only a network optimization that batches commands into one write. Other clients can still run their own commands in between. Wrap it in `MULTI`/`EXEC` if you need atomicity.
+- **Sending an overly large pipeline in one go** — a very large batch can temporarily balloon memory buffers on both the client and server. Split it into reasonably sized batches (e.g. a few thousand commands per pipeline).
+- **Not checking each command's result within the pipeline** — a pipeline returns an array of results in command order. If one command fails partway through, the others still run. You must loop through the results checking for errors yourself, not assume the whole batch succeeded.
+
+> 💡 Real-world example
+>
+> **General pattern** — bulk data import jobs commonly use `redis-cli --pipe` or client-library pipelining to load seed data or migrate millions of keys into Redis, cutting round-trips from millions down to a handful of batches. Systems that write a high volume of events per second commonly batch `SET`/`INCR`/`ZADD` commands into a pipeline to reach the throughput needed for high-volume traffic.
 
 export const quizPipelines = [
   {

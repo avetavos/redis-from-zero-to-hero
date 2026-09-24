@@ -119,6 +119,24 @@ Pub/Sub is fire-and-forget: a message published while a subscriber is offline is
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Streams keep every entry | Re-readable at any time, supports late consumers or a worker that needs to restart | Uses more memory/disk than Pub/Sub if you never trim with `MAXLEN` — the stream grows without bound |
+| `XADD` with an auto ID (`*`) | Get a time-ordered ID immediately with no bookkeeping | The ID is tied to the Redis server's clock; if you need a business-meaningful ID, you must supply your own |
+| `XREAD BLOCK` long-polling | Get new events immediately without polling frequently | The connection sits blocked while waiting — you must handle timeouts and reconnects yourself |
+
+## Common mistakes
+
+- **Not setting `MAXLEN` on a high-throughput stream** — an untrimmed stream accumulates entries forever, consuming huge amounts of memory. Use `XADD key MAXLEN ~ 10000 * ...` to cap its size.
+- **Using `XRANGE - +` with no `COUNT` on a large production stream** — pulling everything in one call can block the server and use a lot of memory. Specify `COUNT` and paginate using the ID from the last entry.
+- **Assuming Streams guarantee exactly-once delivery** — Redis Streams only guarantee at-least-once delivery. If a consumer can process the same entry twice, your consumer logic needs to be idempotent — the stream alone does not guarantee it.
+
+> 💡 Real-world example
+>
+> **General pattern** — e-commerce systems commonly use Streams to hold events like `order_created` and `payment_confirmed`, so multiple services can read and replay them when they need to rebuild state. Apps that need a time-ordered history of user activity commonly use `XADD` to log every action and let a dashboard read back a time range with `XRANGE`.
+
 export const quizStreams = [
   {
     q: "What does passing `*` as the ID to XADD do?",

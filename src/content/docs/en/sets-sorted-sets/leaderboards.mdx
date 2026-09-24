@@ -134,6 +134,24 @@ Every operation you need for a leaderboard is a single Redis command: insert or 
 
 </Callout>
 
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| Sorted Set for a leaderboard | Real-time ranking with no JOIN or ORDER BY; O(log N) writes and reads | The score is only a float64 — you must encode a tie-breaker yourself for ranking more complex than a plain number |
+| `ZINCRBY` for atomic scoring | Updates a score with no read-modify-write, safe with multiple concurrent writers | No event log of the change — if you need an audit trail of who awarded points and when, you must store that separately |
+| Fetching top N with `ZREVRANGE` | Fast and simple, no separate cache required | Fetching it fresh every time on a very large, very high-traffic leaderboard may still need an added cache layer |
+
+## Common mistakes
+
+- **Accidentally giving multiple players the same score** — `ZRANGE`/`ZREVRANGE` breaks ties by the member's lexicographic order, which can make rankings look arbitrary if that wasn't intentional. Attach a timestamp to the score to break ties meaningfully.
+- **Forgetting that `ZREVRANK` is 0-based** — first place returns 0, not 1. If you display it directly to users, you must add 1 yourself, or the rank will always be off by one.
+- **Using `ZADD` instead of `ZINCRBY` when awarding points** — `ZADD` overwrites the existing score immediately rather than adding to it. Using the wrong one wipes out the previous score instead of accumulating it.
+
+> 💡 Real-world example
+>
+> **General pattern** — online games commonly use a Redis Sorted Set as the backend for a real-time leaderboard, since `ZADD`/`ZREVRANGE`/`ZREVRANK` give instantly updated rankings with no batch job needed to recompute them. Reddit-style ranking systems use the same idea, attaching a "hot score" (computed from votes and time) as the score to sort posts in real time without repeatedly querying the primary database.
+
 export const quizLeaderboards = [
   {
     q: "Which command fetches the top 10 players in descending score order?",

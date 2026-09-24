@@ -172,9 +172,7 @@ Redis ใช้การเข้ารหัสแบบกระชับ (lis
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Shopify** — เก็บ attribute ของสินค้า (price, stock, name) เป็น Redis hash ต่อหนึ่ง product ทำให้อัปเดต stock ด้วย field เดียวได้เร็วโดยไม่กระทบ field อื่น
->
-> **Twitch** — ใช้ hash เก็บ state ของ stream (viewer count, title, category) ต่อหนึ่ง channel เพื่อให้ dashboard อ่านและอัปเดตแต่ละ field แยกกันแบบ real-time
+> **หลักการทั่วไป** — แพลตฟอร์ม e-commerce มักเก็บ attribute ของสินค้า (price, stock, name) เป็น Redis hash ต่อหนึ่ง product ทำให้อัปเดต stock ด้วย field เดียวได้เร็วโดยไม่กระทบ field อื่น แพลตฟอร์ม streaming ก็ใช้ pattern เดียวกันเก็บ state ของ stream (viewer count, title, category) ต่อหนึ่ง channel เพื่อให้ dashboard อ่านและอัปเดตแต่ละ field แยกกันแบบ real-time
 
 export const quizHashes = [
   {

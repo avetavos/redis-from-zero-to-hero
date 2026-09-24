@@ -84,11 +84,31 @@ TTL demo:token`;
 
 <TryRedis client:visible code={notificationsCode} />
 
+Because Pub/Sub needs two simultaneous connections, run the two-terminal workflow above in your own `redis-cli` environment to see the expired event in real time.
+
 <Callout title="Keyspace notifications — react to expirations via Pub/Sub">
 
 Keyspace notifications let any subscriber react to key lifecycle events without polling. Subscribe to `__keyevent@0__:expired` to trigger cache invalidation, job scheduling, or session cleanup when keys expire. Enable only the event classes you need — broad flags like `KEA` (all events) add measurable overhead on write-heavy workloads.
 
 </Callout>
+
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| A narrow keyevent flag set (e.g. `Ex`) | Low overhead — only what you need is enabled | You must remember to add flags later if you need another event class |
+| A broad flag like `KEA` (all events) | Covers every case with no further config changes | Measurable CPU overhead on write-heavy workloads, since every event is published |
+| Pub/Sub-based notification instead of polling | No repeated queries, less load on the server | Pub/Sub has no delivery guarantee — if a subscriber isn't online when the event fires, that message is gone |
+
+## Common mistakes
+
+- **Assuming the `expired` event fires the instant a TTL hits zero** — Redis combines lazy expiry (checked on access) with active expiry (sampled periodically), so the event can be published slightly later than the TTL. Do not treat it as a precise clock.
+- **Relying on keyspace notifications as a reliable messaging mechanism** — Pub/Sub keeps no history and does not redeliver if a subscriber briefly disconnects; any event during that gap is gone permanently. Use Streams if you need delivery guarantees.
+- **Turning on a catch-all `KEA` flag in production unnecessarily** — publishing every event on a write-heavy workload adds significant CPU overhead. Enable only the event classes your app actually uses.
+
+> 💡 Real-world example
+>
+> **General pattern** — e-commerce systems commonly use the `expired` keyspace event to trigger a reminder email when a cart session expires without checkout, and services that store sessions in Redis use the same mechanism to clear application-side caches or log a user out of other systems the moment a session key expires, instead of polling on a schedule.
 
 export const quizKeyspaceNotifications = [
   {

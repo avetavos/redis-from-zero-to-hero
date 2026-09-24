@@ -112,9 +112,29 @@ Rule of thumb: prefer one hash per object. Use separate string keys only if you 
 
 <Callout title="Prefer one hash per object over many string keys">
 
-Storing `user:1` as a single hash is more memory-efficient than splitting it into `user:1:name`, `user:1:email`, etc. Redis uses a compact listpack encoding for hashes with fewer than 128 fields — saving roughly 50–80 bytes per object compared to separate string keys. Reserve the many-keys pattern only when you need per-field expiration.
+Storing `user:1` as a single hash is more memory-efficient than splitting it into `user:1:name`, `user:1:email`, etc. Redis uses a compact listpack encoding for hashes with up to 512 fields by default (`hash-max-listpack-entries`, each value up to 64 bytes) — saving roughly 50–80 bytes per object compared to separate string keys. Beyond that threshold Redis converts the hash to a regular hash table automatically. Reserve the many-keys pattern only when you need per-field expiration.
 
 </Callout>
+
+## Trade-offs
+
+| Choice | Benefit | Cost |
+|---|---|---|
+| One hash per object | Less memory; update one field with `HGET`/`HSET` without touching the others | No per-field TTL — the whole hash expires together |
+| `HINCRBY`/`HINCRBYFLOAT` for numeric fields | Atomic increment, no read-modify-write race | Only works on numeric fields; every other field still needs a plain `HSET` |
+| `HSETNX` for conditional fields | Guarantees only the first writer sets the value — good for `created_at` | Cannot update an existing value; use plain `HSET` when you want to overwrite |
+
+## Common mistakes
+
+- **Splitting one object's fields into many string keys** like `user:1:name`, `user:1:email` — this wastes memory. Combine them into a single hash unless you genuinely need a separate TTL per field.
+- **Using plain `HSET` instead of `HINCRBY` to update a numeric field** — this requires an `HGET` then `HSET` round trip, opening a race condition when multiple writers run concurrently.
+- **Forgetting that `HSETNX` does not overwrite an existing value** — it is easy to mistake it for "set or update," but it only acts when the field does not exist yet.
+
+> 💡 Real-world example
+>
+> **Redis's own guidance** ([Memory optimization](https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/memory-optimization/), Redis Docs) recommends exactly this: model a plain key-value store using hashes because a few large hashes cost far less memory than many individual keys, since small hashes use the compact listpack encoding shown above.
+>
+> **General pattern** — feed and media-heavy apps commonly group the fields of one object (like counts, view counts, metadata) under a single hash key, cutting the round trips needed to read several fields at once for a page render.
 
 export const quizHashObjects = [
   {

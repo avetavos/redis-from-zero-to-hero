@@ -25,13 +25,13 @@ Flag ที่ใช้บ่อยที่สุด:
 | `-n db-number` | `0` | เลือกหมายเลข database (0–15) เมื่อเชื่อมต่อ |
 
 ```bash
-# เชื่อมต่อกับ host และ port ค่าเริ่มต้น
+# Connect to the default host and port
 redis-cli
 
-# เชื่อมต่อแบบระบุชัดเจน — มีประโยชน์เมื่อต้องการ target server ระยะไกล
+# Connect explicitly — useful when targeting a remote server
 redis-cli -h 127.0.0.1 -p 6379
 
-# เชื่อมต่อและสลับไปยัง database 1 ทันที
+# Connect and immediately switch to database 1
 redis-cli -n 1
 ```
 
@@ -148,9 +148,7 @@ SELECT 0`;
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Stack Overflow** — ทีม infra ใช้ `redis-cli` เพื่อ `PING` และตรวจสอบ keyspace ของ cache layer หน้า SQL Server เวลามีปัญหา latency ก่อนจะไปดูที่ metrics dashboard
->
-> **GitHub** — วิศวกรใช้ `redis-cli` ต่อเข้า Redis instance ที่ใช้เก็บ session/cache เพื่อ debug ปัญหาเฉพาะหน้า แต่โค้ด production ทั้งหมดเชื่อมผ่าน client library ไม่ใช่ CLI
+> **หลักการทั่วไป** — ทีม infra ที่ดูแล Redis fleet ขนาดใหญ่มักใช้ `redis-cli` เพื่อ `PING` และตรวจสอบ keyspace แบบ ad-hoc เวลามีปัญหา latency หรือ incident เฉพาะหน้า ก่อนจะไปดูที่ metrics dashboard ส่วนโค้ด production ทั้งหมดยังเชื่อมผ่าน client library ไม่ใช่ CLI
 
 export const quizCli = [
   {

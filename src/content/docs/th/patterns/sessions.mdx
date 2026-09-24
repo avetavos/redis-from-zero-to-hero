@@ -91,9 +91,9 @@ HGET session:abc123 role`;
 
 > 💡 ตัวอย่างจากของจริง
 >
-> **Express + connect-redis** — ใช้ Redis hash เก็บ session ของแอป Node.js แบบเดียวกับบทนี้ พร้อม sliding TTL ต่อ request
+> **connect-redis** session store ยอดนิยมสำหรับ Express/`express-session` เก็บแต่ละ session เป็น Redis hash แบบเดียวกับบทนี้ พร้อม sliding TTL ที่รีเฟรชทุก request
 >
-> **Instagram** — ใช้ Redis เป็น session store ระดับ production เพื่อรองรับ session lookup ที่รวดเร็วในสเกลผู้ใช้จำนวนมาก
+> **หลักการทั่วไป** — ระบบ production ที่มีผู้ใช้พร้อมกันจำนวนมากมักพึ่งพา Redis เป็น session store เพราะการ lookup key ยังคงเร็วแม้ที่สเกลนั้น
 
 export const quizSessions = [
   {
